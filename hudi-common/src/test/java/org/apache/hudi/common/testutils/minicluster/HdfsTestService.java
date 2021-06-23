@@ -21,6 +21,7 @@ package org.apache.hudi.common.testutils.minicluster;
 import org.apache.hudi.common.testutils.HoodieTestUtils;
 import org.apache.hudi.common.testutils.NetworkTestUtils;
 import org.apache.hudi.common.util.FileIOUtils;
+import org.apache.hudi.exception.HoodieIOException;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
@@ -28,6 +29,7 @@ import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
 import java.io.IOException;
@@ -41,6 +43,8 @@ import java.util.Objects;
 public class HdfsTestService {
 
   private static final Logger LOG = LogManager.getLogger(HdfsTestService.class);
+  @TempDir
+  public static java.nio.file.Path tempDir;
 
   /**
    * Configuration settings.
@@ -55,6 +59,13 @@ public class HdfsTestService {
 
   public HdfsTestService() throws IOException {
     workDir = Files.createTempDirectory("temp").toAbsolutePath().toString();
+    /*try {
+      java.nio.file.Path basePath = tempDir.resolve("dataset");
+      java.nio.file.Files.createDirectories(basePath);
+      this.workDir = basePath.toString();
+    } catch (IOException ioe) {
+      throw new HoodieIOException(ioe.getMessage(), ioe);
+    }*/
   }
 
   public Configuration getHadoopConf() {

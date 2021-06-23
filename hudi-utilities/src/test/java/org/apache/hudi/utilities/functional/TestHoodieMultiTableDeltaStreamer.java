@@ -38,16 +38,14 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-public class TestHoodieMultiTableDeltaStreamer extends TestHoodieDeltaStreamer {
+public class TestHoodieMultiTableDeltaStreamer extends TestHoodieDeltaStreamerBase {
 
   private static volatile Logger log = LogManager.getLogger(TestHoodieMultiTableDeltaStreamer.class);
-  private static final Random RANDOM = new Random();
 
   static class TestHelpers {
 
@@ -56,7 +54,7 @@ public class TestHoodieMultiTableDeltaStreamer extends TestHoodieDeltaStreamer {
     }
 
     static HoodieMultiTableDeltaStreamer.Config getConfig(String fileName, String configFolder, String sourceClassName, boolean enableHiveSync,
-        boolean setSchemaProvider, String basePathPrefix) {
+                                                          boolean setSchemaProvider, String basePathPrefix) {
       HoodieMultiTableDeltaStreamer.Config config = new HoodieMultiTableDeltaStreamer.Config();
       config.configFolder = configFolder;
       config.targetTableName = "dummy_table";
