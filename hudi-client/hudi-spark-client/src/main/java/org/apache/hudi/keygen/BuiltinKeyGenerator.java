@@ -28,6 +28,8 @@ import org.apache.hudi.exception.HoodieIOException;
 import org.apache.hudi.exception.HoodieKeyException;
 
 import org.apache.avro.generic.GenericRecord;
+import org.apache.log4j.LogManager;
+import org.apache.log4j.Logger;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.types.DataType;
@@ -40,11 +42,14 @@ import java.util.Map;
 
 import scala.Function1;
 
+
 /**
  * Base class for the built-in key generators. Contains methods structured for
  * code reuse amongst them.
  */
 public abstract class BuiltinKeyGenerator extends BaseKeyGenerator implements SparkKeyGeneratorInterface {
+
+  private static final Logger LOG = LogManager.getLogger(BuiltinKeyGenerator.class);
 
   private static final String STRUCT_NAME = "hoodieRowTopLevelField";
   private static final String NAMESPACE = "hoodieRow";
@@ -62,6 +67,7 @@ public abstract class BuiltinKeyGenerator extends BaseKeyGenerator implements Sp
 
   /**
    * Fetch record key from {@link Row}.
+   *
    * @param row instance of {@link Row} from which record key is requested.
    * @return the record key of interest from {@link Row}.
    */
@@ -77,6 +83,7 @@ public abstract class BuiltinKeyGenerator extends BaseKeyGenerator implements Sp
 
   /**
    * Fetch partition path from {@link Row}.
+   *
    * @param row instance of {@link Row} from which partition path is requested
    * @return the partition path of interest from {@link Row}.
    */
@@ -97,6 +104,8 @@ public abstract class BuiltinKeyGenerator extends BaseKeyGenerator implements Sp
    * @param structType  schema of the internalRow.
    * @return the partition path.
    */
+  @Override
+  @PublicAPIMethod(maturity = ApiMaturityLevel.EVOLVING)
   public String getPartitionPath(InternalRow internalRow, StructType structType) {
     try {
       initDeserializer(structType);
