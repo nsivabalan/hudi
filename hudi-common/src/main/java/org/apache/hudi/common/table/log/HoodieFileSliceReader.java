@@ -21,6 +21,7 @@ package org.apache.hudi.common.table.log;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.generic.IndexedRecord;
+
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieRecordPayload;
 import org.apache.hudi.common.util.SpillableMapUtils;
@@ -36,11 +37,13 @@ public class HoodieFileSliceReader implements Iterator<HoodieRecord<? extends Ho
   private Iterator<HoodieRecord<? extends HoodieRecordPayload>> recordsIterator;
 
   public static <R extends IndexedRecord, T extends HoodieRecordPayload> HoodieFileSliceReader getFileSliceReader(
-      HoodieFileReader<R> baseFileReader, HoodieMergedLogRecordScanner scanner, Schema schema, String payloadClass) throws IOException {
+      HoodieFileReader<R> baseFileReader, HoodieMergedLogRecordScanner scanner, Schema schema, String payloadClass,
+      boolean populateMetaFields, String simpleRecordKeyField, String simplePartitionPathField) throws IOException {
     Iterator<R> baseIterator = baseFileReader.getRecordIterator(schema);
     while (baseIterator.hasNext()) {
       GenericRecord record = (GenericRecord)  baseIterator.next();
-      HoodieRecord<T> hoodieRecord = SpillableMapUtils.convertToHoodieRecordPayload(record, payloadClass);
+      HoodieRecord<T> hoodieRecord = populateMetaFields ? SpillableMapUtils.convertToHoodieRecordPayload(record, payloadClass)
+          : SpillableMapUtils.convertToHoodieRecordPayload(record, payloadClass, simpleRecordKeyField, simplePartitionPathField);
       scanner.processNextRecord(hoodieRecord);
     }
     return new HoodieFileSliceReader(scanner.iterator());

@@ -147,6 +147,16 @@ public class HoodieTableConfig extends HoodieConfig implements Serializable {
       .withDocumentation("When enabled, populates all meta fields. When disabled, no meta fields are populated "
           + "and incremental queries will not be functional. This is only meant to be used for append only/immutable data for batch processing");
 
+  public static final ConfigProperty<String> HOODIE_TABLE_SIMPLE_RECORDKEY_FIELD = ConfigProperty
+      .key("hoodie.table.simple.recordkey.field")
+      .noDefaultValue()
+      .withDocumentation("Simple record key field used. This config will be leveraged with MOR table when meta fields are disabled");
+
+  public static final ConfigProperty<String> HOODIE_TABLE_SIMPLE_PARTITION_PATH_FIELD = ConfigProperty
+      .key("hoodie.table.simple.partition.path.field")
+      .noDefaultValue()
+      .withDocumentation("Simple partition path field used. This config will be leveraged with MOR table when meta fields are disabled");
+
   public static final String NO_OP_BOOTSTRAP_INDEX_CLASS = NoOpBootstrapIndex.class.getName();
 
   public HoodieTableConfig(FileSystem fs, String metaPath, String payloadClassName) {
@@ -324,6 +334,20 @@ public class HoodieTableConfig extends HoodieConfig implements Serializable {
    */
   public boolean populateMetaFields() {
     return Boolean.parseBoolean(getStringOrDefault(HOODIE_POPULATE_META_FIELDS));
+  }
+
+  /**
+   * @return the simple record key field if set.
+   */
+  public String getSimpleRecordKeyField() {
+    return getString(HOODIE_TABLE_SIMPLE_RECORDKEY_FIELD);
+  }
+
+  /**
+   * @return the simple partition path field if set.
+   */
+  public String getSimplePartitionPathField() {
+    return getString(HOODIE_TABLE_SIMPLE_PARTITION_PATH_FIELD);
   }
 
   public Map<String, String> propsMap() {

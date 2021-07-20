@@ -234,6 +234,8 @@ public abstract class HoodieClientTestHarness extends HoodieCommonTestHarness im
     properties.put(HoodieTableConfig.HOODIE_POPULATE_META_FIELDS.key(), "false");
     properties.put("hoodie.datasource.write.recordkey.field","_row_key");
     properties.put("hoodie.datasource.write.partitionpath.field","partition_path");
+    properties.put(HoodieTableConfig.HOODIE_TABLE_SIMPLE_RECORDKEY_FIELD.key(), "_row_key");
+    properties.put(HoodieTableConfig.HOODIE_TABLE_SIMPLE_PARTITION_PATH_FIELD.key(), "partition_path");
     return properties;
   }
 

@@ -119,17 +119,24 @@ object HoodieSparkSqlWriter {
         val baseFileFormat = hoodieConfig.getStringOrDefault(HoodieTableConfig.HOODIE_BASE_FILE_FORMAT_PROP)
         val archiveLogFolder = hoodieConfig.getStringOrDefault(HoodieTableConfig.HOODIE_ARCHIVELOG_FOLDER_PROP)
         val partitionColumns = HoodieWriterUtils.getPartitionColumns(keyGenerator)
+        val populateMetaFields = parameters.getOrElse(HoodieTableConfig.HOODIE_POPULATE_META_FIELDS.key(), HoodieTableConfig.HOODIE_POPULATE_META_FIELDS.defaultValue()).toBoolean
 
-        val tableMetaClient = HoodieTableMetaClient.withPropertyBuilder()
-          .setTableType(tableType)
-          .setTableName(tblName)
-          .setBaseFileFormat(baseFileFormat)
-          .setArchiveLogFolder(archiveLogFolder)
-          .setPayloadClassName(hoodieConfig.getString(PAYLOAD_CLASS_OPT_KEY))
-          .setPreCombineField(hoodieConfig.getStringOrDefault(PRECOMBINE_FIELD_OPT_KEY, null))
-          .setPartitionColumns(partitionColumns)
-          .setPopulateMetaFields(parameters.getOrElse(HoodieTableConfig.HOODIE_POPULATE_META_FIELDS.key(), HoodieTableConfig.HOODIE_POPULATE_META_FIELDS.defaultValue()).toBoolean)
-          .initTable(sparkContext.hadoopConfiguration, path.get)
+        val tableMetaClientPropertyBuilder = HoodieTableMetaClient.withPropertyBuilder()
+            .setTableType(tableType)
+            .setTableName(tblName)
+            .setBaseFileFormat(baseFileFormat)
+            .setArchiveLogFolder(archiveLogFolder)
+            .setPayloadClassName(hoodieConfig.getString(PAYLOAD_CLASS_OPT_KEY))
+            .setPreCombineField(hoodieConfig.getStringOrDefault(PRECOMBINE_FIELD_OPT_KEY, null))
+            .setPartitionColumns(partitionColumns)
+            .setPopulateMetaFields(populateMetaFields)
+
+        if (!populateMetaFields) {
+          tableMetaClientPropertyBuilder.setSimpleRecordKeyField(hoodieConfig.getString(RECORDKEY_FIELD_OPT_KEY))
+            .setSimplePartitionPathField(hoodieConfig.getString(PARTITIONPATH_FIELD_OPT_KEY))
+        }
+
+        val tableMetaClient = tableMetaClientPropertyBuilder.initTable(sparkContext.hadoopConfiguration, path.get)
         tableConfig = tableMetaClient.getTableConfig
       }
 

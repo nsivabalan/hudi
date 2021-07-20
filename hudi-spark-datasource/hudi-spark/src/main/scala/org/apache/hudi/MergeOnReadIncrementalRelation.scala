@@ -61,6 +61,9 @@ class MergeOnReadIncrementalRelation(val sqlContext: SQLContext,
     throw new HoodieException(s"Specify the begin instant time to pull from using " +
       s"option ${DataSourceReadOptions.BEGIN_INSTANTTIME_OPT_KEY.key}")
   }
+  if (!metaClient.getTableConfig.populateMetaFields()) {
+    throw new HoodieException("Incremental queries are not supported when meta fields are disabled")
+  }
 
   private val lastInstant = commitTimeline.lastInstant().get()
   private val mergeType = optParams.getOrElse(
@@ -120,7 +123,9 @@ class MergeOnReadIncrementalRelation(val sqlContext: SQLContext,
       tableAvroSchema.toString,
       requiredAvroSchema.toString,
       fileIndex,
-      preCombineField
+      preCombineField,
+      true,
+      Option.empty
     )
     val fullSchemaParquetReader = new ParquetFileFormat().buildReaderWithPartitionValues(
       sparkSession = sqlContext.sparkSession,

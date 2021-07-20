@@ -45,6 +45,7 @@ import org.apache.hudi.exception.TableNotFoundException;
 import org.apache.hudi.hive.HiveSyncConfig;
 import org.apache.hudi.hive.SlashEncodedDayPartitionValueExtractor;
 import org.apache.hudi.index.HoodieIndex.IndexType;
+import org.apache.hudi.keygen.SimpleKeyGenerator;
 import org.apache.hudi.table.BulkInsertPartitioner;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
@@ -180,6 +181,13 @@ public class DataSourceUtils {
         .withPath(basePath).withAutoCommit(false).combineInput(combineInserts, true);
     if (schemaStr != null) {
       builder = builder.withSchema(schemaStr);
+    }
+
+    boolean isSimpleKeyGen = (parameters.getOrDefault(DataSourceWriteOptions.KEYGENERATOR_CLASS_OPT_KEY().key(), DataSourceWriteOptions.DEFAULT_KEYGENERATOR_CLASS_OPT_VAL()))
+        .equals(SimpleKeyGenerator.class.getName());
+    if (isSimpleKeyGen) {
+      builder.withSimpleRecordKeyField(parameters.get(DataSourceWriteOptions.RECORDKEY_FIELD_OPT_KEY().key()));
+      builder.withSimplePartitionPathField(parameters.get(DataSourceWriteOptions.PARTITIONPATH_FIELD_OPT_KEY().key()));
     }
 
     return builder.forTable(tblName)

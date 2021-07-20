@@ -617,6 +617,8 @@ public class HoodieTableMetaClient implements Serializable {
     private String bootstrapIndexClass;
     private String bootstrapBasePath;
     private Boolean populateMetaFields;
+    private String simpleRecordKeyField;
+    private String simplePartitionPathField;
 
     private PropertyBuilder() {
 
@@ -695,6 +697,16 @@ public class HoodieTableMetaClient implements Serializable {
       return this;
     }
 
+    public PropertyBuilder setSimpleRecordKeyField(String simpleRecordKeyField) {
+      this.simpleRecordKeyField = simpleRecordKeyField;
+      return this;
+    }
+
+    public PropertyBuilder setSimplePartitionPathField(String simplePartitionPathField) {
+      this.simplePartitionPathField = simplePartitionPathField;
+      return this;
+    }
+
     public PropertyBuilder fromMetaClient(HoodieTableMetaClient metaClient) {
       return setTableType(metaClient.getTableType())
         .setTableName(metaClient.getTableConfig().getTableName())
@@ -747,6 +759,12 @@ public class HoodieTableMetaClient implements Serializable {
       }
       if (hoodieConfig.contains(HoodieTableConfig.HOODIE_POPULATE_META_FIELDS)) {
         setPopulateMetaFields(hoodieConfig.getBoolean(HoodieTableConfig.HOODIE_POPULATE_META_FIELDS));
+      }
+      if (hoodieConfig.contains(HoodieTableConfig.HOODIE_TABLE_SIMPLE_RECORDKEY_FIELD)) {
+        setSimpleRecordKeyField(hoodieConfig.getString(HoodieTableConfig.HOODIE_TABLE_SIMPLE_RECORDKEY_FIELD));
+      }
+      if (hoodieConfig.contains(HoodieTableConfig.HOODIE_TABLE_SIMPLE_PARTITION_PATH_FIELD)) {
+        setSimplePartitionPathField(hoodieConfig.getString(HoodieTableConfig.HOODIE_TABLE_SIMPLE_PARTITION_PATH_FIELD));
       }
       return this;
     }
@@ -803,6 +821,12 @@ public class HoodieTableMetaClient implements Serializable {
       }
       if (null != populateMetaFields) {
         tableConfig.setValue(HoodieTableConfig.HOODIE_POPULATE_META_FIELDS, Boolean.toString(populateMetaFields));
+      }
+      if (null != simpleRecordKeyField) {
+        tableConfig.setValue(HoodieTableConfig.HOODIE_TABLE_SIMPLE_RECORDKEY_FIELD, simpleRecordKeyField);
+      }
+      if (null != simplePartitionPathField) {
+        tableConfig.setValue(HoodieTableConfig.HOODIE_TABLE_SIMPLE_PARTITION_PATH_FIELD, simplePartitionPathField);
       }
       return tableConfig.getProps();
     }

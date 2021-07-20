@@ -80,6 +80,12 @@ public abstract class AbstractHoodieLogRecordScanner {
   private final HoodieTableMetaClient hoodieTableMetaClient;
   // Merge strategy to use when combining records from log
   private final String payloadClassFQN;
+  // populate meta fields
+  private final boolean populateMetaFields;
+  // simple recordKeyField
+  private Option<String> simpleRecordKeyFieldOpt = Option.empty();
+  // simple partition pathField
+  private Option<String> simplePartitionPathField = Option.empty();
   // Log File Paths
   protected final List<String> logFilePaths;
   // Read Lazily flag
@@ -115,6 +121,11 @@ public abstract class AbstractHoodieLogRecordScanner {
     this.hoodieTableMetaClient = HoodieTableMetaClient.builder().setConf(fs.getConf()).setBasePath(basePath).build();
     // load class from the payload fully qualified class name
     this.payloadClassFQN = this.hoodieTableMetaClient.getTableConfig().getPayloadClass();
+    this.populateMetaFields = this.hoodieTableMetaClient.getTableConfig().populateMetaFields();
+    if (!populateMetaFields) {
+      this.simpleRecordKeyFieldOpt = Option.of(this.hoodieTableMetaClient.getTableConfig().getSimpleRecordKeyField());
+      this.simplePartitionPathField = Option.of(this.hoodieTableMetaClient.getTableConfig().getSimplePartitionPathField());
+    }
     this.totalLogFiles.addAndGet(logFilePaths.size());
     this.logFilePaths = logFilePaths;
     this.readBlocksLazily = readBlocksLazily;
@@ -302,7 +313,12 @@ public abstract class AbstractHoodieLogRecordScanner {
   }
 
   protected HoodieRecord<?> createHoodieRecord(IndexedRecord rec) {
-    return SpillableMapUtils.convertToHoodieRecordPayload((GenericRecord) rec, this.payloadClassFQN);
+    if (populateMetaFields) {
+      return SpillableMapUtils.convertToHoodieRecordPayload((GenericRecord) rec, this.payloadClassFQN);
+    } else {
+      return SpillableMapUtils.convertToHoodieRecordPayload((GenericRecord) rec, this.payloadClassFQN, this.simpleRecordKeyFieldOpt.get(),
+          this.simplePartitionPathField.get());
+    }
   }
 
   /**

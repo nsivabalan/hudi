@@ -608,6 +608,14 @@ public class HoodieWriteConfig extends HoodieConfig {
         HoodieTableConfig.HOODIE_POPULATE_META_FIELDS.defaultValue()));
   }
 
+  public String getSimpleRecordKeyField() {
+    return getString(HoodieTableConfig.HOODIE_TABLE_SIMPLE_RECORDKEY_FIELD);
+  }
+
+  public String getSimplePartitionPathField() {
+    return getString(HoodieTableConfig.HOODIE_TABLE_SIMPLE_PARTITION_PATH_FIELD);
+  }
+
   /**
    * compaction properties.
    */
@@ -1590,6 +1598,16 @@ public class HoodieWriteConfig extends HoodieConfig {
 
     public Builder withPopulateMetaFields(boolean populateMetaFields) {
       writeConfig.setValue(HoodieTableConfig.HOODIE_POPULATE_META_FIELDS, Boolean.toString(populateMetaFields));
+      return this;
+    }
+
+    public Builder withSimpleRecordKeyField(String simpleRecordKeyField) {
+      writeConfig.setValue(HoodieTableConfig.HOODIE_TABLE_SIMPLE_RECORDKEY_FIELD, simpleRecordKeyField);
+      return this;
+    }
+
+    public Builder withSimplePartitionPathField(String simplePartitionPathField) {
+      writeConfig.setValue(HoodieTableConfig.HOODIE_TABLE_SIMPLE_PARTITION_PATH_FIELD, simplePartitionPathField);
       return this;
     }
 
