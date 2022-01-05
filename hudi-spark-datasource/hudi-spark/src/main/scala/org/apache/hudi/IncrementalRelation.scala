@@ -17,8 +17,9 @@
 
 package org.apache.hudi
 
-import java.util.stream.Collectors
+import org.apache.avro.Schema
 
+import java.util.stream.Collectors
 import org.apache.hudi.common.model.{HoodieCommitMetadata, HoodieRecord, HoodieReplaceCommitMetadata, HoodieTableType}
 import org.apache.hudi.common.table.{HoodieTableMetaClient, TableSchemaResolver}
 import org.apache.hudi.common.table.timeline.{HoodieInstant, HoodieTimeline}
@@ -89,9 +90,9 @@ class IncrementalRelation(val sqlContext: SQLContext,
     } else {
       schemaResolver.getTableAvroSchemaWithoutMetadataFields()
     }
-    if (tableSchema == null) {
+    if (tableSchema.getType == Schema.Type.NULL) {
       // if there is only one commit in the table and is an empty commit without schema, return empty RDD here
-      null
+      StructType(Nil)
     } else {
       val dataSchema = AvroConversionUtils.convertAvroSchemaToStructType(tableSchema)
       StructType(skeletonSchema.fields ++ dataSchema.fields)
@@ -104,7 +105,7 @@ class IncrementalRelation(val sqlContext: SQLContext,
   override def schema: StructType = usedSchema
 
   override def buildScan(): RDD[Row] = {
-    if (usedSchema == null) {
+    if (usedSchema == StructType(Nil)) {
       // if first commit in a table is an empty commit without schema, return empty RDD here
       sqlContext.sparkContext.emptyRDD[Row]
     } else {
