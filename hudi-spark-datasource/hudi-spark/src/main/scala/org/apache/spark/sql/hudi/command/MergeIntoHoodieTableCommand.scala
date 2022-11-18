@@ -349,7 +349,10 @@ case class MergeIntoHoodieTableCommand(mergeInto: MergeIntoTable) extends Hoodie
 
     // Remove the meta fields from the sourceDF as we do not need these when writing.
     val sourceDFWithoutMetaFields = removeMetaFields(sourceDF)
-    if (!HoodieSparkSqlWriter.write(sparkSession.sqlContext, SaveMode.Append, writeParams, sourceDFWithoutMetaFields)._1) {
+    val (success, _, _, _, _, _) = HoodieSparkSqlWriter.write(
+      sparkSession.sqlContext, SaveMode.Append, writeParams, sourceDFWithoutMetaFields)
+
+    if (!success) {
       throw new HoodieException("Merge into Hoodie table command failed")
     }
   }

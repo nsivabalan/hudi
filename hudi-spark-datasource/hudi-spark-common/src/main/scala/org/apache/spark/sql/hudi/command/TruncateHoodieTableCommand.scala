@@ -86,11 +86,13 @@ case class TruncateHoodieTableCommand(
       // drop partitions to lazy clean
       val partitionsToDrop = getPartitionPathToDrop(hoodieCatalogTable, normalizedSpecs)
       val parameters = buildHoodieDropPartitionsConfig(sparkSession, hoodieCatalogTable, partitionsToDrop)
-      if (!HoodieSparkSqlWriter.write(
+      val (success, _, _, _, _, _) =  HoodieSparkSqlWriter.write(
         sparkSession.sqlContext,
         SaveMode.Append,
         parameters,
-        sparkSession.emptyDataFrame)._1) {
+        sparkSession.emptyDataFrame)
+
+      if (!success) {
         throw new HoodieException("Truncate Hoodie Table command failed")
       }
     }
