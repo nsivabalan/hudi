@@ -335,6 +335,15 @@ class TestStructuredStreaming extends HoodieClientTestBase {
 
   @Test
   def testStructuredStreamingForDefaultIdentifier(): Unit = {
+    testStructuredStreamingInternal()
+  }
+
+  @Test
+  def testStructuredStreamingWithBulkInsert(): Unit = {
+    testStructuredStreamingInternal("bulk_insert")
+  }
+
+  def testStructuredStreamingInternal(operation : String = "upsert") : Unit = {
     val (sourcePath, destPath) = initStreamingSourceAndDestPath("source", "dest")
 
     val records1 = recordsToStrings(dataGen.generateInsertsForPartition("000", 100, HoodieTestDataGenerator.DEFAULT_FIRST_PARTITION_PATH)).toList
@@ -349,6 +358,7 @@ class TestStructuredStreaming extends HoodieClientTestBase {
       .writeStream
       .format("org.apache.hudi")
       .options(commonOpts)
+      .option(DataSourceWriteOptions.OPERATION.key(), operation)
       .outputMode(OutputMode.Append)
       .option("checkpointLocation", s"$basePath/checkpoint1")
       .start(destPath)

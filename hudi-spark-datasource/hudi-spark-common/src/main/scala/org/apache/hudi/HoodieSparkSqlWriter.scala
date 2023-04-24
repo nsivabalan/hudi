@@ -68,6 +68,11 @@ object HoodieSparkSqlWriter {
   private var asyncCompactionTriggerFnDefined: Boolean = false
   private var asyncClusteringTriggerFnDefined: Boolean = false
 
+  /**
+   * For spark streaming use-cases, holds the batch Id.
+   */
+  val SPARK_STREAMING_BATCH_ID = "hoodie.internal.spark.streaming.batch.id"
+
   def write(sqlContext: SQLContext,
             mode: SaveMode,
             optParams: Map[String, String],
