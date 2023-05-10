@@ -684,13 +684,13 @@ public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMeta
 
   private HoodieTableMetaClient initializeMetaClient() throws IOException {
     return HoodieTableMetaClient.withPropertyBuilder()
-            .setTableType(HoodieTableType.MERGE_ON_READ)
-            .setTableName(tableName)
-            .setArchiveLogFolder(ARCHIVELOG_FOLDER.defaultValue())
-            .setPayloadClassName(HoodieMetadataPayload.class.getName())
-            .setBaseFileFormat(HoodieFileFormat.HFILE.toString())
-            .setRecordKeyFields(RECORD_KEY_FIELD_NAME)
-            .setPopulateMetaFields(DEFAULT_METADATA_POPULATE_META_FIELDS)
+        .setTableType(HoodieTableType.MERGE_ON_READ)
+        .setTableName(tableName)
+        .setArchiveLogFolder(ARCHIVELOG_FOLDER.defaultValue())
+        .setPayloadClassName(HoodieMetadataPayload.class.getName())
+        .setBaseFileFormat(HoodieFileFormat.HFILE.toString())
+        .setRecordKeyFields(RECORD_KEY_FIELD_NAME)
+        .setPopulateMetaFields(DEFAULT_METADATA_POPULATE_META_FIELDS)
             .setKeyGeneratorClassProp(HoodieTableMetadataKeyGenerator.class.getCanonicalName())
             .initTable(hadoopConf.get(), metadataWriteConfig.getBasePath());
   }
@@ -897,7 +897,7 @@ public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMeta
     if (initialized && metadata != null) {
       // convert metadata and filter only the entries whose partition path are in partitionsToUpdate
       Map<MetadataPartitionType, HoodieData<HoodieRecord>> partitionRecordsMap = convertMetadataFunction.convertMetadata().entrySet().stream()
-              .filter(entry -> partitionsToUpdate.contains(entry.getKey().getPartitionPath())).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+          .filter(entry -> partitionsToUpdate.contains(entry.getKey().getPartitionPath())).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
       commit(instantTime, partitionRecordsMap);
     }
   }
