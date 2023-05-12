@@ -40,7 +40,6 @@ import org.apache.hudi.common.util.StringUtils;
 import org.apache.hudi.common.util.ValidationUtils;
 import org.apache.hudi.exception.HoodieIOException;
 import org.apache.hudi.keygen.constant.KeyGeneratorOptions;
-import org.apache.hudi.keygen.constant.KeyGeneratorOptions.Config;
 import org.apache.hudi.metadata.MetadataPartitionType;
 
 import org.apache.avro.Schema;
