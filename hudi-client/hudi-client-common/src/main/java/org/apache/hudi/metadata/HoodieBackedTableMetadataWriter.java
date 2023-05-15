@@ -47,7 +47,6 @@ import org.apache.hudi.common.table.log.HoodieLogFormat;
 import org.apache.hudi.common.table.log.block.HoodieDeleteBlock;
 import org.apache.hudi.common.table.log.block.HoodieLogBlock.HeaderMetadataType;
 import org.apache.hudi.common.table.marker.MarkerType;
-import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
@@ -589,6 +588,9 @@ public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMeta
    * @return a unique timestamp for MDT
    */
   private String generateUniqueCommitInstantTime(String initializationTime) {
+    // Add suffix to initializationTime to find an unused instant time for the next index initialization.
+    // This function would be called multiple times in a single application if multiple indexes are being
+    // initialized one after the other.
     for (int offset = 0; ; ++offset) {
       final String commitInstantTime = HoodieTableMetadataUtil.createIndexInitTimestamp(initializationTime, offset);
       if (!metadataMetaClient.getCommitTimeline().containsInstant(commitInstantTime)) {
@@ -892,8 +894,6 @@ public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMeta
   private void processAndCommit(String instantTime, ConvertMetadataFunction convertMetadataFunction) {
     Set<String> partitionsToUpdate = getMetadataPartitionsToUpdate();
     Set<String> inflightIndexes = getInflightMetadataPartitions(dataMetaClient.getTableConfig());
-    // if indexing is inflight then do not trigger table service
-    boolean doNotTriggerTableService = partitionsToUpdate.stream().anyMatch(inflightIndexes::contains);
 
     if (initialized && metadata != null) {
       // convert metadata and filter only the entries whose partition path are in partitionsToUpdate
@@ -1191,53 +1191,9 @@ public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMeta
   }
 
   /**
-   * Validates the timeline for both main and metadata tables.
+   * Validates the timeline for both main and metadata tables to ensure compaction on MDT can be scheduled.
    */
-  private boolean validateTimelineBeforeSchedulingCompaction(Option<String> inFlightInstantTimestamp, String latestDeltacommitTime) {
-    // There should not be any incomplete instants on MDT
-    HoodieActiveTimeline metadataTimeline = metadataMetaClient.reloadActiveTimeline();
-    List<HoodieInstant> pendingInstantsOnMetadataTable = metadataTimeline.filterInflightsAndRequested().getInstants();
-    if (!pendingInstantsOnMetadataTable.isEmpty()) {
-      LOG.info(String.format(
-              "Cannot compact MDT as there are %d inflight instants: %s",
-              pendingInstantsOnMetadataTable.size(), Arrays.toString(pendingInstantsOnMetadataTable.toArray())));
-      metrics.ifPresent(m -> m.incrementMetric(HoodieMetadataMetrics.SKIP_TABLE_SERVICES, 1));
-      return false;
-    }
-
-    // There should not be any incomplete instants on dataset
-    HoodieActiveTimeline datasetTimeline = dataMetaClient.reloadActiveTimeline();
-    List<HoodieInstant> pendingInstantsOnDataset = datasetTimeline.filterInflightsAndRequested().getInstantsAsStream()
-            .filter(i -> !inFlightInstantTimestamp.isPresent() || !i.getTimestamp().equals(inFlightInstantTimestamp.get()))
-            .collect(Collectors.toList());
-    if (!pendingInstantsOnDataset.isEmpty()) {
-      LOG.info(String.format(
-              "Cannot compact MDT as there are %d inflight instants on dataset before latest deltacommit %s: %s",
-              pendingInstantsOnDataset.size(), latestDeltacommitTime, Arrays.toString(pendingInstantsOnDataset.toArray())));
-      metrics.ifPresent(m -> m.incrementMetric(HoodieMetadataMetrics.SKIP_TABLE_SERVICES, 1));
-      return false;
-    }
-
-    // Check if the inflight commit is greater than all the completed commits.
-    Option<HoodieInstant> lastCompletedInstant = dataMetaClient.getActiveTimeline().filterCompletedInstants().lastInstant();
-    if (!lastCompletedInstant.isPresent()) {
-      LOG.info("Last completed commit is not present.");
-      return false;
-    }
-    if (HoodieTimeline.compareTimestamps(lastCompletedInstant.get().getTimestamp(),
-            HoodieTimeline.GREATER_THAN, inFlightInstantTimestamp.get())) {
-      // Completed commits validation failed.
-      LOG.info(String.format(
-              "Cannot compact MDT as there is %s that is greater than inflight instant: %s",
-              lastCompletedInstant.get(), inFlightInstantTimestamp.get()));
-      return false;
-    }
-
-    String latestDeltaCommitTimeInMetadataTable = metadataMetaClient.reloadActiveTimeline()
-            .getDeltaCommitTimeline()
-            .filterCompletedInstants()
-            .lastInstant().orElseThrow(() -> new HoodieMetadataException("No completed deltacommit in metadata table"))
-            .getTimestamp();
+  private boolean validateTimelineBeforeSchedulingCompaction(Option<String> inFlightInstantTimestamp, String latestDeltaCommitTimeInMetadataTable) {
     // we need to find if there are any inflights in data table timeline before or equal to the latest delta commit in metadata table.
     // Whenever you want to change this logic, please ensure all below scenarios are considered.
     // a. There could be a chance that latest delta commit in MDT is committed in MDT, but failed in DT. And so findInstantsBeforeOrEquals() should be employed
@@ -1246,7 +1202,7 @@ public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMeta
     // c. Do consider out of order commits. For eg, c4 from DT could complete before c3. and we can't trigger compaction in MDT with c4 as base instant time, until every
     // instant before c4 is synced with metadata table.
     List<HoodieInstant> pendingInstants = dataMetaClient.reloadActiveTimeline().filterInflightsAndRequested()
-            .findInstantsBeforeOrEquals(latestDeltaCommitTimeInMetadataTable).getInstants();
+        .findInstantsBeforeOrEquals(latestDeltaCommitTimeInMetadataTable).getInstants();
 
     if (!pendingInstants.isEmpty()) {
       LOG.info(String.format(
