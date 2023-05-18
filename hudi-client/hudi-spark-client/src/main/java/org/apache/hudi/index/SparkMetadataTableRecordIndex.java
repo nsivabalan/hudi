@@ -64,6 +64,9 @@ import static org.apache.hudi.common.table.timeline.HoodieTimeline.GREATER_THAN;
 public class SparkMetadataTableRecordIndex extends HoodieIndex<Object, Object> {
 
   private static final Logger LOG = LoggerFactory.getLogger(SparkMetadataTableRecordIndex.class);
+  // The index to fallback upon when record index is not initialized yet.
+  // This should be a global index like record index so that the behavior of tagging across partitions is not changed.
+  private static final HoodieIndex.IndexType FALLBACK_INDEX_TYPE = IndexType.SIMPLE;
 
   public SparkMetadataTableRecordIndex(HoodieWriteConfig config) {
     super(config);
@@ -78,13 +81,17 @@ public class SparkMetadataTableRecordIndex extends HoodieIndex<Object, Object> {
           MetadataPartitionType.RECORD_INDEX.getPartitionPath()).size();
       ValidationUtils.checkState(fileGroupSize > 0, "Record index should have at least one file group");
     } catch (TableNotFoundException | IllegalStateException e) {
-      // This means that record index has not been initialized. Fallback to another index so that tagLocation is still accurate and there are no duplicates.
-      // Fallback index needs to be a global index like record index.
-      HoodieIndex.IndexType fallbackIndexType = IndexType.SIMPLE;
-      LOG.warn(String.format("Record index not initialized so falling back to %s for tagging records", fallbackIndexType.name()));
+      // This means that record index has not been initialized.
+      LOG.warn(String.format("Record index not initialized so falling back to %s for tagging records", FALLBACK_INDEX_TYPE.name()));
+
+      // Fallback to another index so that tagLocation is still accurate and there are no duplicates.
       HoodieWriteConfig otherConfig = HoodieWriteConfig.newBuilder().withProperties(config.getProps())
-          .withIndexConfig(HoodieIndexConfig.newBuilder().withIndexType(fallbackIndexType).build()).build();
+          .withIndexConfig(HoodieIndexConfig.newBuilder().withIndexType(FALLBACK_INDEX_TYPE).build()).build();
       HoodieIndex fallbackIndex = SparkHoodieIndexFactory.createIndex(otherConfig);
+
+      // Fallback index needs to be a global index like record index
+      ValidationUtils.checkArgument(fallbackIndex.isGlobal(), "Fallback index needs to be a global index like record index");
+
       return fallbackIndex.tagLocation(records, context, hoodieTable);
     }
 
