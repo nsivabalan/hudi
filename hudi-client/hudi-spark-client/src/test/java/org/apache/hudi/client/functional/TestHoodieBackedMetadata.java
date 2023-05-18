@@ -1382,6 +1382,87 @@ public class TestHoodieBackedMetadata extends TestHoodieMetadataBase {
     validateMetadata(testTable, emptyList(), nonPartitionedDataset);
   }
 
+  /**
+   * First attempt at bootstrap failed but the file slices get created. The next bootstrap should continue successfully.
+   */
+  @Test
+  public void testFailedBootstrap() throws Exception {
+    init(HoodieTableType.COPY_ON_WRITE);
+    HoodieSparkEngineContext engineContext = new HoodieSparkEngineContext(jsc);
+
+    // Config with 5 fileGroups for record index
+    HoodieWriteConfig writeConfig = getWriteConfigBuilder(true, true, false)
+        .withMetadataConfig(HoodieMetadataConfig.newBuilder()
+            .enable(true)
+            .withCreateRecordIndex(true)
+            .withRecordIndexFileGroupCount(5, 5)
+            .build())
+        .build();
+
+    try (SparkRDDWriteClient client = new SparkRDDWriteClient(engineContext, writeConfig)) {
+      // Write
+      String newCommitTime = HoodieActiveTimeline.createNewInstantTime();
+      List<HoodieRecord> records = dataGen.generateInserts(newCommitTime, 100);
+      client.startCommitWithTime(newCommitTime);
+      List<WriteStatus> writeStatuses = client.insert(jsc.parallelize(records, 1), newCommitTime).collect();
+      assertNoWriteErrors(writeStatuses);
+      validateMetadata(client);
+
+      // Metadata table should exist
+      final Path metadataTablePath = new Path(HoodieTableMetadata.getMetadataTableBasePath(writeConfig.getBasePath()));
+      assertTrue(fs.exists(metadataTablePath));
+      metaClient.reloadTableConfig();
+      assertTrue(metaClient.getTableConfig().isMetadataTableEnabled());
+
+      // File groups should be created as in the config
+      HoodieBackedTableMetadata metadataReader = (HoodieBackedTableMetadata) metadata(client);
+      assertEquals(HoodieTableMetadataUtil.getPartitionLatestFileSlices(metadataReader.getMetadataMetaClient(), Option.empty(),
+          MetadataPartitionType.FILES.getPartitionPath()).size(), 1);
+      assertEquals(HoodieTableMetadataUtil.getPartitionLatestFileSlices(metadataReader.getMetadataMetaClient(), Option.empty(),
+          MetadataPartitionType.RECORD_INDEX.getPartitionPath()).size(), 5);
+    }
+
+    // remove the MDT partition from dataset to simulate failed bootstrap
+    Properties updateProperties = new Properties();
+    updateProperties.setProperty(HoodieTableConfig.TABLE_METADATA_PARTITIONS.key(), "");
+    HoodieTableConfig.update(fs, new Path(basePath + Path.SEPARATOR + HoodieTableMetaClient.METAFOLDER_NAME),
+        updateProperties);
+
+    metaClient.reloadTableConfig();
+    assertFalse(metaClient.getTableConfig().isMetadataTableEnabled());
+
+    // Config with 3 fileGroups for record index
+    writeConfig = getWriteConfigBuilder(true, true, false)
+        .withMetadataConfig(HoodieMetadataConfig.newBuilder()
+            .enable(true)
+            .withCreateRecordIndex(true)
+            .withRecordIndexFileGroupCount(3, 3)
+            .build())
+        .build();
+
+    // Another commit which should bootstrap the MDT again
+    try (SparkRDDWriteClient client = new SparkRDDWriteClient(engineContext, writeConfig)) {
+      // Write
+      String newCommitTime = HoodieActiveTimeline.createNewInstantTime();
+      List<HoodieRecord> records = dataGen.generateInserts(newCommitTime, 100);
+      client.startCommitWithTime(newCommitTime);
+      List<WriteStatus> writeStatuses = client.insert(jsc.parallelize(records, 1), newCommitTime).collect();
+      assertNoWriteErrors(writeStatuses);
+
+      // Metadata table is recreated, during bootstrapping of metadata table.
+      metaClient.reloadTableConfig();
+      assertTrue(metaClient.getTableConfig().isMetadataTableEnabled());
+      validateMetadata(client);
+
+      // File groups should be created as in the config
+      HoodieBackedTableMetadata metadataReader = (HoodieBackedTableMetadata) metadata(client);
+      assertEquals(HoodieTableMetadataUtil.getPartitionLatestFileSlices(metadataReader.getMetadataMetaClient(), Option.empty(),
+          MetadataPartitionType.FILES.getPartitionPath()).size(), 1);
+      assertEquals(HoodieTableMetadataUtil.getPartitionLatestFileSlices(metadataReader.getMetadataMetaClient(), Option.empty(),
+          MetadataPartitionType.RECORD_INDEX.getPartitionPath()).size(), 3);
+    }
+  }
+
   // Some operations are not feasible with test table infra. hence using write client to test those cases.
 
   /**
