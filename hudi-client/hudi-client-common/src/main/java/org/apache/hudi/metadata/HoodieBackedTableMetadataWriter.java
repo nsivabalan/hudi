@@ -1320,9 +1320,19 @@ public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMeta
           Option<HoodieRecordLocation> newLocation = writtenRecord.getNewLocation();
           if (newLocation.isPresent()) {
             if (writtenRecord.getCurrentLocation() != null) {
-              // This is an update, no need to update index
-              // TODO: This may be required for clustering usecases
-              continue;
+              // This is an update, no need to update index if the location has not changed
+              // newLocation should have the same fileID as currentLocation. The instantTimes differ as newLocation's
+              // instantTime refers to the current commit which was completed.
+              if (!writtenRecord.getCurrentLocation().getFileId().equals(newLocation.get().getFileId())) {
+                final String msg = String.format("Detected update in location of record with key %s from %s "
+                        + " to %s. The fileID should not change.",
+                    writtenRecord.getKey(), writtenRecord.getCurrentLocation(), newLocation.get());
+                LOG.error(msg);
+                throw new HoodieMetadataException(msg);
+              } else {
+                // TODO: This may be required for clustering usecases where record location changes
+                continue;
+              }
             }
 
             hoodieRecord = HoodieMetadataPayload.createRecordIndexUpdate(key.getRecordKey(), key.getPartitionPath(),
