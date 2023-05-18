@@ -105,14 +105,13 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
   private final Transient<Map<Pair<String, String>, Pair<HoodieSeekingFileReader<?>, HoodieMetadataLogRecordReader>>> partitionReaders =
       Transient.lazy(ConcurrentHashMap::new);
 
-  public HoodieBackedTableMetadata(HoodieEngineContext engineContext, HoodieMetadataConfig metadataConfig,
-                                   String datasetBasePath, String spillableMapDirectory) {
-    this(engineContext, metadataConfig, datasetBasePath, spillableMapDirectory, false);
+  public HoodieBackedTableMetadata(HoodieEngineContext engineContext, HoodieMetadataConfig metadataConfig, String datasetBasePath) {
+    this(engineContext, metadataConfig, datasetBasePath, false);
   }
 
   public HoodieBackedTableMetadata(HoodieEngineContext engineContext, HoodieMetadataConfig metadataConfig,
-                                   String datasetBasePath, String spillableMapDirectory, boolean reuse) {
-    super(engineContext, metadataConfig, datasetBasePath, spillableMapDirectory);
+      String datasetBasePath, boolean reuse) {
+    super(engineContext, metadataConfig, datasetBasePath);
     this.reuse = reuse;
     this.metadataBasePath = HoodieTableMetadata.getMetadataTableBasePath(dataBasePath.toString());
 
@@ -527,9 +526,9 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
         .withLogFilePaths(sortedLogFilePaths)
         .withReaderSchema(schema)
         .withLatestInstantTime(latestMetadataInstantTime)
-        .withMaxMemorySizeInBytes(MAX_MEMORY_SIZE_IN_BYTES)
-        .withBufferSize(BUFFER_SIZE)
-        .withSpillableMapBasePath(spillableMapDirectory)
+        .withMaxMemorySizeInBytes(metadataConfig.getMaxReaderMemory())
+        .withBufferSize(metadataConfig.getMaxReaderBufferSize())
+        .withSpillableMapBasePath(metadataConfig.getSplliableMapDir())
         .withDiskMapType(commonConfig.getSpillableDiskMapType())
         .withBitCaskDiskMapCompressionEnabled(commonConfig.isBitCaskDiskMapCompressionEnabled())
         .withLogBlockTimestamps(validInstantTimestamps)

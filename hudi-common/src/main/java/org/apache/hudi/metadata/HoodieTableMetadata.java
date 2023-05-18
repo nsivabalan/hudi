@@ -25,6 +25,7 @@ import org.apache.hudi.common.config.SerializableConfiguration;
 import org.apache.hudi.common.data.HoodieData;
 import org.apache.hudi.common.engine.HoodieEngineContext;
 import org.apache.hudi.common.model.HoodieRecord;
+import org.apache.hudi.common.model.HoodieRecordGlobalLocation;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.collection.Pair;
@@ -110,15 +111,13 @@ public interface HoodieTableMetadata extends Serializable, AutoCloseable {
     return basePath.endsWith(HoodieTableMetaClient.METADATA_TABLE_FOLDER_PATH);
   }
 
-  static HoodieTableMetadata create(HoodieEngineContext engineContext, HoodieMetadataConfig metadataConfig, String datasetBasePath,
-                                    String spillableMapPath) {
-    return create(engineContext, metadataConfig, datasetBasePath, spillableMapPath, false);
+  static HoodieTableMetadata create(HoodieEngineContext engineContext, HoodieMetadataConfig metadataConfig, String datasetBasePath) {
+    return create(engineContext, metadataConfig, datasetBasePath, false);
   }
 
-  static HoodieTableMetadata create(HoodieEngineContext engineContext, HoodieMetadataConfig metadataConfig, String datasetBasePath,
-                                    String spillableMapPath, boolean reuse) {
+  static HoodieTableMetadata create(HoodieEngineContext engineContext, HoodieMetadataConfig metadataConfig, String datasetBasePath, boolean reuse) {
     if (metadataConfig.enabled()) {
-      return createHoodieBackedTableMetadata(engineContext, metadataConfig, datasetBasePath, spillableMapPath, reuse);
+      return createHoodieBackedTableMetadata(engineContext, metadataConfig, datasetBasePath, reuse);
     } else {
       return createFSBackedTableMetadata(engineContext, metadataConfig, datasetBasePath);
     }
@@ -134,9 +133,8 @@ public interface HoodieTableMetadata extends Serializable, AutoCloseable {
   static HoodieBackedTableMetadata createHoodieBackedTableMetadata(HoodieEngineContext engineContext,
                                                                    HoodieMetadataConfig metadataConfig,
                                                                    String datasetBasePath,
-                                                                   String spillableMapPath,
                                                                    boolean reuse) {
-    return new HoodieBackedTableMetadata(engineContext, metadataConfig, datasetBasePath, spillableMapPath, reuse);
+    return new HoodieBackedTableMetadata(engineContext, metadataConfig, datasetBasePath, reuse);
   }
 
   /**
@@ -199,10 +197,15 @@ public interface HoodieTableMetadata extends Serializable, AutoCloseable {
       throws HoodieMetadataException;
 
   /**
+   * Returns the location of record keys which are found in the record index.
+   */
+  Map<String, HoodieRecordGlobalLocation> readRecordIndex(List<String> recordKeys);
+
+  /**
    * Fetch records by key prefixes. Key prefix passed is expected to match the same prefix as stored in Metadata table partitions. For eg, in case of col stats partition,
    * actual keys in metadata partition is encoded values of column name, partition name and file name. So, key prefixes passed to this method is expected to be encoded already.
    *
-   * @param keyPrefixes list of key prefixes for which interested records are looked up for.
+   * @param keyPrefixes   list of key prefixes for which interested records are looked up for.
    * @param partitionName partition name in metadata table where the records are looked up for.
    * @return {@link HoodieData} of {@link HoodieRecord}s with records matching the passed in key prefixes.
    */

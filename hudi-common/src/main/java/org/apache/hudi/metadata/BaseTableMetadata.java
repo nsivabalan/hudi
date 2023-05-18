@@ -29,6 +29,7 @@ import org.apache.hudi.common.engine.HoodieLocalEngineContext;
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.metrics.Registry;
 import org.apache.hudi.common.model.HoodieRecord;
+import org.apache.hudi.common.model.HoodieRecordGlobalLocation;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.util.HoodieTimer;
@@ -73,35 +74,26 @@ public abstract class BaseTableMetadata implements HoodieTableMetadata {
 
   private static final Logger LOG = LoggerFactory.getLogger(BaseTableMetadata.class);
 
-  protected static final long MAX_MEMORY_SIZE_IN_BYTES = 1024 * 1024 * 1024;
-  // NOTE: Buffer-size is deliberately set pretty low, since MT internally is relying
-  //       on HFile (serving as persisted binary key-value mapping) to do caching
-  protected static final int BUFFER_SIZE = 10 * 1024; // 10Kb
-
   protected final transient HoodieEngineContext engineContext;
   protected final SerializablePath dataBasePath;
   protected final HoodieTableMetaClient dataMetaClient;
   protected final Option<HoodieMetadataMetrics> metrics;
   protected final HoodieMetadataConfig metadataConfig;
-  // Directory used for Spillable Map when merging records
-  protected final String spillableMapDirectory;
 
   protected boolean isMetadataTableEnabled;
   protected boolean isBloomFilterIndexEnabled = false;
   protected boolean isColumnStatsIndexEnabled = false;
 
-  protected BaseTableMetadata(HoodieEngineContext engineContext, HoodieMetadataConfig metadataConfig,
-                              String dataBasePath, String spillableMapDirectory) {
+  protected BaseTableMetadata(HoodieEngineContext engineContext, HoodieMetadataConfig metadataConfig, String dataBasePath) {
     this.engineContext = engineContext;
     this.dataBasePath = new SerializablePath(new CachingPath(dataBasePath));
     this.dataMetaClient = HoodieTableMetaClient.builder()
         .setConf(engineContext.getHadoopConf().get())
         .setBasePath(dataBasePath)
         .build();
-    this.spillableMapDirectory = spillableMapDirectory;
     this.metadataConfig = metadataConfig;
 
-    this.isMetadataTableEnabled = metadataConfig.enabled();
+    this.isMetadataTableEnabled = dataMetaClient.getTableConfig().isMetadataTableEnabled();
     if (metadataConfig.enableMetrics()) {
       this.metrics = Option.of(new HoodieMetadataMetrics(Registry.getRegistry("HoodieMetadata")));
     } else {
@@ -297,6 +289,30 @@ public abstract class BaseTableMetadata implements HoodieTableMetadata {
       }
     }
     return fileToColumnStatMap;
+  }
+
+  /**
+   * Reads record keys from record-level index.
+   * <p>
+   * If the Metadata Table is not enabled, an exception is thrown to distinguish this from the absence of the key.
+   *
+   * @param recordKeys The list of record keys to read
+   */
+  @Override
+  public Map<String, HoodieRecordGlobalLocation> readRecordIndex(List<String> recordKeys) {
+    ValidationUtils.checkState(dataMetaClient.getTableConfig().isMetadataPartitionEnabled(MetadataPartitionType.RECORD_INDEX),
+        "Cannot access record-level index as it is not available in the metadata table");
+
+    List<Pair<String, Option<HoodieRecord<HoodieMetadataPayload>>>> result = getRecordsByKeys(recordKeys, MetadataPartitionType.RECORD_INDEX.getPartitionPath());
+
+    Map<String, HoodieRecordGlobalLocation> recordKeyToLocation = new HashMap<>(result.size());
+    result.forEach(e -> {
+      if (e.getValue().isPresent()) {
+        recordKeyToLocation.put(e.getKey(), e.getValue().get().getData().getRecordGlobalLocation());
+      }
+    });
+
+    return recordKeyToLocation;
   }
 
   /**

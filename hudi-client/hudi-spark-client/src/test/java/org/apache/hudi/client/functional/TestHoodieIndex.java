@@ -107,7 +107,10 @@ public class TestHoodieIndex extends TestHoodieMetadataBase {
         {IndexType.GLOBAL_SIMPLE, false, true},
         {IndexType.GLOBAL_SIMPLE, false, false},
         {IndexType.BUCKET, false, true},
-        {IndexType.BUCKET, false, false}
+        {IndexType.BUCKET, false, false},
+        {IndexType.RECORD_INDEX, false, true},
+        {IndexType.RECORD_INDEX, true, true},
+        {IndexType.RECORD_INDEX, true, false}
     };
     return Stream.of(data).map(Arguments::of);
   }
@@ -128,6 +131,14 @@ public class TestHoodieIndex extends TestHoodieMetadataBase {
     HoodieIndexConfig.Builder indexBuilder = HoodieIndexConfig.newBuilder().withIndexType(indexType)
         .fromProperties(populateMetaFields ? new Properties() : getPropertiesForKeyGen())
         .withIndexType(indexType);
+
+    HoodieMetadataConfig.Builder metadataConfigBuilder = HoodieMetadataConfig.newBuilder()
+        .withMetadataIndexBloomFilter(enableMetadataIndex)
+        .withMetadataIndexColumnStats(enableMetadataIndex);
+    if (indexType == IndexType.RECORD_INDEX) {
+      metadataConfigBuilder.withCreateRecordIndex(true);
+    }
+
     config = getConfigBuilder()
         .withProperties(populateMetaFields ? new Properties() : getPropertiesForKeyGen())
         .withSchema(RawTripTestPayload.JSON_DATA_SCHEMA_STR)
@@ -137,10 +148,7 @@ public class TestHoodieIndex extends TestHoodieMetadataBase {
         .withRollbackUsingMarkers(rollbackUsingMarkers)
         .withIndexConfig(indexBuilder.build())
         .withAutoCommit(false)
-        .withMetadataConfig(HoodieMetadataConfig.newBuilder()
-            .withMetadataIndexBloomFilter(enableMetadataIndex)
-            .withMetadataIndexColumnStats(enableMetadataIndex)
-            .build())
+        .withMetadataConfig(metadataConfigBuilder.build())
         .withLayoutConfig(HoodieLayoutConfig.newBuilder().fromProperties(indexBuilder.build().getProps())
             .withLayoutPartitioner(SparkBucketIndexPartitioner.class.getName()).build())
         .build();
