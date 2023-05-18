@@ -596,7 +596,7 @@ public class TestCleaner extends HoodieClientTestBase {
           }
         })
     );
-    metadataWriter.update(commitMetadata, "00000000000001");
+    metadataWriter.update(commitMetadata, context.emptyHoodieData(), "00000000000001");
     metaClient.getActiveTimeline().saveAsComplete(
         new HoodieInstant(State.INFLIGHT, HoodieTimeline.COMMIT_ACTION, "00000000000001"),
         Option.of(commitMetadata.toJsonString().getBytes(StandardCharsets.UTF_8)));
@@ -1051,7 +1051,7 @@ public class TestCleaner extends HoodieClientTestBase {
           }
         })
     );
-    metadataWriter.update(commitMetadata, "00000000000001");
+    metadataWriter.update(commitMetadata, context.emptyHoodieData(), "00000000000001");
     metaClient.getActiveTimeline().saveAsComplete(
         new HoodieInstant(State.INFLIGHT, HoodieTimeline.COMMIT_ACTION, "00000000000001"),
         Option.of(commitMetadata.toJsonString().getBytes(StandardCharsets.UTF_8)));
@@ -1186,7 +1186,7 @@ public class TestCleaner extends HoodieClientTestBase {
       }
     });
     metadataWriter.performTableServices(Option.of(instantTime));
-    metadataWriter.update(commitMeta, instantTime);
+    metadataWriter.update(commitMeta, context.emptyHoodieData(), instantTime);
     metaClient.getActiveTimeline().saveAsComplete(
         new HoodieInstant(State.INFLIGHT, HoodieTimeline.COMMIT_ACTION, instantTime),
         Option.of(commitMeta.toJsonString().getBytes(StandardCharsets.UTF_8)));
