@@ -38,7 +38,6 @@ import org.apache.hudi.data.HoodieJavaRDD;
 import org.apache.hudi.exception.HoodieClusteringException;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.metadata.HoodieTableMetadataWriter;
-import org.apache.hudi.metadata.SparkHoodieBackedTableMetadataWriter;
 import org.apache.hudi.table.HoodieSparkTable;
 import org.apache.hudi.table.HoodieTable;
 import org.apache.hudi.table.action.HoodieWriteMetadata;
@@ -92,7 +91,7 @@ public class SparkRDDTableServiceClient<T> extends BaseHoodieTableServiceClient<
       LOG.info("Found Log compaction inflight file. Rolling back the commit and exiting.");
       table.rollbackInflightLogCompaction(inflightInstant, commitToRollback -> getPendingRollbackInfo(table.getMetaClient(), commitToRollback, false));
       table.getMetaClient().reloadActiveTimeline();
-      throw new HoodieException("Inflight logcompaction file exists");
+      throw new HoodieException("Inflight logCompaction file exists");
     }
     logCompactionTimer = metrics.getLogCompactionCtx();
     WriteMarkersFactory.get(config.getMarkersType(), table, logCompactionInstantTime);
@@ -179,7 +178,7 @@ public class SparkRDDTableServiceClient<T> extends BaseHoodieTableServiceClient<
     LOG.info("Starting clustering at " + clusteringInstant);
     HoodieWriteMetadata<HoodieData<WriteStatus>> writeMetadata = table.cluster(context, clusteringInstant);
     HoodieWriteMetadata<JavaRDD<WriteStatus>> clusteringMetadata = writeMetadata.clone(HoodieJavaRDD.getJavaRDD(writeMetadata.getWriteStatuses()));
-    // Validation has to be done after cloning. if not, it could result in dereferencing the write status twice which means clustering could get executed twice.
+    // Validation has to be done after cloning. if not, it could result in referencing the write status twice which means clustering could get executed twice.
     validateClusteringCommit(clusteringMetadata, clusteringInstant, table);
     // TODO : Where is shouldComplete used ?
     if (shouldComplete && clusteringMetadata.getCommitMetadata().isPresent()) {
@@ -263,24 +262,10 @@ public class SparkRDDTableServiceClient<T> extends BaseHoodieTableServiceClient<
 
   private void updateTableMetadata(HoodieTable table, HoodieCommitMetadata commitMetadata,
                                    HoodieInstant hoodieInstant) {
-    boolean isTableServiceAction = table.isTableServiceAction(hoodieInstant.getAction(), hoodieInstant.getTimestamp());
     // Do not do any conflict resolution here as we do with regular writes. We take the lock here to ensure all writes to metadata table happens within a
     // single lock (single writer). Because more than one write to metadata table will result in conflicts since all of them updates the same partition.
     table.getMetadataWriter(hoodieInstant.getTimestamp())
-            .ifPresent(writer -> ((HoodieTableMetadataWriter) writer).update(commitMetadata, hoodieInstant.getTimestamp()));
-  }
-
-  /**
-   * Initialize the metadata table if needed. Creating the metadata table writer
-   * will trigger the initial bootstrapping from the data table.
-   *
-   * @param inFlightInstantTimestamp - The in-flight action responsible for the metadata table initialization
-   */
-  protected void initializeMetadataTable(Option<String> inFlightInstantTimestamp) {
-    if (config.isMetadataTableEnabled()) {
-      SparkHoodieBackedTableMetadataWriter.create(context.getHadoopConf().get(), config,
-          context, Option.empty(), inFlightInstantTimestamp);
-    }
+        .ifPresent(writer -> ((HoodieTableMetadataWriter) writer).update(commitMetadata, context.emptyHoodieData(), hoodieInstant.getTimestamp()));
   }
 
   @Override

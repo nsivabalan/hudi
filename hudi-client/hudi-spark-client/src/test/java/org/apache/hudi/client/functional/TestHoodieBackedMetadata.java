@@ -2781,8 +2781,7 @@ public class TestHoodieBackedMetadata extends TestHoodieMetadataBase {
 
   private HoodieTableMetadata metadata(SparkRDDWriteClient client) {
     HoodieWriteConfig clientConfig = client.getConfig();
-    return HoodieTableMetadata.create(client.getEngineContext(), clientConfig.getMetadataConfig(), clientConfig.getBasePath(),
-        clientConfig.getSpillableMapBasePath());
+    return HoodieTableMetadata.create(client.getEngineContext(), clientConfig.getMetadataConfig(), clientConfig.getBasePath());
   }
 
   private void changeTableVersion(HoodieTableVersion version) throws IOException {
