@@ -119,7 +119,7 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
   }
 
   private void initIfNeeded() {
-    if (!isMetadataTableEnabled) {
+    if (!isMetadataTableInitialized) {
       if (!HoodieTableMetadata.isMetadataTable(metadataBasePath)) {
         LOG.info("Metadata table is disabled.");
       }
@@ -128,17 +128,15 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
         this.metadataMetaClient = HoodieTableMetaClient.builder().setConf(getHadoopConf()).setBasePath(metadataBasePath).build();
         this.metadataFileSystemView = getFileSystemView(metadataMetaClient);
         this.metadataTableConfig = metadataMetaClient.getTableConfig();
-        this.isBloomFilterIndexEnabled = metadataConfig.isBloomFilterIndexEnabled();
-        this.isColumnStatsIndexEnabled = metadataConfig.isColumnStatsIndexEnabled();
       } catch (TableNotFoundException e) {
         LOG.warn("Metadata table was not found at path " + metadataBasePath);
-        this.isMetadataTableEnabled = false;
+        this.isMetadataTableInitialized = false;
         this.metadataMetaClient = null;
         this.metadataFileSystemView = null;
         this.metadataTableConfig = null;
       } catch (Exception e) {
         LOG.error("Failed to initialize metadata table at path " + metadataBasePath, e);
-        this.isMetadataTableEnabled = false;
+        this.isMetadataTableInitialized = false;
         this.metadataMetaClient = null;
         this.metadataFileSystemView = null;
         this.metadataTableConfig = null;
@@ -640,7 +638,7 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
   }
 
   public boolean enabled() {
-    return isMetadataTableEnabled;
+    return isMetadataTableInitialized;
   }
 
   public HoodieTableMetaClient getMetadataMetaClient() {

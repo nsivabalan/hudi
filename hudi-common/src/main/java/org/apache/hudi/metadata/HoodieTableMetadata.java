@@ -117,10 +117,14 @@ public interface HoodieTableMetadata extends Serializable, AutoCloseable {
 
   static HoodieTableMetadata create(HoodieEngineContext engineContext, HoodieMetadataConfig metadataConfig, String datasetBasePath, boolean reuse) {
     if (metadataConfig.enabled()) {
-      return createHoodieBackedTableMetadata(engineContext, metadataConfig, datasetBasePath, reuse);
-    } else {
-      return createFSBackedTableMetadata(engineContext, metadataConfig, datasetBasePath);
+      HoodieBackedTableMetadata metadata = createHoodieBackedTableMetadata(engineContext, metadataConfig, datasetBasePath, reuse);
+      // If the MDT is not initialized then we fallback to FSBackedTableMetadata
+      if (metadata.isMetadataTableInitialized()) {
+        return metadata;
+      }
     }
+
+    return createFSBackedTableMetadata(engineContext, metadataConfig, datasetBasePath);
   }
 
   static FileSystemBackedTableMetadata createFSBackedTableMetadata(HoodieEngineContext engineContext,
