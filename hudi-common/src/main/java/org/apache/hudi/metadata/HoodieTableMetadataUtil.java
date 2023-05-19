@@ -1543,7 +1543,7 @@ public class HoodieTableMetadataUtil {
    * unique timestamp.
    */
   public static String createIndexInitTimestamp(String timestamp, int offset) {
-    return String.format("%s%3d", timestamp, PARTITION_INITIALIZATION_TIME_SUFFIX + offset);
+    return String.format("%s%03d", timestamp, PARTITION_INITIALIZATION_TIME_SUFFIX + offset);
   }
 
   /**
