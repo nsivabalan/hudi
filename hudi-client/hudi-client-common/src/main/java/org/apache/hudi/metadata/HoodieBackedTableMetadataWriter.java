@@ -476,7 +476,7 @@ public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMeta
     // initialized one after the other.
     for (int offset = 0; ; ++offset) {
       final String commitInstantTime = HoodieTableMetadataUtil.createIndexInitTimestamp(initializationTime, offset);
-      if (!metadataMetaClient.getCommitTimeline().containsInstant(commitInstantTime)) {
+      if (!metadataMetaClient.getCommitsTimeline().containsInstant(commitInstantTime)) {
         return commitInstantTime;
       }
     }
