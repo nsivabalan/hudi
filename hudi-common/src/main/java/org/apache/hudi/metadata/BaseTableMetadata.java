@@ -291,6 +291,7 @@ public abstract class BaseTableMetadata implements HoodieTableMetadata {
     List<Pair<String, Option<HoodieRecord<HoodieMetadataPayload>>>> result = getRecordsByKeys(recordKeys, MetadataPartitionType.RECORD_INDEX.getPartitionPath());
 
     Map<String, HoodieRecordGlobalLocation> recordKeyToLocation = new HashMap<>(result.size());
+    // Parallelize
     result.forEach(e -> {
       if (e.getValue().isPresent()) {
         recordKeyToLocation.put(e.getKey(), e.getValue().get().getData().getRecordGlobalLocation());
