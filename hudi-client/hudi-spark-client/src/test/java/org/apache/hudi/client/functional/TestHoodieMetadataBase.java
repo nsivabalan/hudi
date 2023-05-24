@@ -18,6 +18,7 @@
 
 package org.apache.hudi.client.functional;
 
+import org.apache.hadoop.fs.Path;
 import org.apache.hudi.client.HoodieTimelineArchiver;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.config.HoodieStorageConfig;
@@ -37,15 +38,13 @@ import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.config.metrics.HoodieMetricsConfig;
 import org.apache.hudi.config.metrics.HoodieMetricsGraphiteConfig;
 import org.apache.hudi.index.HoodieIndex;
-import org.apache.hudi.metadata.HoodieBackedTableMetadataWriter;
+import org.apache.hudi.metadata.HoodieMetadataWriteUtils;
 import org.apache.hudi.metadata.HoodieTableMetadata;
 import org.apache.hudi.metadata.HoodieTableMetadataWriter;
 import org.apache.hudi.metadata.SparkHoodieBackedTableMetadataWriter;
 import org.apache.hudi.table.HoodieSparkTable;
 import org.apache.hudi.table.HoodieTable;
 import org.apache.hudi.testutils.HoodieClientTestHarness;
-
-import org.apache.hadoop.fs.Path;
 import org.junit.jupiter.api.AfterEach;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -61,7 +60,6 @@ import static java.util.Collections.emptyList;
 import static org.apache.hudi.common.model.WriteOperationType.INSERT;
 import static org.apache.hudi.common.model.WriteOperationType.UPSERT;
 import static org.apache.hudi.common.testutils.HoodieTestDataGenerator.TRIP_EXAMPLE_SCHEMA;
-import static org.apache.hudi.metadata.HoodieTableMetadata.METADATA_TABLE_NAME_SUFFIX;
 
 public class TestHoodieMetadataBase extends HoodieClientTestHarness {
 
@@ -355,7 +353,6 @@ public class TestHoodieMetadataBase extends HoodieClientTestHarness {
    * the method is not public in source code. so, for now, using this method which mimics source code.
    */
   protected HoodieWriteConfig getMetadataWriteConfig(HoodieWriteConfig writeConfig) {
-    return HoodieBackedTableMetadataWriter.createMetadataWriteConfig(writeConfig.getTableName() + METADATA_TABLE_NAME_SUFFIX,
-            writeConfig, HoodieFailedWritesCleaningPolicy.LAZY);
+    return HoodieMetadataWriteUtils.createMetadataWriteConfig(writeConfig, HoodieFailedWritesCleaningPolicy.LAZY);
   }
 }
