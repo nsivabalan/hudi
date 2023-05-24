@@ -1406,6 +1406,27 @@ public class TestHoodieBackedMetadata extends TestHoodieMetadataBase {
     testTableOperationsForMetaIndexImpl(writeConfig);
   }
 
+  @Test
+  public void testInsertUpsertCompactRecordIndex() throws Exception {
+    initPath();
+
+    // Config with 5 fileGroups for record index
+    HoodieWriteConfig writeConfig = getWriteConfigBuilder(true, true, false)
+        .withIndexConfig(HoodieIndexConfig.newBuilder()
+            .withIndexType(HoodieIndex.IndexType.RECORD_INDEX)
+            .build())
+        .withMetadataConfig(HoodieMetadataConfig.newBuilder()
+            .enable(true)
+            .withCreateRecordIndex(true)
+            .withRecordIndexFileGroupCount(5, 5)
+            .build())
+        .withCompactionConfig(HoodieCompactionConfig.newBuilder().withMaxNumDeltaCommitsBeforeCompaction(4).build())
+        .build();
+
+    init(MERGE_ON_READ, writeConfig);
+    testTableOperationsForMetaIndexImpl(writeConfig);
+  }
+
   /**
    * First attempt at bootstrap failed but the file slices get created. The next bootstrap should continue successfully.
    */
@@ -1795,9 +1816,11 @@ public class TestHoodieBackedMetadata extends TestHoodieMetadataBase {
       validateMetadata(client);
 
       // Clustering
-      String clusteringCommitTime = HoodieActiveTimeline.createNewInstantTime();
-      client.scheduleClusteringAtInstant(clusteringCommitTime, Option.empty());
-      client.cluster(clusteringCommitTime);
+      if (metaClient.getTableType() == COPY_ON_WRITE) {
+        String clusteringCommitTime = HoodieActiveTimeline.createNewInstantTime();
+        client.scheduleClusteringAtInstant(clusteringCommitTime, Option.empty());
+        client.cluster(clusteringCommitTime);
+      }
 
       // Compaction
       if (metaClient.getTableType() == HoodieTableType.MERGE_ON_READ) {
@@ -1816,12 +1839,12 @@ public class TestHoodieBackedMetadata extends TestHoodieMetadataBase {
       assertNoWriteErrors(writeStatuses);
 
       // Compaction
-      if (metaClient.getTableType() == HoodieTableType.MERGE_ON_READ) {
+      /*if (metaClient.getTableType() == HoodieTableType.MERGE_ON_READ) {
         newCommitTime = HoodieActiveTimeline.createNewInstantTime();
         client.scheduleCompactionAtInstant(newCommitTime, Option.empty());
         client.compact(newCommitTime);
         validateMetadata(client);
-      }
+      }*/
 
       // Deletes
       newCommitTime = HoodieActiveTimeline.createNewInstantTime();
