@@ -231,33 +231,31 @@ public class SparkMetadataTableRecordIndex extends HoodieIndex<Object, Object> {
   }
 
   /**
-    * Returns a {@code HoodieTableMetaClient} for the metadata table.
-    *
-    * @param datasetMetaClient {@code HoodieTableMetaClient} for the dataset.
-    * @return {@code HoodieTableMetaClient} for the metadata table.
-    */
-public static HoodieTableMetaClient getMetadataTableMetaClient(HoodieTableMetaClient datasetMetaClient) {
-      final String metadataBasePath = HoodieTableMetadata.getMetadataTableBasePath(datasetMetaClient.getBasePath());
-      return HoodieTableMetaClient.builder().setBasePath(metadataBasePath).setConf(datasetMetaClient.getHadoopConf())
-              .build();
-    }
+   * Returns a {@code HoodieTableMetaClient} for the metadata table.
+   *
+   * @param datasetMetaClient {@code HoodieTableMetaClient} for the dataset.
+   * @return {@code HoodieTableMetaClient} for the metadata table.
+   */
+  public static HoodieTableMetaClient getMetadataTableMetaClient(HoodieTableMetaClient datasetMetaClient) {
+    final String metadataBasePath = HoodieTableMetadata.getMetadataTableBasePath(datasetMetaClient.getBasePath());
+    return HoodieTableMetaClient.builder().setBasePath(metadataBasePath).setConf(datasetMetaClient.getHadoopConf()).build();
+  }
 
-    /**
-  * Get metadata table file system view.
-  *
-  * @param metaClient - Metadata table meta client
-  * @return Filesystem view for the metadata table
-  */
-    public static HoodieTableFileSystemView getFileSystemView(HoodieTableMetaClient metaClient) {
-      // If there are no commits on the metadata table then the table's
-          // default FileSystemView will not return any file slices even
-              // though we may have initialized them.
-                  HoodieTimeline timeline = metaClient.getActiveTimeline();
-      if (timeline.empty()) {
-          final HoodieInstant instant = new HoodieInstant(false, HoodieTimeline.DELTA_COMMIT_ACTION,
-                  HoodieActiveTimeline.createNewInstantTime());
-          timeline = new HoodieDefaultTimeline(Stream.of(instant), metaClient.getActiveTimeline()::getInstantDetails);
-        }
-      return new HoodieTableFileSystemView(metaClient, timeline);
+  /**
+   * Get metadata table file system view.
+   *
+   * @param metaClient - Metadata table meta client
+   * @return Filesystem view for the metadata table
+   */
+  public static HoodieTableFileSystemView getFileSystemView(HoodieTableMetaClient metaClient) {
+    // If there are no commits on the metadata table then the table's
+    // default FileSystemView will not return any file slices even
+    // though we may have initialized them.
+    HoodieTimeline timeline = metaClient.getActiveTimeline();
+    if (timeline.empty()) {
+      final HoodieInstant instant = new HoodieInstant(false, HoodieTimeline.DELTA_COMMIT_ACTION, HoodieActiveTimeline.createNewInstantTime());
+      timeline = new HoodieDefaultTimeline(Stream.of(instant), metaClient.getActiveTimeline()::getInstantDetails);
     }
+    return new HoodieTableFileSystemView(metaClient, timeline);
+  }
 }
