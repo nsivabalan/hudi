@@ -29,6 +29,9 @@ import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieRecordGlobalLocation;
 import org.apache.hudi.common.model.HoodieRecordPayload;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
+import org.apache.hudi.common.table.timeline.HoodieDefaultTimeline;
+import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
 import org.apache.hudi.common.util.Option;
@@ -55,6 +58,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 
 import static org.apache.hudi.common.table.timeline.HoodieTimeline.GREATER_THAN;
 
@@ -76,8 +80,9 @@ public class SparkMetadataTableRecordIndex extends HoodieIndex<Object, Object> {
   public <R> HoodieData<HoodieRecord<R>> tagLocation(HoodieData<HoodieRecord<R>> records, HoodieEngineContext context, HoodieTable hoodieTable) throws HoodieIndexException {
     int fileGroupSize;
     try {
+      HoodieTableMetaClient metadataTableMetaClient = getMetadataTableMetaClient(hoodieTable.getMetaClient());
       ValidationUtils.checkState(hoodieTable.getMetaClient().getTableConfig().isMetadataPartitionEnabled(MetadataPartitionType.RECORD_INDEX));
-      fileGroupSize = HoodieTableMetadataUtil.getPartitionLatestMergedFileSlices(hoodieTable.getMetaClient(), (HoodieTableFileSystemView) hoodieTable.getFileSystemView(),
+      fileGroupSize = HoodieTableMetadataUtil.getPartitionLatestMergedFileSlices(hoodieTable.getMetaClient(), getFileSystemView(metadataTableMetaClient),
           MetadataPartitionType.RECORD_INDEX.getPartitionPath()).size();
       ValidationUtils.checkState(fileGroupSize > 0, "Record index should have at least one file group");
     } catch (TableNotFoundException | IllegalStateException e) {
@@ -224,4 +229,35 @@ public class SparkMetadataTableRecordIndex extends HoodieIndex<Object, Object> {
           .map(e -> new Tuple2<>(e.getKey(), e.getValue())).iterator();
     }
   }
+
+  /**
+    * Returns a {@code HoodieTableMetaClient} for the metadata table.
+    *
+    * @param datasetMetaClient {@code HoodieTableMetaClient} for the dataset.
+    * @return {@code HoodieTableMetaClient} for the metadata table.
+    */
+public static HoodieTableMetaClient getMetadataTableMetaClient(HoodieTableMetaClient datasetMetaClient) {
+      final String metadataBasePath = HoodieTableMetadata.getMetadataTableBasePath(datasetMetaClient.getBasePath());
+      return HoodieTableMetaClient.builder().setBasePath(metadataBasePath).setConf(datasetMetaClient.getHadoopConf())
+              .build();
+    }
+
+    /**
+  * Get metadata table file system view.
+  *
+  * @param metaClient - Metadata table meta client
+  * @return Filesystem view for the metadata table
+  */
+    public static HoodieTableFileSystemView getFileSystemView(HoodieTableMetaClient metaClient) {
+      // If there are no commits on the metadata table then the table's
+          // default FileSystemView will not return any file slices even
+              // though we may have initialized them.
+                  HoodieTimeline timeline = metaClient.getActiveTimeline();
+      if (timeline.empty()) {
+          final HoodieInstant instant = new HoodieInstant(false, HoodieTimeline.DELTA_COMMIT_ACTION,
+                  HoodieActiveTimeline.createNewInstantTime());
+          timeline = new HoodieDefaultTimeline(Stream.of(instant), metaClient.getActiveTimeline()::getInstantDetails);
+        }
+      return new HoodieTableFileSystemView(metaClient, timeline);
+    }
 }

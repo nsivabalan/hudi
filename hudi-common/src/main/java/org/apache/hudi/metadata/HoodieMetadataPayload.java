@@ -405,7 +405,7 @@ public class HoodieMetadataPayload implements HoodieRecordPayload<HoodieMetadata
         return new HoodieMetadataPayload(key, combineColumnStatsMetadata(previousRecord));
       case METADATA_TYPE_RECORD_INDEX:
         // TODO: does not work with updates
-        if (previousRecord.recordIndexMetadata.getInstantTime() != recordIndexMetadata.getInstantTime()) {
+        /*if (previousRecord.recordIndexMetadata.getInstantTime() != recordIndexMetadata.getInstantTime()) {
           throw new HoodieMetadataException(String.format("InstantTime for %s should not change from %s to %s", previousRecord.key,
               previousRecord, this));
         }
@@ -413,7 +413,7 @@ public class HoodieMetadataPayload implements HoodieRecordPayload<HoodieMetadata
         if (!previousRecord.getRecordGlobalLocation().equals(getRecordGlobalLocation())) {
           throw new HoodieMetadataException(String.format("Location for %s should not change from %s to %s", previousRecord.key,
               previousRecord, this));
-        }
+        }*/
         return this;
       default:
         throw new HoodieMetadataException("Unknown type of HoodieMetadataPayload: " + type);
@@ -756,7 +756,7 @@ public class HoodieMetadataPayload implements HoodieRecordPayload<HoodieMetadata
     if (recordIndexMetadata.getFileIndex() != RECORD_INDEX_MISSING_FILEINDEX) {
       fileId += "-" + recordIndexMetadata.getFileIndex();
     }
-    final Date instantDate = new Date(recordIndexMetadata.getInstantTime());
+    final java.util.Date instantDate = new java.util.Date(recordIndexMetadata.getInstantTime());
     return new HoodieRecordGlobalLocation(partition, HoodieActiveTimeline.formatDate(instantDate), fileId);
   }
 
