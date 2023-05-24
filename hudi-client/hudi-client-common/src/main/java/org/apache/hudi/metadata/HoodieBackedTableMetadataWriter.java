@@ -406,13 +406,12 @@ public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMeta
     if (exists) {
       try {
         metadataMetaClient = HoodieTableMetaClient.builder().setConf(hadoopConf.get()).setBasePath(metadataWriteConfig.getBasePath()).build();
+        if (DEFAULT_METADATA_POPULATE_META_FIELDS != metadataMetaClient.getTableConfig().populateMetaFields()) {
+          LOG.info("Re-initiating metadata table properties since populate meta fields have changed");
+          metadataMetaClient = initializeMetaClient();
+        }
       } catch (TableNotFoundException e) {
         // Table not found, initialize the metadata table.
-        metadataMetaClient = initializeMetaClient();
-      }
-
-      if (DEFAULT_METADATA_POPULATE_META_FIELDS != metadataMetaClient.getTableConfig().populateMetaFields()) {
-        LOG.info("Re-initiating metadata table properties since populate meta fields have changed");
         metadataMetaClient = initializeMetaClient();
       }
 
@@ -456,11 +455,10 @@ public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMeta
     }
 
     // Detect the commit gaps if any from the data and the metadata active timeline
-    if (dataMetaClient.getActiveTimeline().getAllCommitsTimeline().isBeforeTimelineStarts(
-        latestMetadataInstant.get().getTimestamp())
+    if (dataMetaClient.getActiveTimeline().getAllCommitsTimeline().isBeforeTimelineStarts(latestMetadataInstantTimestamp)
         && !isCommitRevertedByInFlightAction(actionMetadata, latestMetadataInstantTimestamp)) {
       LOG.error("Metadata Table will need to be re-initialized as un-synced instants have been archived."
-          + " latestMetadataInstant=" + latestMetadataInstant.get().getTimestamp()
+          + " latestMetadataInstant=" + latestMetadataInstantTimestamp
           + ", latestDataInstant=" + dataMetaClient.getActiveTimeline().firstInstant().get().getTimestamp());
       return true;
     }
@@ -572,7 +570,7 @@ public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMeta
       HoodieData<HoodieRecord> records = fileGroupCountAndRecordsPair.getValue();
       bulkCommit(commitTimeForPartition, partitionType, records, fileGroupCount);
       metadataMetaClient.reloadActiveTimeline();
-      dataMetaClient = HoodieTableMetadataUtil.setMetadataPartitionState(dataMetaClient, partitionType, true);
+      dataMetaClient.getTableConfig().setMetadataPartitionState(dataMetaClient, partitionType, true);
     }
 
     return true;
@@ -802,11 +800,11 @@ public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMeta
             .withFileId(fileGroupFileId).overBaseCommit(instantTime)
             .withLogVersion(HoodieLogFile.LOGFILE_BASE_VERSION)
             .withFileSize(0L)
-                .withSizeThreshold(metadataWriteConfig.getLogFileMaxSize())
-                .withFs(dataMetaClient.getFs())
-                .withRolloverLogWriteToken(HoodieLogFormat.DEFAULT_WRITE_TOKEN)
-                .withLogWriteToken(HoodieLogFormat.DEFAULT_WRITE_TOKEN)
-                .withFileExtension(HoodieLogFile.DELTA_EXTENSION).build();
+            .withSizeThreshold(metadataWriteConfig.getLogFileMaxSize())
+            .withFs(dataMetaClient.getFs())
+            .withRolloverLogWriteToken(HoodieLogFormat.DEFAULT_WRITE_TOKEN)
+            .withLogWriteToken(HoodieLogFormat.DEFAULT_WRITE_TOKEN)
+            .withFileExtension(HoodieLogFile.DELTA_EXTENSION).build();
         writer.appendBlock(block);
         writer.close();
       } catch (InterruptedException e) {
@@ -819,7 +817,7 @@ public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMeta
     for (MetadataPartitionType partitionType : metadataPartitions) {
       String partitionPath = partitionType.getPartitionPath();
       // first update table config
-      dataMetaClient.getTableConfig().setMetadataPartitionState(partitionType, false);
+      dataMetaClient.getTableConfig().setMetadataPartitionState(dataMetaClient, partitionType, false);
       LOG.warn("Deleting Metadata Table partition: " + partitionPath);
       dataMetaClient.getFs().delete(new Path(metadataWriteConfig.getBasePath(), partitionPath), true);
       // delete corresponding pending indexing instant file in the timeline
@@ -940,7 +938,7 @@ public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMeta
     });
 
     // before initialization set these  partitions as inflight in table config
-    HoodieTableMetadataUtil.setMetadataInflightPartitions(dataMetaClient, partitionTypes);
+    dataMetaClient.getTableConfig().setMetadataPartitionsInflight(dataMetaClient, partitionTypes);
 
     // initialize partitions
     initializeFromFilesystem(indexUptoInstantTime + METADATA_INDEXER_TIME_SUFFIX, partitionTypes, Option.empty());
@@ -1111,18 +1109,17 @@ public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMeta
 
       // Check and run clean operations.
       String latestDeltacommitTime = metadataMetaClient.reloadActiveTimeline().getDeltaCommitTimeline()
-              .filterCompletedInstants()
-              .lastInstant().get()
-              .getTimestamp();
+          .filterCompletedInstants()
+          .lastInstant().get()
+          .getTimestamp();
       LOG.info("Latest deltacommit time found is " + latestDeltacommitTime + ", running clean operations.");
       cleanIfNecessary(writeClient, latestDeltacommitTime);
 
       // Do timeline validation before scheduling compaction/logcompaction operations.
-      if (!validateTimelineBeforeSchedulingCompaction(inFlightInstantTimestamp, latestDeltacommitTime)) {
-        return;
+      if (validateTimelineBeforeSchedulingCompaction(inFlightInstantTimestamp, latestDeltacommitTime)) {
+        compactIfNecessary(writeClient, latestDeltacommitTime);
       }
 
-      compactIfNecessary(writeClient, latestDeltacommitTime);
       writeClient.archive();
       LOG.info("All the table services operations on MDT completed successfully");
     } catch (Exception e) {
