@@ -1457,7 +1457,12 @@ public class HoodieTableMetadataUtil {
    * @return The fileID
    */
   public static String getFileIDForFileGroup(MetadataPartitionType partitionType, int index) {
-    return String.format("%s%04d", partitionType.getFileIdPrefix(), index);
+    if (partitionType == MetadataPartitionType.FILES) {
+      // return String.format("%s-%d", idPfx, id);
+      return String.format("%s%04d-%d", partitionType.getFileIdPrefix(), index, 0);
+    } else {
+      return String.format("%s%04d", partitionType.getFileIdPrefix(), index);
+    }
   }
 
   /**

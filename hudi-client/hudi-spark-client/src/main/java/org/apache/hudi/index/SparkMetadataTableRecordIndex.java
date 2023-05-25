@@ -218,6 +218,10 @@ public class SparkMetadataTableRecordIndex extends HoodieIndex<Object, Object> {
     public Iterator<Tuple2<String, HoodieRecordGlobalLocation>> call(Iterator<String> recordKeyIterator) {
       List<String> keysToLookup = new ArrayList<>();
       recordKeyIterator.forEachRemaining(keysToLookup::add);
+      if (keysToLookup.isEmpty()) {
+        List<Tuple2<String, HoodieRecordGlobalLocation>> emptyList = new ArrayList<>();
+        return emptyList.iterator();
+      }
 
       // recordIndexInfo object only contains records that are present in record_index.
       Map<String, HoodieRecordGlobalLocation> recordIndexInfo = hoodieTable.getMetadataTable().readRecordIndex(keysToLookup);

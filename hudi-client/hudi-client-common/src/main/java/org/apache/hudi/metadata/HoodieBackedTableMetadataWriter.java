@@ -1171,6 +1171,7 @@ public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMeta
    * @param writeStatuses (@code WriteStatus} from the write operation
    */
   private HoodieData<HoodieRecord> getRecordIndexUpdates(HoodieData<WriteStatus> writeStatuses) {
+    // todo. leverage engine context to parallelize this.// check if this is list or java RDD
     return writeStatuses.flatMap(writeStatus -> {
       List<HoodieRecord> recordList = new LinkedList<>();
       for (HoodieRecord writtenRecord : writeStatus.getWrittenRecords()) {
@@ -1194,7 +1195,7 @@ public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMeta
                 continue;
               }
             }
-
+            // for clustering use-cases, current location will not be set. only new location will be set.
             hoodieRecord = HoodieMetadataPayload.createRecordIndexUpdate(key.getRecordKey(), key.getPartitionPath(),
                 newLocation.get().getFileId(), newLocation.get().getInstantTime());
           } else {
