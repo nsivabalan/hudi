@@ -1407,7 +1407,27 @@ public class TestHoodieBackedMetadata extends TestHoodieMetadataBase {
   }
 
   @Test
-  public void testInsertUpsertCompactRecordIndex() throws Exception {
+  public void testInsertUpsertCompactRecordIndexCOW() throws Exception {
+    initPath();
+
+    // Config with 5 fileGroups for record index
+    HoodieWriteConfig writeConfig = getWriteConfigBuilder(true, true, false)
+        .withIndexConfig(HoodieIndexConfig.newBuilder()
+            .withIndexType(HoodieIndex.IndexType.RECORD_INDEX)
+            .build())
+        .withMetadataConfig(HoodieMetadataConfig.newBuilder()
+            .enable(true)
+            .withCreateRecordIndex(true)
+            .withRecordIndexFileGroupCount(5, 5)
+            .build())
+        .build();
+
+    init(COPY_ON_WRITE, writeConfig);
+    testTableOperationsForMetaIndexImpl(writeConfig);
+  }
+
+  @Test
+  public void testInsertUpsertCompactRecordIndexMOR() throws Exception {
     initPath();
 
     // Config with 5 fileGroups for record index
