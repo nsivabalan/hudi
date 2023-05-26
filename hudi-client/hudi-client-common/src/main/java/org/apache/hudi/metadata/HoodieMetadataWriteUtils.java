@@ -105,7 +105,7 @@ public class HoodieMetadataWriteUtils {
         // we will trigger compaction manually, to control the instant times
         .withCompactionConfig(HoodieCompactionConfig.newBuilder()
             .withInlineCompaction(false)
-            .withMaxNumDeltaCommitsBeforeCompaction(writeConfig.getMetadataCompactDeltaCommitMax())
+            .withMaxNumDeltaCommitsBeforeCompaction(1)
             .withEnableOptimizedLogBlocksScan(String.valueOf(writeConfig.enableOptimizedLogBlocksScan()))
             // Compaction on metadata table is used as a barrier for archiving on main dataset and for validating the
             // deltacommits having corresponding completed commits. Therefore, we need to compact all fileslices of all
