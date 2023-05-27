@@ -70,7 +70,7 @@ public class SparkMetadataTableRecordIndex extends HoodieIndex<Object, Object> {
   private static final Logger LOG = LoggerFactory.getLogger(SparkMetadataTableRecordIndex.class);
   // The index to fallback upon when record index is not initialized yet.
   // This should be a global index like record index so that the behavior of tagging across partitions is not changed.
-  private static final HoodieIndex.IndexType FALLBACK_INDEX_TYPE = IndexType.SIMPLE;
+  private static final HoodieIndex.IndexType FALLBACK_INDEX_TYPE = IndexType.GLOBAL_SIMPLE;
 
   public SparkMetadataTableRecordIndex(HoodieWriteConfig config) {
     super(config);
