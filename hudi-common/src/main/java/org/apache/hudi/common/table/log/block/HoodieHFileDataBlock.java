@@ -51,7 +51,6 @@ import org.slf4j.LoggerFactory;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -198,7 +197,7 @@ public class HoodieHFileDataBlock extends HoodieDataBlock {
     // HFile read will be efficient if keys are sorted, since on storage records are sorted by key.
     // This will avoid unnecessary seeks.
     List<String> sortedKeys = new ArrayList<>(keys);
-    Collections.sort(sortedKeys);
+    // Collections.sort(sortedKeys);
 
     final HoodieAvroHFileReader reader =
              new HoodieAvroHFileReader(inlineConf, inlinePath, new CacheConfig(inlineConf), inlinePath.getFileSystem(inlineConf),

@@ -203,7 +203,14 @@ public interface HoodieTableMetadata extends Serializable, AutoCloseable {
   /**
    * Returns the location of record keys which are found in the record index.
    */
-  Map<String, HoodieRecordGlobalLocation> readRecordIndex(List<String> recordKeys);
+  default Map<String, HoodieRecordGlobalLocation> readRecordIndex(List<String> recordKeys) {
+    return readRecordIndex(recordKeys, -1);
+  }
+
+  /**
+   * Returns the location of record keys which are found in the record index.
+   */
+  Map<String, HoodieRecordGlobalLocation> readRecordIndex(List<String> recordKeys, int randomInt);
 
   /**
    * Fetch records by key prefixes. Key prefix passed is expected to match the same prefix as stored in Metadata table partitions. For eg, in case of col stats partition,

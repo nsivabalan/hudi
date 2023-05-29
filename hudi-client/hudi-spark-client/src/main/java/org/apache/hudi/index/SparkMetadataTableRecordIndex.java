@@ -58,6 +58,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.stream.Stream;
 
 import static org.apache.hudi.common.table.timeline.HoodieTimeline.GREATER_THAN;
@@ -209,6 +210,7 @@ public class SparkMetadataTableRecordIndex extends HoodieIndex<Object, Object> {
    */
   private static class RecordIndexFileGroupLookupFunction implements PairFlatMapFunction<Iterator<String>, String, HoodieRecordGlobalLocation> {
     private final HoodieTable hoodieTable;
+    private final Random random = new Random();
 
     public RecordIndexFileGroupLookupFunction(HoodieTable hoodieTable) {
       this.hoodieTable = hoodieTable;
@@ -223,8 +225,10 @@ public class SparkMetadataTableRecordIndex extends HoodieIndex<Object, Object> {
         return emptyList.iterator();
       }
 
+      int randomInt = random.nextInt();
+
       // recordIndexInfo object only contains records that are present in record_index.
-      Map<String, HoodieRecordGlobalLocation> recordIndexInfo = hoodieTable.getMetadataTable().readRecordIndex(keysToLookup);
+      Map<String, HoodieRecordGlobalLocation> recordIndexInfo = hoodieTable.getMetadataTable().readRecordIndex(keysToLookup, randomInt);
 
       HoodieTableMetaClient metaClient = hoodieTable.getMetaClient();
       HoodieTimeline commitsTimeline = metaClient.getCommitsTimeline().filterCompletedInstants();

@@ -205,7 +205,7 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
                     readLogRecords(logRecordScanner, sortedKeyPrefixes, fullKeys, timings);
 
                 Map<String, HoodieRecord<HoodieMetadataPayload>> mergedRecords =
-                    readFromBaseAndMergeWithLogRecords(baseFileReader, sortedKeyPrefixes, fullKeys, logRecords, timings, partitionName);
+                    readFromBaseAndMergeWithLogRecords(baseFileReader, sortedKeyPrefixes, fullKeys, logRecords, timings, partitionName, -1, 0);
 
                 LOG.debug(String.format("Metadata read for %s keys took [baseFileRead, logMerge] %s ms",
                     sortedKeyPrefixes.size(), timings));
@@ -223,8 +223,9 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
 
   @Override
   public Map<String, HoodieRecord<HoodieMetadataPayload>> getRecordsByKeys(List<String> keys,
-                                                                           String partitionName) {
-    LOG.info("XXX Starting to read records from " + partitionName + ", key size to read " + keys.size());
+                                                                           String partitionName, int randomInt) {
+    long startTime1 = System.currentTimeMillis();
+    LOG.info(randomInt + " XXX Starting to read records from " + partitionName + ", key size to read " + keys.size());
     // Sort the columns so that keys are looked up in order
     List<String> sortedKeys = new ArrayList<>(keys);
     Collections.sort(sortedKeys);
@@ -233,9 +234,11 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
     Map<String, HoodieRecord<HoodieMetadataPayload>> result = new HashMap<>();
     AtomicInteger fileSlicesKeysCount = new AtomicInteger();
     partitionFileSliceToKeysMap.forEach((partitionFileSlicePair, fileSliceKeys) -> {
+      long startTime2 = System.currentTimeMillis();
       Pair<HoodieSeekingFileReader<?>, HoodieMetadataLogRecordReader> readers =
           getOrCreateReaders(partitionName, partitionFileSlicePair.getRight());
-      LOG.info("XXX Opened up the readers for " + partitionFileSlicePair.getValue().getFileId());
+      LOG.info(randomInt + " XXX Opened up the readers for " + partitionFileSlicePair.getValue().getFileId() + ", in "
+          + (System.currentTimeMillis() - startTime2) + ", time from beginning " + (System.currentTimeMillis() - startTime1));
       try {
         List<Long> timings = new ArrayList<>();
         HoodieSeekingFileReader<?> baseFileReader = readers.getKey();
@@ -245,13 +248,15 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
         }
 
         boolean fullKeys = true;
-        LOG.info("XXX Starting to read log records");
+        LOG.info(randomInt + " XXX Starting to read log records ");
+        long startTime3 = System.currentTimeMillis();
         Map<String, HoodieRecord<HoodieMetadataPayload>> logRecords =
             readLogRecords(logRecordScanner, fileSliceKeys, fullKeys, timings);
 
-        LOG.info("XXX Completed reading from log records. Total log records : " + logRecords.size());
+        LOG.info(randomInt + " XXX Completed reading from log records. Total log records : " + logRecords.size() + ", time to read records from logs "
+            + (System.currentTimeMillis() - startTime3) + " , time from beginning " + (System.currentTimeMillis() - startTime1));
         result.putAll(readFromBaseAndMergeWithLogRecords(baseFileReader, fileSliceKeys, fullKeys, logRecords,
-            timings, partitionName));
+            timings, partitionName, randomInt, startTime1));
 
         LOG.debug(String.format("Metadata read for %s keys took [baseFileRead, logMerge] %s ms",
             fileSliceKeys.size(), timings));
@@ -265,6 +270,8 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
       }
     });
 
+    LOG.info(randomInt + " XXX Completed reading records from " + partitionName + ", key size to read " + keys.size() + ", total time "
+        + (System.currentTimeMillis() - startTime1));
     return result;
   }
 
@@ -301,7 +308,9 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
                                                                                               boolean fullKeys,
                                                                                               Map<String, HoodieRecord<HoodieMetadataPayload>> logRecords,
                                                                                               List<Long> timings,
-                                                                                              String partitionName) throws IOException {
+                                                                                              String partitionName,
+                                                                                              int randomInt,
+                                                                                              long startTime1) throws IOException {
     HoodieTimer timer = HoodieTimer.start();
 
     if (reader == null) {
@@ -322,15 +331,17 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
     }
 
     HoodieTimer readTimer = HoodieTimer.start();
-
-    LOG.info("XXX Starting to read from Base file ");
+    LOG.info(randomInt + " XXX Starting to read from Base file ");
+    long startTime4 = System.currentTimeMillis();
     Map<String, HoodieRecord<HoodieMetadataPayload>> records =
         fetchBaseFileRecordsByKeys(reader, keys, fullKeys, partitionName);
-    LOG.info("XXX Completed reading from base file " + records.size());
-    LOG.info("XXX Starting to merge base records w/ log records");
+    LOG.info(randomInt + " XXX Completed reading from base file " + records.size() + ", " + (System.currentTimeMillis() - startTime4) + ", "
+            + (System.currentTimeMillis() - startTime1));
+    LOG.info(randomInt + " XXX Starting to merge base records w/ log records");
 
     metrics.ifPresent(m -> m.updateMetrics(HoodieMetadataMetrics.BASEFILE_READ_STR, readTimer.endTimer()));
 
+    long startTime5 = System.currentTimeMillis();
     // Iterate over all provided log-records, merging them into existing records
     for (HoodieRecord<HoodieMetadataPayload> logRecord : logRecords.values()) {
       records.merge(
@@ -340,12 +351,14 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
               new HoodieAvroRecord<>(oldRecord.getKey(), newRecord.getData().preCombine(oldRecord.getData()))
       );
     }
-    LOG.info("XXX Completed merging w/ base file records ");
+    LOG.info("XXX Completed merging w/ base file records " + (System.currentTimeMillis() - startTime5) + ", "
+        + (System.currentTimeMillis() - startTime1));
 
     timings.add(timer.endTimer());
 
     Map<String, HoodieRecord<HoodieMetadataPayload>> finalResult = new HashMap<>();
     LOG.info("XXX Populating final result ");
+    long startTime6 = System.currentTimeMillis();
     if (fullKeys) {
       // In case full-keys (not key-prefixes) were provided, it's expected that the list of
       // records will contain an (optional) entry for each corresponding key
@@ -358,7 +371,7 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
           .map(record -> Pair.of(record.getRecordKey(), record))
           .collect(Collectors.toMap(Pair::getKey, Pair::getValue));
     }
-    LOG.info("XXX Completed populating final result ");
+    LOG.info("XXX Completed populating final result " + (System.currentTimeMillis() - startTime6) + ", " + (System.currentTimeMillis() - startTime1));
     return finalResult;
   }
 

@@ -275,7 +275,7 @@ public abstract class BaseTableMetadata implements HoodieTableMetadata {
    * @param recordKeys The list of record keys to read
    */
   @Override
-  public Map<String, HoodieRecordGlobalLocation> readRecordIndex(List<String> recordKeys) {
+  public Map<String, HoodieRecordGlobalLocation> readRecordIndex(List<String> recordKeys, int randomInt) {
     // If record index is not initialized yet, we cannot return an empty result here unlike the code for reading from other
     // indexes. This is because results from this function are used for upserts and returning an empty result here would lead
     // to existing records being inserted again causing duplicates.
@@ -283,7 +283,8 @@ public abstract class BaseTableMetadata implements HoodieTableMetadata {
     ValidationUtils.checkState(dataMetaClient.getTableConfig().isMetadataPartitionEnabled(MetadataPartitionType.RECORD_INDEX),
         "Record index is not initialized in MDT");
 
-    Map<String, HoodieRecord<HoodieMetadataPayload>> result = getRecordsByKeys(recordKeys, MetadataPartitionType.RECORD_INDEX.getPartitionPath());
+    Map<String, HoodieRecord<HoodieMetadataPayload>> result = getRecordsByKeys(recordKeys, MetadataPartitionType.RECORD_INDEX.getPartitionPath(),
+        randomInt);
 
     Map<String, HoodieRecordGlobalLocation> recordKeyToLocation = new HashMap<>(result.size());
     result.forEach((key, record) -> recordKeyToLocation.put(key, record.getData().getRecordGlobalLocation()));
@@ -402,7 +403,11 @@ public abstract class BaseTableMetadata implements HoodieTableMetadata {
 
   protected abstract Option<HoodieRecord<HoodieMetadataPayload>> getRecordByKey(String key, String partitionName);
 
-  public abstract Map<String, HoodieRecord<HoodieMetadataPayload>> getRecordsByKeys(List<String> key, String partitionName);
+  public abstract Map<String, HoodieRecord<HoodieMetadataPayload>> getRecordsByKeys(List<String> key, String partitionName, int randomInt);
+
+  public Map<String, HoodieRecord<HoodieMetadataPayload>> getRecordsByKeys(List<String> key, String partitionName) {
+    return getRecordsByKeys(key, partitionName, -1);
+  }
 
   protected HoodieEngineContext getEngineContext() {
     return engineContext != null ? engineContext : new HoodieLocalEngineContext(getHadoopConf());
