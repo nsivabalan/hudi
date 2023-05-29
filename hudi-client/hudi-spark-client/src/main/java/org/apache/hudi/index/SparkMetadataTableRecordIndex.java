@@ -228,7 +228,7 @@ public class SparkMetadataTableRecordIndex extends HoodieIndex<Object, Object> {
       int randomInt = random.nextInt();
 
       // recordIndexInfo object only contains records that are present in record_index.
-      Map<String, HoodieRecordGlobalLocation> recordIndexInfo = hoodieTable.getMetadataTable().readRecordIndex(keysToLookup);
+      Map<String, HoodieRecordGlobalLocation> recordIndexInfo = hoodieTable.getMetadataTable().readRecordIndex(keysToLookup, randomInt);
 
       HoodieTableMetaClient metaClient = hoodieTable.getMetaClient();
       HoodieTimeline commitsTimeline = metaClient.getCommitsTimeline().filterCompletedInstants();

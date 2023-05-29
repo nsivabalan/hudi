@@ -82,6 +82,7 @@ import static org.apache.hudi.common.util.CollectionUtils.toStream;
 import static org.apache.hudi.metadata.HoodieTableMetadataUtil.PARTITION_NAME_BLOOM_FILTERS;
 import static org.apache.hudi.metadata.HoodieTableMetadataUtil.PARTITION_NAME_COLUMN_STATS;
 import static org.apache.hudi.metadata.HoodieTableMetadataUtil.PARTITION_NAME_FILES;
+import static org.apache.hudi.metadata.HoodieTableMetadataUtil.PARTITION_NAME_RECORD_INDEX;
 import static org.apache.hudi.metadata.HoodieTableMetadataUtil.getFileSystemView;
 import static org.apache.hudi.metadata.HoodieTableMetadataUtil.isIndexingCommit;
 
@@ -572,7 +573,8 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
     switch (partitionName) {
       case PARTITION_NAME_FILES:
         return DEFAULT_METADATA_ENABLE_FULL_SCAN_LOG_FILES;
-
+      case PARTITION_NAME_RECORD_INDEX:
+        return DEFAULT_METADATA_ENABLE_FULL_SCAN_LOG_FILES;
       case PARTITION_NAME_COLUMN_STATS:
       case PARTITION_NAME_BLOOM_FILTERS:
       default:
