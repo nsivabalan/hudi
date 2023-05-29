@@ -208,7 +208,7 @@ public class FileSystemBackedTableMetadata implements HoodieTableMetadata {
   }
 
   @Override
-  public Map<String, HoodieRecordGlobalLocation> readRecordIndex(List<String> recordKeys) {
+  public Map<String, HoodieRecordGlobalLocation> readRecordIndex(List<String> recordKeys, int randomInt) {
     throw new HoodieMetadataException("Unsupported operation: readRecordIndex!");
   }
 }
