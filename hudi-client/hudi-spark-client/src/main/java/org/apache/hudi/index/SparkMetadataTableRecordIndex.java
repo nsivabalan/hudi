@@ -68,6 +68,8 @@ import static org.apache.hudi.common.table.timeline.HoodieTimeline.GREATER_THAN;
  */
 public class SparkMetadataTableRecordIndex extends HoodieIndex<Object, Object> {
 
+  private static final Random RANDOM = new Random(0xDEED);
+
   private static final Logger LOG = LoggerFactory.getLogger(SparkMetadataTableRecordIndex.class);
   // The index to fallback upon when record index is not initialized yet.
   // This should be a global index like record index so that the behavior of tagging across partitions is not changed.
@@ -83,7 +85,7 @@ public class SparkMetadataTableRecordIndex extends HoodieIndex<Object, Object> {
     try {
       HoodieTableMetaClient metadataTableMetaClient = getMetadataTableMetaClient(hoodieTable.getMetaClient());
       ValidationUtils.checkState(hoodieTable.getMetaClient().getTableConfig().isMetadataPartitionEnabled(MetadataPartitionType.RECORD_INDEX));
-      fileGroupSize = HoodieTableMetadataUtil.getPartitionLatestMergedFileSlices(hoodieTable.getMetaClient(), getFileSystemView(metadataTableMetaClient),
+      fileGroupSize = HoodieTableMetadataUtil.getPartitionLatestMergedFileSlices(metadataTableMetaClient, getFileSystemView(metadataTableMetaClient),
           MetadataPartitionType.RECORD_INDEX.getPartitionPath()).size();
       ValidationUtils.checkState(fileGroupSize > 0, "Record index should have at least one file group");
     } catch (TableNotFoundException | IllegalStateException e) {
@@ -111,6 +113,7 @@ public class SparkMetadataTableRecordIndex extends HoodieIndex<Object, Object> {
         .partitionBy(new PartitionIdPassthrough(numFileGroups))
         .map(t -> t._2);
     ValidationUtils.checkState(partitionedKeyRDD.getNumPartitions() <= numFileGroups);
+    LOG.info("XXX num partitions: " + partitionedKeyRDD.getNumPartitions());
 
     // Lookup the keys in the record index
     HoodiePairData<String, HoodieRecordGlobalLocation> keyToLocationPairRDD =
@@ -210,7 +213,6 @@ public class SparkMetadataTableRecordIndex extends HoodieIndex<Object, Object> {
    */
   private static class RecordIndexFileGroupLookupFunction implements PairFlatMapFunction<Iterator<String>, String, HoodieRecordGlobalLocation> {
     private final HoodieTable hoodieTable;
-    private final Random random = new Random();
 
     public RecordIndexFileGroupLookupFunction(HoodieTable hoodieTable) {
       this.hoodieTable = hoodieTable;
@@ -225,7 +227,8 @@ public class SparkMetadataTableRecordIndex extends HoodieIndex<Object, Object> {
         return emptyList.iterator();
       }
 
-      int randomInt = random.nextInt();
+      int randomInt = RANDOM.nextInt();
+      LOG.info("XXX generated random int: " + randomInt);
 
       // recordIndexInfo object only contains records that are present in record_index.
       Map<String, HoodieRecordGlobalLocation> recordIndexInfo = hoodieTable.getMetadataTable().readRecordIndex(keysToLookup, randomInt);
