@@ -18,26 +18,26 @@
 
 package org.apache.hudi.common.table.log.block;
 
-import org.apache.avro.generic.GenericRecord;
-import org.apache.hadoop.fs.FileSystem;
 import org.apache.hudi.avro.HoodieAvroUtils;
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.fs.inline.InLineFSUtils;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieRecord.HoodieRecordType;
+import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.collection.ClosableIterator;
 import org.apache.hudi.common.util.collection.CloseableMappingIterator;
-import org.apache.hudi.common.util.Option;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieIOException;
 import org.apache.hudi.io.storage.HoodieAvroHFileReader;
 import org.apache.hudi.io.storage.HoodieHBaseKVComparator;
 
 import org.apache.avro.Schema;
+import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.generic.IndexedRecord;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.io.compress.Compression;
@@ -184,6 +184,7 @@ public class HoodieHFileDataBlock extends HoodieDataBlock {
   protected <T> ClosableIterator<HoodieRecord<T>> lookupRecords(List<String> keys, boolean fullKey) throws IOException {
     HoodieLogBlockContentLocation blockContentLoc = getBlockContentLocation().get();
 
+    LOG.info("XXX Looking up records for " + keys.size() + " keys");
     // NOTE: It's important to extend Hadoop configuration here to make sure configuration
     //       is appropriately carried over
     Configuration inlineConf = FSUtils.buildInlineConf(blockContentLoc.getHadoopConf());
@@ -198,16 +199,15 @@ public class HoodieHFileDataBlock extends HoodieDataBlock {
     // This will avoid unnecessary seeks.
     List<String> sortedKeys = new ArrayList<>(keys);
     // Collections.sort(sortedKeys);
+    try (HoodieAvroHFileReader reader = new HoodieAvroHFileReader(inlineConf, inlinePath, new CacheConfig(inlineConf), inlinePath.getFileSystem(inlineConf),
+        Option.of(getSchemaFromHeader()))) {
 
-    final HoodieAvroHFileReader reader =
-             new HoodieAvroHFileReader(inlineConf, inlinePath, new CacheConfig(inlineConf), inlinePath.getFileSystem(inlineConf),
-             Option.of(getSchemaFromHeader()));
+      // Get writer's schema from the header
+      final ClosableIterator<HoodieRecord<IndexedRecord>> recordIterator =
+          fullKey ? reader.getRecordsByKeysIterator(sortedKeys, readerSchema) : reader.getRecordsByKeyPrefixIterator(sortedKeys, readerSchema);
 
-    // Get writer's schema from the header
-    final ClosableIterator<HoodieRecord<IndexedRecord>> recordIterator =
-        fullKey ? reader.getRecordsByKeysIterator(sortedKeys, readerSchema) : reader.getRecordsByKeyPrefixIterator(sortedKeys, readerSchema);
-
-    return new CloseableMappingIterator<>(recordIterator, data -> (HoodieRecord<T>) data);
+      return new CloseableMappingIterator<>(recordIterator, data -> (HoodieRecord<T>) data);
+    }
   }
 
   private byte[] serializeRecord(HoodieRecord<?> record, Schema schema) throws IOException {

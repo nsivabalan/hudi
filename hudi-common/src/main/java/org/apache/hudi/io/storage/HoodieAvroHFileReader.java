@@ -133,8 +133,10 @@ public class HoodieAvroHFileReader extends HoodieAvroFileReaderBase implements H
     // We're caching blocks for this scanner to minimize amount of traffic
     // to the underlying storage as we fetched (potentially) sparsely distributed
     // keys
+    long startTime = System.currentTimeMillis();
     HFileScanner scanner = getHFileScanner(reader, true);
     ClosableIterator<IndexedRecord> iterator = new RecordByKeyIterator(scanner, keys, getSchema(), schema);
+    LOG.info("XXX Scanner instantiation timer " + (System.currentTimeMillis() - startTime));
     return new CloseableMappingIterator<>(iterator, data -> unsafeCast(new HoodieAvroIndexedRecord(data)));
   }
 

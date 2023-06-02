@@ -572,7 +572,6 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
     switch (partitionName) {
       case PARTITION_NAME_FILES:
         return DEFAULT_METADATA_ENABLE_FULL_SCAN_LOG_FILES;
-
       case PARTITION_NAME_COLUMN_STATS:
       case PARTITION_NAME_BLOOM_FILTERS:
       default:
