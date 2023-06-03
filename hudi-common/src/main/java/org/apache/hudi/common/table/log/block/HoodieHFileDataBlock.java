@@ -199,15 +199,14 @@ public class HoodieHFileDataBlock extends HoodieDataBlock {
     // This will avoid unnecessary seeks.
     List<String> sortedKeys = new ArrayList<>(keys);
     // Collections.sort(sortedKeys);
-    try (HoodieAvroHFileReader reader = new HoodieAvroHFileReader(inlineConf, inlinePath, new CacheConfig(inlineConf), inlinePath.getFileSystem(inlineConf),
-        Option.of(getSchemaFromHeader()))) {
+    final HoodieAvroHFileReader reader = new HoodieAvroHFileReader(inlineConf, inlinePath, new CacheConfig(inlineConf), inlinePath.getFileSystem(inlineConf),
+        Option.of(getSchemaFromHeader()));
 
-      // Get writer's schema from the header
-      final ClosableIterator<HoodieRecord<IndexedRecord>> recordIterator =
-          fullKey ? reader.getRecordsByKeysIterator(sortedKeys, readerSchema) : reader.getRecordsByKeyPrefixIterator(sortedKeys, readerSchema);
+    // Get writer's schema from the header
+    final ClosableIterator<HoodieRecord<IndexedRecord>> recordIterator =
+        fullKey ? reader.getRecordsByKeysIterator(sortedKeys, readerSchema) : reader.getRecordsByKeyPrefixIterator(sortedKeys, readerSchema);
 
-      return new CloseableMappingIterator<>(recordIterator, data -> (HoodieRecord<T>) data);
-    }
+    return new CloseableMappingIterator<>(recordIterator, data -> (HoodieRecord<T>) data);
   }
 
   private byte[] serializeRecord(HoodieRecord<?> record, Schema schema) throws IOException {
