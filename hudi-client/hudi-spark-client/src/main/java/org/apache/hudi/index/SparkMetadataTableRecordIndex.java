@@ -271,6 +271,7 @@ public class SparkMetadataTableRecordIndex extends HoodieIndex<Object, Object> {
 
     @Override
     public Iterator<Tuple2<String, HoodieRecordGlobalLocation>> call(Iterator<String> recordKeyIterator) {
+      long startTime = System.currentTimeMillis();
       List<String> keysToLookup = new ArrayList<>();
       recordKeyIterator.forEachRemaining(keysToLookup::add);
       if (keysToLookup.isEmpty()) {
@@ -279,16 +280,21 @@ public class SparkMetadataTableRecordIndex extends HoodieIndex<Object, Object> {
       }
 
       int randomInt = RANDOM.nextInt();
-      LOG.info("XXX generated random int: " + randomInt);
+      LOG.info(randomInt + " XXX generated random int: " + randomInt);
 
       // recordIndexInfo object only contains records that are present in record_index.
       Map<String, HoodieRecordGlobalLocation> recordIndexInfo = hoodieTable.getMetadataTable().readRecordIndex(keysToLookup, randomInt);
+      LOG.info(randomInt + " XXX Fetched record locations in " + (System.currentTimeMillis() - startTime));
+      long startTime1 = System.currentTimeMillis();
 
       HoodieTableMetaClient metaClient = hoodieTable.getMetaClient();
       HoodieTimeline commitsTimeline = metaClient.getCommitsTimeline().filterCompletedInstants();
-      return recordIndexInfo.entrySet().stream()
+      Iterator<Tuple2<String, HoodieRecordGlobalLocation>> toReturn = recordIndexInfo.entrySet().stream()
           .filter(e -> HoodieIndexUtils.checkIfValidCommit(commitsTimeline, e.getValue().getInstantTime()))
           .map(e -> new Tuple2<>(e.getKey(), e.getValue())).iterator();
+      LOG.info(randomInt + " XXX Constructed the return value in " + (System.currentTimeMillis() - startTime1));
+      LOG.info(randomInt + " XXX TOTAL TIME for map partition() " + (System.currentTimeMillis() - startTime));
+      return toReturn;
     }
   }
 
