@@ -1916,6 +1916,10 @@ public class HoodieWriteConfig extends HoodieConfig {
     return getBoolean(HoodieIndexConfig.SIMPLE_INDEX_UPDATE_PARTITION_PATH_ENABLE);
   }
 
+  public boolean getRecordIndexUpdatePartitionPath() {
+    return getBoolean(HoodieIndexConfig.RECORD_INDEX_UPDATE_PARTITION_PATH_ENABLE);
+  }
+
   public int getGlobalIndexReconcileParallelism() {
     return getInt(HoodieIndexConfig.GLOBAL_INDEX_RECONCILE_PARALLELISM);
   }

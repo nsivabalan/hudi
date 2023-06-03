@@ -18,11 +18,11 @@
 
 package org.apache.hudi.index;
 
-import org.apache.hadoop.conf.Configuration;
 import org.apache.hudi.client.WriteStatus;
 import org.apache.hudi.common.data.HoodieData;
 import org.apache.hudi.common.data.HoodiePairData;
 import org.apache.hudi.common.engine.HoodieEngineContext;
+import org.apache.hudi.common.function.SerializableFunction;
 import org.apache.hudi.common.model.HoodieAvroRecord;
 import org.apache.hudi.common.model.HoodieKey;
 import org.apache.hudi.common.model.HoodieRecord;
@@ -37,29 +37,35 @@ import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.ValidationUtils;
 import org.apache.hudi.common.util.collection.ImmutablePair;
+import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.config.HoodieIndexConfig;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.data.HoodieJavaPairRDD;
 import org.apache.hudi.data.HoodieJavaRDD;
+import org.apache.hudi.exception.HoodieIOException;
 import org.apache.hudi.exception.HoodieIndexException;
 import org.apache.hudi.exception.TableNotFoundException;
 import org.apache.hudi.metadata.HoodieTableMetadata;
 import org.apache.hudi.metadata.HoodieTableMetadataUtil;
 import org.apache.hudi.metadata.MetadataPartitionType;
 import org.apache.hudi.table.HoodieTable;
+
+import org.apache.hadoop.conf.Configuration;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.function.PairFlatMapFunction;
 import org.apache.spark.sql.execution.PartitionIdPassthrough;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import scala.Tuple2;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.stream.Stream;
+
+import scala.Tuple2;
 
 import static org.apache.hudi.common.table.timeline.HoodieTimeline.GREATER_THAN;
 
@@ -130,7 +136,7 @@ public class SparkMetadataTableRecordIndex extends HoodieIndex<Object, Object> {
 
   @Override
   public HoodieData<WriteStatus> updateLocation(HoodieData<WriteStatus> writeStatuses, HoodieEngineContext context,
-      HoodieTable hoodieTable) {
+                                                HoodieTable hoodieTable) {
     // This is a no-op as metadata record index updates are automatically maintained within the metadata table.
     return writeStatuses;
   }
@@ -187,24 +193,69 @@ public class SparkMetadataTableRecordIndex extends HoodieIndex<Object, Object> {
         records.mapToPair(record -> new ImmutablePair<>(record.getRecordKey(), record));
     // Here as the records might have more data than keyFilenamePairs (some row keys' not found in record index),
     // we will do left outer join.
-    return keyRecordPairs.leftOuterJoin(keyFilenamePair).values()
-        .map(v -> {
-          HoodieRecord<R> record = v.getLeft();
-          Option<HoodieRecordGlobalLocation> location = Option.ofNullable(v.getRight().orElse(null));
+
+    //
+    //    return keyRecordPairs.leftOuterJoin(keyFilenamePair).values()
+    //        .flatMap(v -> {
+    //          HoodieRecord<R> record = v.getLeft();
+    //          Option<HoodieRecordGlobalLocation> location = Option.ofNullable(v.getRight().orElse(null));
+    //          if (!location.isPresent()) {
+    //            // No location found.
+    //            return record;
+    //          }
+    //          // Ensure the partitionPath is also set correctly in the key
+    //          if (config.getRecordIndexUpdatePartitionPath()) {
+    //
+    //          } else {
+    //          if (!record.getPartitionPath().equals(location.get().getPartitionPath())) {
+    //            record = new HoodieAvroRecord(new HoodieKey(record.getRecordKey(), location.get().getPartitionPath()), (HoodieRecordPayload) record.getData());
+    //          }
+    //
+    //          // Perform the tagging. Not using HoodieIndexUtils.getTaggedRecord to prevent an additional copy which is not necessary for this index.
+    //          record.unseal();
+    //          record.setCurrentLocation(location.get());
+    //          record.seal();
+    //          return Collections.singletonList(record).iterator();
+    //        });
+
+    return keyRecordPairs.leftOuterJoin(keyFilenamePair).values().flatMap(
+        (SerializableFunction<Pair<HoodieRecord<R>, Option<HoodieRecordGlobalLocation>>, Iterator<HoodieRecord<R>>>) v1 -> {
+          HoodieRecord<R> record = v1.getLeft();
+          Option<HoodieRecordGlobalLocation> location = Option.ofNullable(v1.getRight().orElse(null));
           if (!location.isPresent()) {
             // No location found.
-            return record;
+            return Collections.singletonList(record).iterator();
           }
           // Ensure the partitionPath is also set correctly in the key
-          if (!record.getPartitionPath().equals(location.get().getPartitionPath())) {
-            record = new HoodieAvroRecord(new HoodieKey(record.getRecordKey(), location.get().getPartitionPath()), (HoodieRecordPayload) record.getData());
-          }
+          if (config.getRecordIndexUpdatePartitionPath()) {
+            // Perform the tagging. Not using HoodieIndexUtils.getTaggedRecord to prevent an additional copy which is not necessary for this index.
+            if (!record.getPartitionPath().equals(location.get().getPartitionPath())) {
+              // trigger delete to older partition and issue insert to new partition.
+              throw new HoodieIOException("Not supported yet");
+              /*
+              // merged record has a different partition: issue a delete to the old partition and insert the merged record to the new partition
+              HoodieRecord<R> deleteRecord = new HoodieAvroRecord(existing.getKey(), new EmptyHoodieRecordPayload());
+              deleteRecord.setCurrentLocation(existing.getCurrentLocation());
+              deleteRecord.seal();
+              return Arrays.asList(deleteRecord, getTaggedRecord(merged, Option.empty())).iterator();
+              */
+            } else {
+              record.unseal();
+              record.setCurrentLocation(location.get());
+              record.seal();
+              return Collections.singletonList(record).iterator();
+            }
+          } else {
+            if (!record.getPartitionPath().equals(location.get().getPartitionPath())) {
+              record = new HoodieAvroRecord(new HoodieKey(record.getRecordKey(), location.get().getPartitionPath()), (HoodieRecordPayload) record.getData());
+            }
 
-          // Perform the tagging. Not using HoodieIndexUtils.getTaggedRecord to prevent an additional copy which is not necessary for this index.
-          record.unseal();
-          record.setCurrentLocation(location.get());
-          record.seal();
-          return record;
+            // Perform the tagging. Not using HoodieIndexUtils.getTaggedRecord to prevent an additional copy which is not necessary for this index.
+            record.unseal();
+            record.setCurrentLocation(location.get());
+            record.seal();
+            return Collections.singletonList(record).iterator();
+          }
         });
   }
 

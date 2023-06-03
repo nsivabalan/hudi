@@ -258,6 +258,12 @@ public class HoodieIndexConfig extends HoodieConfig {
       .markAdvanced()
       .withDocumentation("Similar to " + BLOOM_INDEX_UPDATE_PARTITION_PATH_ENABLE + ", but for simple index.");
 
+  public static final ConfigProperty<String> RECORD_INDEX_UPDATE_PARTITION_PATH_ENABLE = ConfigProperty
+      .key("hoodie.metadata.record.index.update.partition.path")
+      .defaultValue("true")
+      .markAdvanced()
+      .withDocumentation("Similar to " + BLOOM_INDEX_UPDATE_PARTITION_PATH_ENABLE + ", but for metadata based record index.");
+
   public static final ConfigProperty<String> GLOBAL_INDEX_RECONCILE_PARALLELISM = ConfigProperty
       .key("hoodie.global.index.reconcile.parallelism")
       .defaultValue("60")
@@ -661,6 +667,11 @@ public class HoodieIndexConfig extends HoodieConfig {
 
     public Builder withGlobalSimpleIndexUpdatePartitionPath(boolean updatePartitionPath) {
       hoodieIndexConfig.setValue(SIMPLE_INDEX_UPDATE_PARTITION_PATH_ENABLE, String.valueOf(updatePartitionPath));
+      return this;
+    }
+
+    public Builder withRecordIndexUpdatePartitionPath(boolean updatePartitionPath) {
+      hoodieIndexConfig.setValue(RECORD_INDEX_UPDATE_PARTITION_PATH_ENABLE, String.valueOf(updatePartitionPath));
       return this;
     }
 
