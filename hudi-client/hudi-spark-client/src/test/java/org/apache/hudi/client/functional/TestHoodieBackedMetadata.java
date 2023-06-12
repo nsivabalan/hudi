@@ -378,6 +378,7 @@ public class TestHoodieBackedMetadata extends TestHoodieMetadataBase {
     String instant2 = "0000002";
     HoodieCommitMetadata hoodieCommitMetadata2 = doWriteOperationWithMeta(testTable, instant2, INSERT);
     metaClient.reloadActiveTimeline();
+    metaClient.getTableConfig().setMetadataPartitionState(metaClient, FILES, false);
     HoodieTable table2 = HoodieSparkTable.create(writeConfig2, context, metaClient);
     Option metadataWriter2 = table2.getMetadataWriter(instant2, Option.of(hoodieCommitMetadata2));
     assertFalse(metadataWriter2.isPresent());
@@ -1823,6 +1824,7 @@ public class TestHoodieBackedMetadata extends TestHoodieMetadataBase {
       records = dataGen.generateUpdates(newCommitTime, 5);
       writeStatuses = client.upsert(jsc.parallelize(records, 1), newCommitTime).collect();
       assertNoWriteErrors(writeStatuses);
+      validateMetadata(client);
 
       // Compaction
       if (metaClient.getTableType() == HoodieTableType.MERGE_ON_READ) {
@@ -2498,6 +2500,7 @@ public class TestHoodieBackedMetadata extends TestHoodieMetadataBase {
     assertTrue(fs.delete(new Path(HoodieTableMetadata.getMetadataTableBasePath(basePath)), true));
 
     // Insert/upsert third batch of records
+    client = getHoodieWriteClient(cfg);
     commitTime = HoodieActiveTimeline.createNewInstantTime();
     if (performUpsert) {
       records = dataGen.generateUpdates(commitTime, 100);
@@ -2526,7 +2529,7 @@ public class TestHoodieBackedMetadata extends TestHoodieMetadataBase {
     HoodieSparkEngineContext engineContext = new HoodieSparkEngineContext(jsc);
 
     // create initial commit
-    HoodieWriteConfig writeConfig = getWriteConfigBuilder(true, true, true).build();
+    HoodieWriteConfig writeConfig = getWriteConfigBuilder(true, true, false).build();
     try (SparkRDDWriteClient client = new SparkRDDWriteClient(engineContext, writeConfig)) {
       // Write
       String newCommitTime = HoodieActiveTimeline.createNewInstantTime();
@@ -2545,7 +2548,7 @@ public class TestHoodieBackedMetadata extends TestHoodieMetadataBase {
     fs.delete(metadataTablePath, true);
     assertFalse(fs.exists(metadataTablePath));
 
-    writeConfig = getWriteConfigBuilder(true, true, true).build();
+    writeConfig = getWriteConfigBuilder(true, true, false).build();
     try (SparkRDDWriteClient client = new SparkRDDWriteClient(engineContext, writeConfig)) {
       // Write
       String newCommitTime = HoodieActiveTimeline.createNewInstantTime();
@@ -2566,8 +2569,9 @@ public class TestHoodieBackedMetadata extends TestHoodieMetadataBase {
   public void testbootstrapWithEmptyCommit() throws Exception {
     init(HoodieTableType.COPY_ON_WRITE);
 
-    testTable.doWriteOperation(HoodieActiveTimeline.createNewInstantTime(), INSERT, Collections.EMPTY_LIST, 0);
+    HoodieWriteConfig writeConfig = getWriteConfigBuilder(true, true, true).build();
     initWriteConfigAndMetatableWriter(writeConfig, true);
+    testTable.doWriteOperation(HoodieActiveTimeline.createNewInstantTime(), INSERT, Collections.EMPTY_LIST, 0);
     syncTableMetadata(writeConfig);
     validateMetadata(testTable);
   }
@@ -2954,6 +2958,7 @@ public class TestHoodieBackedMetadata extends TestHoodieMetadataBase {
     // Insert second batch 0000004
     commitTime = "0000004";
     records = dataGen.generateInserts(commitTime, 100);
+    client = getHoodieWriteClient(cfg);
     client.startCommitWithTime(commitTime);
     writeStatuses = client.insert(jsc.parallelize(records, 1), commitTime).collect();
     assertNoWriteErrors(writeStatuses);
@@ -2977,6 +2982,7 @@ public class TestHoodieBackedMetadata extends TestHoodieMetadataBase {
     validateMetadata(client);
 
     // Execute pending clustering operation
+    clusteringClient = getHoodieWriteClient(clusterWriteCfg);
     clusteringClient.cluster("0000003", true);
 
     // verify metadata table

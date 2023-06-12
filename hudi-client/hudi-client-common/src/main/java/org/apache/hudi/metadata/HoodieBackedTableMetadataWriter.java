@@ -58,6 +58,7 @@ import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieIndexException;
 import org.apache.hudi.exception.HoodieMetadataException;
+import org.apache.hudi.exception.TableNotFoundException;
 import org.apache.hudi.hadoop.CachingPath;
 import org.apache.hudi.hadoop.SerializablePath;
 import org.apache.hudi.io.storage.HoodieFileReader;
@@ -281,19 +282,24 @@ public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMeta
                                                                      Option<T> actionMetadata) throws IOException {
     boolean exists = dataMetaClient.getTableConfig().isMetadataTableEnabled();
     boolean reInitialize = false;
+    Option<HoodieInstant> latestMetadataInstant = Option.empty();
 
     // If the un-synced instants have been archived, then
     // the metadata table will need to be initialized again.
     if (exists) {
-      metadataMetaClient = HoodieTableMetaClient.builder().setConf(hadoopConf.get()).setBasePath(metadataWriteConfig.getBasePath()).build();
-      if (DEFAULT_METADATA_POPULATE_META_FIELDS != metadataMetaClient.getTableConfig().populateMetaFields()) {
-        LOG.info("Re-initiating metadata table properties since populate meta fields have changed");
-        metadataMetaClient = initializeMetaClient();
+      try {
+        metadataMetaClient = HoodieTableMetaClient.builder().setConf(hadoopConf.get()).setBasePath(metadataWriteConfig.getBasePath()).build();
+        if (DEFAULT_METADATA_POPULATE_META_FIELDS != metadataMetaClient.getTableConfig().populateMetaFields()) {
+          LOG.info("Re-initiating metadata table properties since populate meta fields have changed");
+          metadataMetaClient = initializeMetaClient();
+        }
+        latestMetadataInstant = metadataMetaClient.getActiveTimeline().filterCompletedInstants().lastInstant();
+      } catch (TableNotFoundException e) {
+        // Table not found, initialize the metadata table.
+        reInitialize = true;
       }
-      final Option<HoodieInstant> latestMetadataInstant =
-          metadataMetaClient.getActiveTimeline().filterCompletedInstants().lastInstant();
 
-      reInitialize = isBootstrapNeeded(latestMetadataInstant, actionMetadata);
+      reInitialize = reInitialize || isBootstrapNeeded(latestMetadataInstant, actionMetadata);
     }
 
     if (reInitialize) {
