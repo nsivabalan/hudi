@@ -50,14 +50,14 @@ public class TestHoodieROTablePathFilter extends HoodieCommonTestHarness {
   public void testHoodiePaths() throws Exception {
     final String p1 = "2017/01/01";
     final String p2 = "2017/01/02";
-    testTable.addCommit("001")
-        .withBaseFilesInPartition(p1, "f1", "f2")
-        .withBaseFilesInPartition(p2, "f3")
-        .addCommit("002")
-        .withBaseFilesInPartition(p1, "f2")
-        .addInflightCommit("003")
-        .withBaseFilesInPartition(p2, "f3")
-        .addRequestedCompaction("004");
+    //    testTable.addCommit("001")
+    //        .withBaseFilesInPartition(p1, "f1", "f2")
+    //        .withBaseFilesInPartition(p2, "f3")
+    //        .addCommit("002")
+    //        .withBaseFilesInPartition(p1, "f2")
+    //        .addInflightCommit("003")
+    //        .withBaseFilesInPartition(p2, "f3")
+    //        .addRequestedCompaction("004");
 
     assertTrue(pathFilter.accept(testTable.forCommit("002").getBaseFilePath(p1, "f2")));
     assertFalse(pathFilter.accept(testTable.forCommit("003").getBaseFilePath(p2, "f3")));

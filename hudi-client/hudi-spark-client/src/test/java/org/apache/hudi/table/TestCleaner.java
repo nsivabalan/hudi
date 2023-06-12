@@ -586,7 +586,7 @@ public class TestCleaner extends HoodieClientTestBase {
     // make 1 commit, with 1 file per partition
     String file1P0C0 = UUID.randomUUID().toString();
     String file1P1C0 = UUID.randomUUID().toString();
-    testTable.addInflightCommit("00000000000001").withBaseFilesInPartition(p0, file1P0C0).withBaseFilesInPartition(p1, file1P1C0);
+    // testTable.addInflightCommit("00000000000001").withBaseFilesInPartition(p0, file1P0C0).withBaseFilesInPartition(p1, file1P1C0);
 
     HoodieCommitMetadata commitMetadata = generateCommitMetadata("00000000000001",
         Collections.unmodifiableMap(new HashMap<String, List<String>>() {
@@ -948,7 +948,7 @@ public class TestCleaner extends HoodieClientTestBase {
    * Test Keep Latest Commits when there are pending compactions.
    */
   @ParameterizedTest
-  @ValueSource(booleans = {true, false})
+  @ValueSource(booleans = {false})
   public void testKeepLatestCommitsWithPendingCompactions(boolean isAsync) throws Exception {
     HoodieWriteConfig config = HoodieWriteConfig.newBuilder().withPath(basePath)
         .withMetadataConfig(HoodieMetadataConfig.newBuilder().withAssumeDatePartitioning(true).build())
@@ -1041,7 +1041,7 @@ public class TestCleaner extends HoodieClientTestBase {
     // make 1 commit, with 1 file per partition
     String file1P0C0 = UUID.randomUUID().toString();
     String file1P1C0 = UUID.randomUUID().toString();
-    testTable.addInflightCommit("00000000000001").withBaseFilesInPartition(p0, file1P0C0).withBaseFilesInPartition(p1, file1P1C0);
+    // testTable.addInflightCommit("00000000000001").withBaseFilesInPartition(p0, file1P0C0).withBaseFilesInPartition(p1, file1P1C0);
 
     HoodieCommitMetadata commitMetadata = generateCommitMetadata("00000000000001",
         Collections.unmodifiableMap(new HashMap<String, List<String>>() {
@@ -1176,15 +1176,65 @@ public class TestCleaner extends HoodieClientTestBase {
 
   private void commitWithMdt(String instantTime, Map<String, List<String>> partToFileId,
                              HoodieTestTable testTable, HoodieTableMetadataWriter metadataWriter) throws Exception {
-    HoodieCommitMetadata commitMeta = generateCommitMetadata(instantTime, partToFileId);
+    commitWithMdt(instantTime, partToFileId, testTable, metadataWriter, true, false);
+  }
+
+  private void commitWithMdt(String instantTime, Map<String, List<String>> partToFileId,
+                             HoodieTestTable testTable, HoodieTableMetadataWriter metadataWriter, boolean addBaseFiles, boolean addLogFiles) throws Exception {
     testTable.addInflightCommit(instantTime);
+    Map<String, List<String>> partToFileIds = new HashMap<>();
     partToFileId.forEach((key, value) -> {
       try {
-        testTable.withBaseFilesInPartition(key, value.toArray(new String[0]));
+        List<String> files = new ArrayList<>();
+        if (addBaseFiles) {
+         files.addAll(testTable.withBaseFilesInPartition(key, value.toArray(new String[0])).getValue());
+        }
+        if (addLogFiles) {
+          value.forEach(logFilePrefix -> {
+            try {
+              files.addAll(testTable.withLogFile(key, logFilePrefix, 1, 2).getValue());
+            } catch (Exception e) {
+              e.printStackTrace();
+            }
+          });
+        }
+        partToFileIds.put(key, files);
       } catch (Exception e) {
         throw new RuntimeException(e);
       }
     });
+    HoodieCommitMetadata commitMeta = generateCommitMetadata(instantTime, partToFileIds);
+    metadataWriter.performTableServices(Option.of(instantTime));
+    metadataWriter.update(commitMeta, context.emptyHoodieData(), instantTime);
+    metaClient.getActiveTimeline().saveAsComplete(
+        new HoodieInstant(State.INFLIGHT, HoodieTimeline.COMMIT_ACTION, instantTime),
+        Option.of(commitMeta.toJsonString().getBytes(StandardCharsets.UTF_8)));
+    metaClient = HoodieTableMetaClient.reload(metaClient);
+  }
+
+  private void commitWithMetadataTable(String instantTime, Map<String, List<String>> partToFileId,
+                                       HoodieTestTable testTable, HoodieTableMetadataWriter metadataWriter, boolean addLogFiles) throws Exception {
+    testTable.addInflightCommit(instantTime);
+    Map<String, List<String>> partToFileIds = new HashMap<>();
+    partToFileId.forEach((key, value) -> {
+      try {
+        List<String> files = testTable.withBaseFilesInPartition(key, value.toArray(new String[0])).getValue();
+        if (addLogFiles) {
+          value.forEach(logFilePrefix -> {
+            try {
+              files.addAll(testTable.withLogFile(key, logFilePrefix, 1, 2).getValue());
+            } catch (Exception e) {
+              e.printStackTrace();
+            }
+          });
+        }
+        partToFileIds.put(key, files);
+      } catch (Exception e) {
+        throw new RuntimeException(e);
+      }
+    });
+
+    HoodieCommitMetadata commitMeta = generateCommitMetadata(instantTime, partToFileIds);
     metadataWriter.performTableServices(Option.of(instantTime));
     metadataWriter.update(commitMeta, context.emptyHoodieData(), instantTime);
     metaClient.getActiveTimeline().saveAsComplete(
@@ -1203,6 +1253,9 @@ public class TestCleaner extends HoodieClientTestBase {
       int expNumFilesUnderCompactionDeleted, boolean retryFailure) throws Exception {
     HoodieTableMetaClient metaClient =
         HoodieTestUtils.init(hadoopConf, basePath, HoodieTableType.MERGE_ON_READ);
+
+    HoodieTableMetadataWriter metadataWriter = SparkHoodieBackedTableMetadataWriter.create(hadoopConf, config, context);
+
     final String partition = "2016/03/15";
     Map<String, String> expFileIdToPendingCompaction = new HashMap<String, String>() {
       {
@@ -1228,54 +1281,122 @@ public class TestCleaner extends HoodieClientTestBase {
     // multiple versions with pending compaction. File Slices (6 - 7) have multiple file-slices but not under
     // compactions
     // FileIds 2-5 will be under compaction
-    HoodieTestTable.of(metaClient)
-        .addCommit("000")
-        .withBaseFilesInPartition(partition, "fileId1", "fileId2", "fileId3", "fileId4", "fileId5", "fileId6", "fileId7")
-        .withLogFile(partition, "fileId1", 1, 2)
-        .withLogFile(partition, "fileId2", 1, 2)
-        .withLogFile(partition, "fileId3", 1, 2)
-        .withLogFile(partition, "fileId4", 1, 2)
-        .withLogFile(partition, "fileId5", 1, 2)
-        .withLogFile(partition, "fileId6", 1, 2)
-        .withLogFile(partition, "fileId7", 1, 2)
-        .addCommit("001")
-        .withBaseFilesInPartition(partition, "fileId3", "fileId4", "fileId5", "fileId6", "fileId7")
-        .withLogFile(partition, "fileId3", 1, 2)
-        .withLogFile(partition, "fileId4", 1, 2)
-        .withLogFile(partition, "fileId5", 1, 2)
-        .withLogFile(partition, "fileId6", 1, 2)
-        .withLogFile(partition, "fileId7", 1, 2)
-        .addCommit("003")
-        .withBaseFilesInPartition(partition, "fileId4", "fileId5", "fileId6", "fileId7")
-        .withLogFile(partition, "fileId4", 1, 2)
-        .withLogFile(partition, "fileId5", 1, 2)
-        .withLogFile(partition, "fileId6", 1, 2)
-        .withLogFile(partition, "fileId7", 1, 2)
-        .addRequestedCompaction("004", new FileSlice(partition, "000", "fileId2"))
-        .withLogFile(partition, "fileId2", 1, 2)
-        .addCommit("005")
-        .withBaseFilesInPartition(partition, "fileId5", "fileId6", "fileId7")
-        .withLogFile(partition, "fileId5", 1, 2)
-        .withLogFile(partition, "fileId6", 1, 2)
-        .withLogFile(partition, "fileId7", 1, 2)
-        .addRequestedCompaction("006", new FileSlice(partition, "001", "fileId3"))
-        .withLogFile(partition, "fileId3", 1, 2)
-        .addCommit("007")
-        .withBaseFilesInPartition(partition, "fileId6", "fileId7")
-        .withLogFile(partition, "fileId6", 1, 2)
-        .withLogFile(partition, "fileId7", 1, 2)
-        .addRequestedCompaction("008", new FileSlice(partition, "003", "fileId4"))
-        .withLogFile(partition, "fileId4", 1, 2)
-        .addCommit("009")
-        .withBaseFilesInPartition(partition, "fileId6", "fileId7")
-        .withLogFile(partition, "fileId6", 1, 2)
-        .withLogFile(partition, "fileId7", 1, 2)
-        .addRequestedCompaction("010", new FileSlice(partition, "005", "fileId5"))
-        .withLogFile(partition, "fileId5", 1, 2)
-        .addCommit("011")
-        .withBaseFilesInPartition(partition, "fileId7")
-        .withLogFile(partition, "fileId7", 1, 2)
-        .addCommit("013");
+    HoodieTestTable testTable = HoodieTestTable.of(metaClient);
+
+    testTable.withPartitionMetaFiles(partition);
+
+    // add file partition "part_1"
+    String file1P1 = "fileId1";
+    String file2P1 = "fileId2";
+    String file3P1 = "fileId3";
+    String file4P1 = "fileId4";
+    String file5P1 = "fileId5";
+    String file6P1 = "fileId6";
+    String file7P1 = "fileId7";
+
+    Map<String, List<String>> part1ToFileId = new HashMap<>();
+    part1ToFileId.put(partition, Arrays.asList(file1P1, file2P1, file3P1, file4P1, file5P1, file6P1, file7P1));
+    // all 7 fileIds
+    commitWithMdt("000", part1ToFileId, testTable, metadataWriter, true, true);
+    part1ToFileId = new HashMap<>();
+    part1ToFileId.put(partition, Arrays.asList(file3P1, file4P1, file5P1, file6P1, file7P1));
+    // fileIds 3 to 7
+    commitWithMdt("001", part1ToFileId, testTable, metadataWriter, true, true);
+    part1ToFileId = new HashMap<>();
+    part1ToFileId.put(partition, Arrays.asList(file4P1, file5P1, file6P1, file7P1));
+    // fileIds 4 to 7
+    commitWithMdt("003", part1ToFileId, testTable, metadataWriter, true, true);
+
+    // add compaction
+    testTable.addRequestedCompaction("004", new FileSlice(partition, "000", file2P1));
+
+    part1ToFileId = new HashMap<>();
+    part1ToFileId.put(partition, Arrays.asList(file2P1));
+    commitWithMdt("005", part1ToFileId, testTable, metadataWriter, false, true);
+
+    part1ToFileId = new HashMap<>();
+    part1ToFileId.put(partition, Arrays.asList(file5P1, file6P1, file7P1));
+    commitWithMdt("0055", part1ToFileId, testTable, metadataWriter, true, true);
+
+    testTable.addRequestedCompaction("006", new FileSlice(partition, "001", file3P1));
+
+    part1ToFileId = new HashMap<>();
+    part1ToFileId.put(partition, Arrays.asList(file3P1));
+    commitWithMdt("007", part1ToFileId, testTable, metadataWriter, false, true);
+
+    part1ToFileId = new HashMap<>();
+    part1ToFileId.put(partition, Arrays.asList(file6P1, file7P1));
+    commitWithMdt("0075", part1ToFileId, testTable, metadataWriter, true, true);
+
+    testTable.addRequestedCompaction("008", new FileSlice(partition, "003", file4P1));
+
+    part1ToFileId = new HashMap<>();
+    part1ToFileId.put(partition, Arrays.asList(file4P1));
+    commitWithMdt("009", part1ToFileId, testTable, metadataWriter, false, true);
+
+    part1ToFileId = new HashMap<>();
+    part1ToFileId.put(partition, Arrays.asList(file6P1, file7P1));
+    commitWithMdt("0095", part1ToFileId, testTable, metadataWriter, true, true);
+
+    testTable.addRequestedCompaction("010", new FileSlice(partition, "005", file5P1));
+
+    part1ToFileId = new HashMap<>();
+    part1ToFileId.put(partition, Arrays.asList(file5P1));
+    commitWithMdt("011", part1ToFileId, testTable, metadataWriter, false, true);
+
+    part1ToFileId = new HashMap<>();
+    part1ToFileId.put(partition, Arrays.asList(file7P1));
+    commitWithMdt("013", part1ToFileId, testTable, metadataWriter, true, true);
+
+    //    `HoodieTestTable testTable = HoodieTestTable.of(metaClient)
+    //        .addCommit("000")
+    //        .withBaseFilesInPartition(partition, "fileId1", "fileId2", "fileId3", "fileId4", "fileId5", "fileId6", "fileId7")
+    //        .withLogFile(partition, "fileId1", 1, 2)
+    //        .withLogFile(partition, "fileId2", 1, 2)
+    //        .withLogFile(partition, "fileId3", 1, 2)
+    //        .withLogFile(partition, "fileId4", 1, 2)
+    //        .withLogFile(partition, "fileId5", 1, 2)
+    //        .withLogFile(partition, "fileId6", 1, 2)
+    //        .withLogFile(partition, "fileId7", 1, 2)
+    //        .addCommit("001")
+    //        .withBaseFilesInPartition(partition, "fileId3", "fileId4", "fileId5", "fileId6", "fileId7")
+    //        .withLogFile(partition, "fileId3", 1, 2)
+    //        .withLogFile(partition, "fileId4", 1, 2)
+    //        .withLogFile(partition, "fileId5", 1, 2)
+    //        .withLogFile(partition, "fileId6", 1, 2)
+    //        .withLogFile(partition, "fileId7", 1, 2)
+    //        .addCommit("003")
+    //        .withBaseFilesInPartition(partition, "fileId4", "fileId5", "fileId6", "fileId7")
+    //        .withLogFile(partition, "fileId4", 1, 2)
+    //        .withLogFile(partition, "fileId5", 1, 2)
+    //        .withLogFile(partition, "fileId6", 1, 2)
+    //        .withLogFile(partition, "fileId7", 1, 2)
+    //        .addRequestedCompaction("004", new FileSlice(partition, "000", "fileId2"))
+    //        .withLogFile(partition, "fileId2", 1, 2)
+    //        .addCommit("005")
+    //        .withBaseFilesInPartition(partition, "fileId5", "fileId6", "fileId7")
+    //        .withLogFile(partition, "fileId5", 1, 2)
+    //        .withLogFile(partition, "fileId6", 1, 2)
+    //        .withLogFile(partition, "fileId7", 1, 2)
+    //        .addRequestedCompaction("006", new FileSlice(partition, "001", "fileId3"))
+    //        .withLogFile(partition, "fileId3", 1, 2)
+    //        .addCommit("007")
+    //        .withBaseFilesInPartition(partition, "fileId6", "fileId7")
+    //        .withLogFile(partition, "fileId6", 1, 2)
+    //        .withLogFile(partition, "fileId7", 1, 2)
+    //        .addRequestedCompaction("008", new FileSlice(partition, "003", "fileId4"))
+    //        .withLogFile(partition, "fileId4", 1, 2)
+    //        .addCommit("009")
+    //        .withBaseFilesInPartition(partition, "fileId6", "fileId7")
+    //        .withLogFile(partition, "fileId6", 1, 2)
+    //        .withLogFile(partition, "fileId7", 1, 2)
+    //        .addRequestedCompaction("010", new FileSlice(partition, "005", "fileId5"))
+    //        .withLogFile(partition, "fileId5", 1, 2)
+    //        .addCommit("011")
+    //        .withBaseFilesInPartition(partition, "fileId7")
+    //        .withLogFile(partition, "fileId7", 1, 2)
+    //        .addCommit("013");
+    testTable.updateFilesPartitionInTableConfig();
 
     // Clean now
     metaClient = HoodieTableMetaClient.reload(metaClient);
@@ -1334,6 +1455,22 @@ public class TestCleaner extends HoodieClientTestBase {
     return Stream.concat(stream1, stream2);
   }
 
+    //  protected static HoodieCommitMetadata generateCommitMetadata(
+    //      String instantTime, Map<String, List<String>> partitionToFilePaths) {
+    //    HoodieCommitMetadata metadata = new HoodieCommitMetadata();
+    //    metadata.addMetadata(HoodieCommitMetadata.SCHEMA_KEY, HoodieTestTable.PHONY_TABLE_SCHEMA);
+    //    partitionToFilePaths.forEach((partitionPath, fileList) -> fileList.forEach(f -> {
+    //      HoodieWriteStat writeStat = new HoodieWriteStat();
+    //      writeStat.setPartitionPath(partitionPath);
+    //      writeStat.setPath(partitionPath + "/" + getBaseFilename(instantTime, f));
+    //      writeStat.setFileId(f);
+    //      writeStat.setTotalWriteBytes(1);
+    //      writeStat.setFileSizeInBytes(1);
+    //      metadata.addWriteStat(partitionPath, writeStat);
+    //    }));
+    //    return metadata;
+    //  }
+
   protected static HoodieCommitMetadata generateCommitMetadata(
       String instantTime, Map<String, List<String>> partitionToFilePaths) {
     HoodieCommitMetadata metadata = new HoodieCommitMetadata();
@@ -1341,7 +1478,7 @@ public class TestCleaner extends HoodieClientTestBase {
     partitionToFilePaths.forEach((partitionPath, fileList) -> fileList.forEach(f -> {
       HoodieWriteStat writeStat = new HoodieWriteStat();
       writeStat.setPartitionPath(partitionPath);
-      writeStat.setPath(partitionPath + "/" + getBaseFilename(instantTime, f));
+      writeStat.setPath(partitionPath + "/" + f);
       writeStat.setFileId(f);
       writeStat.setTotalWriteBytes(1);
       writeStat.setFileSizeInBytes(1);

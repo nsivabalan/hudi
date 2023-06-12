@@ -216,6 +216,7 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
       return Collections.emptyMap();
     }
 
+    // sort
     Map<String, HoodieRecord<HoodieMetadataPayload>> result;
 
     // Load the file slices for the partition. Each file slice is a shard which saves a portion of the keys.

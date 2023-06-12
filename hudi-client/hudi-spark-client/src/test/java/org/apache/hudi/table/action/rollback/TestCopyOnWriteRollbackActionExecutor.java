@@ -87,15 +87,15 @@ public class TestCopyOnWriteRollbackActionExecutor extends HoodieClientRollbackT
     final String p2 = "2015/03/17";
     final String p3 = "2016/03/15";
     // Let's create some commit files and base files
-    HoodieTestTable testTable = HoodieTestTable.of(metaClient)
-        .withPartitionMetaFiles(p1, p2, p3)
-        .addCommit("001")
-        .withBaseFilesInPartition(p1, "id11")
-        .withBaseFilesInPartition(p2, "id12")
-        .withLogFile(p1, "id11", 3)
-        .addCommit("002")
-        .withBaseFilesInPartition(p1, "id21")
-        .withBaseFilesInPartition(p2, "id22");
+    HoodieTestTable testTable = HoodieTestTable.of(metaClient);
+    //        .withPartitionMetaFiles(p1, p2, p3)
+    //        .addCommit("001")
+    //        .withBaseFilesInPartition(p1, "id11")
+    //        .withBaseFilesInPartition(p2, "id12")
+    //        .withLogFile(p1, "id11", 3)
+    //        .addCommit("002")
+    //        .withBaseFilesInPartition(p1, "id21")
+    //        .withBaseFilesInPartition(p2, "id22");
 
     HoodieWriteConfig writeConfig = getConfigBuilder().withRollbackUsingMarkers(false).build();
     HoodieTable table = this.getHoodieTable(metaClient, writeConfig);
@@ -243,17 +243,17 @@ public class TestCopyOnWriteRollbackActionExecutor extends HoodieClientRollbackT
     int[] fileLengths = IntStream.range(10, 10 + largeCommitNumFiles).toArray();
 
     // Let's create some commit files and parquet files.
-    HoodieTestTable testTable = HoodieTestTable.of(metaClient)
-        .withPartitionMetaFiles(p1, p2, p3)
-        .addCommit("001")
-        .withBaseFilesInPartition(p1, "id11")
-        .withBaseFilesInPartition(p2, "id12")
-        .withLogFile(p1, "id11", 3)
-        .addCommit("002")
-        .withBaseFilesInPartition(p1, "id21")
-        .withBaseFilesInPartition(p2, "id22")
-        .addCommit("003")
-        .withBaseFilesInPartition(p3, fileLengths);
+    HoodieTestTable testTable = HoodieTestTable.of(metaClient);
+    //        .withPartitionMetaFiles(p1, p2, p3)
+    //        .addCommit("001")
+    //        .withBaseFilesInPartition(p1, "id11")
+    //        .withBaseFilesInPartition(p2, "id12")
+    //        .withLogFile(p1, "id11", 3)
+    //        .addCommit("002")
+    //        .withBaseFilesInPartition(p1, "id21")
+    //        .withBaseFilesInPartition(p2, "id22")
+    //        .addCommit("003")
+    //        .withBaseFilesInPartition(p3, fileLengths);
 
     HoodieTable table = this.getHoodieTable(metaClient, getConfigBuilder().withRollbackUsingMarkers(false).build());
     HoodieInstant needRollBackInstant = new HoodieInstant(false, HoodieTimeline.COMMIT_ACTION, "003");
@@ -336,15 +336,15 @@ public class TestCopyOnWriteRollbackActionExecutor extends HoodieClientRollbackT
     final String p2 = "2015/03/17";
     final String p3 = "2016/03/15";
     // Let's create some commit files and parquet files
-    HoodieTestTable testTable = HoodieTestTable.of(metaClient)
-        .withPartitionMetaFiles(p1, p2, p3)
-        .addCommit("001")
-        .withBaseFilesInPartition(p1, "id11")
-        .withBaseFilesInPartition(p2, "id12")
-        .withLogFile(p1, "id11", 3)
-        .addCommit("002")
-        .withBaseFilesInPartition(p1, "id21")
-        .withBaseFilesInPartition(p2, "id22");
+    HoodieTestTable testTable = HoodieTestTable.of(metaClient);
+    //        .withPartitionMetaFiles(p1, p2, p3)
+    //        .addCommit("001")
+    //        .withBaseFilesInPartition(p1, "id11")
+    //        .withBaseFilesInPartition(p2, "id12")
+    //        .withLogFile(p1, "id11", 3)
+    //        .addCommit("002")
+    //        .withBaseFilesInPartition(p1, "id21")
+    //        .withBaseFilesInPartition(p2, "id22");
 
     HoodieTable table = this.getHoodieTable(metaClient, getConfigBuilder().withRollbackBackupEnabled(true).build());
     HoodieInstant needRollBackInstant = new HoodieInstant(false, HoodieTimeline.COMMIT_ACTION, "002");

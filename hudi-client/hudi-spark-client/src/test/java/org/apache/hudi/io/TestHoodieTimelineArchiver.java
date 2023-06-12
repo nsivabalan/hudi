@@ -135,7 +135,7 @@ public class TestHoodieTimelineArchiver extends HoodieClientTestHarness {
     hadoopConf.addResource(wrapperFs.getConf());
   }
 
-  private void initWriteConfigAndMetatableWriter(HoodieWriteConfig writeConfig, boolean enableMetadataTable) {
+  private void initWriteConfigAndMetatableWriter(HoodieWriteConfig writeConfig, boolean enableMetadataTable) throws IOException {
     if (enableMetadataTable) {
       metadataWriter = SparkHoodieBackedTableMetadataWriter.create(hadoopConf, writeConfig, context);
       testTable = HoodieMetadataTestTable.of(metaClient, metadataWriter);
@@ -363,7 +363,7 @@ public class TestHoodieTimelineArchiver extends HoodieClientTestHarness {
     String file1P0C0 = UUID.randomUUID().toString();
     String file1P1C0 = UUID.randomUUID().toString();
     String commitTs = HoodieActiveTimeline.formatDate(Date.from(curDateTime.minusMinutes(minutesForCommit).toInstant()));
-    testTable.addInflightCommit(commitTs).withBaseFilesInPartition(p0, file1P0C0).withBaseFilesInPartition(p1, file1P1C0);
+    // testTable.addInflightCommit(commitTs).withBaseFilesInPartition(p0, file1P0C0).withBaseFilesInPartition(p1, file1P1C0);
 
     HoodieCommitMetadata commitMetadata = generateCommitMetadata(commitTs,
         Collections.unmodifiableMap(new HashMap<String, List<String>>() {

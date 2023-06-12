@@ -133,8 +133,8 @@ public class TestMarkerBasedRollbackStrategy extends HoodieClientTestBase {
     String f0 = testTable.addRequestedCommit("000")
         .getFileIdsWithBaseFilesInPartitions("partA").get("partA");
     String f1 = testTable.addCommit("001")
-        .withBaseFilesInPartition("partA", f0)
-        .getFileIdsWithBaseFilesInPartitions("partB").get("partB");
+        .withBaseFilesInPartition("partA", f0).getRight().get(0);
+        //.getFileIdsWithBaseFilesInPartitions("partB").get("partB");
     String f2 = "f2";
     testTable.forCommit("001")
         .withMarkerFile("partA", f0, IOType.MERGE)

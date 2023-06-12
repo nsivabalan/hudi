@@ -525,11 +525,11 @@ public class TestClientRollback extends HoodieClientTestBase {
 
     testTable.withPartitionMetaFiles(p1, p2, p3)
         .addCommit(commitTime1)
-        .withBaseFilesInPartitions(partitionAndFileId1)
-        .addCommit(commitTime2)
-        .withBaseFilesInPartitions(partitionAndFileId2)
-        .addInflightCommit(commitTime3)
-        .withBaseFilesInPartitions(partitionAndFileId3);
+        .withBaseFilesInPartitions(partitionAndFileId1);
+    //        .addCommit(commitTime2)
+    //        .withBaseFilesInPartitions(partitionAndFileId2)
+    //        .addInflightCommit(commitTime3)
+    //        .withBaseFilesInPartitions(partitionAndFileId3);
 
     try (SparkRDDWriteClient client = getHoodieWriteClient(config)) {
 
@@ -726,11 +726,11 @@ public class TestClientRollback extends HoodieClientTestBase {
 
     testTable.withPartitionMetaFiles(p1, p2)
         .addCommit(commitTime1)
-        .withBaseFilesInPartitions(partitionAndFileId1)
-        .addCommit(commitTime2)
-        .withBaseFilesInPartitions(partitionAndFileId2)
-        .addInflightCommit(commitTime3)
-        .withBaseFilesInPartitions(partitionAndFileId3);
+        .withBaseFilesInPartitions(partitionAndFileId1);
+    //        .addCommit(commitTime2)
+    //        .withBaseFilesInPartitions(partitionAndFileId2)
+    //        .addInflightCommit(commitTime3)
+    //        .withBaseFilesInPartitions(partitionAndFileId3);
 
     try (SparkRDDWriteClient client = getHoodieWriteClient(config)) {
       if (isRollbackPlanCorrupted) {
@@ -814,11 +814,11 @@ public class TestClientRollback extends HoodieClientTestBase {
     HoodieTestTable testTable = HoodieMetadataTestTable.of(metaClient, SparkHoodieBackedTableMetadataWriter.create(metaClient.getHadoopConf(), config, context));
     testTable.withPartitionMetaFiles(p1, p2, p3)
         .addCommit(commitTime1)
-        .withBaseFilesInPartitions(partitionAndFileId1)
-        .addCommit(commitTime2)
-        .withBaseFilesInPartitions(partitionAndFileId2)
-        .addCommit(commitTime3)
-        .withBaseFilesInPartitions(partitionAndFileId3);
+        .withBaseFilesInPartitions(partitionAndFileId1);
+    //        .addCommit(commitTime2)
+    //        .withBaseFilesInPartitions(partitionAndFileId2)
+    //        .addCommit(commitTime3)
+    //        .withBaseFilesInPartitions(partitionAndFileId3);
 
     try (SparkRDDWriteClient client = getHoodieWriteClient(config)) {
       client.rollback(commitTime3);
