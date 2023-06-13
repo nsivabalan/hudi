@@ -143,6 +143,7 @@ public class HoodieTestTable {
   protected final FileSystem fs;
   protected HoodieTableMetaClient metaClient;
   protected String currentInstantTime;
+  private  boolean isNonPartitioned = false;
 
   protected HoodieTestTable(String basePath, FileSystem fs, HoodieTableMetaClient metaClient) {
     ValidationUtils.checkArgument(Objects.equals(basePath, metaClient.getBasePath()));
@@ -161,6 +162,14 @@ public class HoodieTestTable {
   public void updateFilesPartitionInTableConfig() {
     metaClient.getTableConfig().setMetadataPartitionState(metaClient, MetadataPartitionType.FILES, true);
     this.metaClient = HoodieTableMetaClient.reload(metaClient);
+  }
+
+  public void setNonPartitioned() {
+    this.isNonPartitioned = true;
+  }
+
+  public boolean isNonPartitioned() {
+    return this.isNonPartitioned;
   }
 
   public static String makeNewCommitTime(int sequence, String instantFormat) {

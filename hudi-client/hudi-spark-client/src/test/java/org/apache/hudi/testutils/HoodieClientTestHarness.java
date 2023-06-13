@@ -524,7 +524,7 @@ public abstract class HoodieClientTestHarness extends HoodieCommonTestHarness {
     List<java.nio.file.Path> fsPartitionPaths = testTable.getAllPartitionPaths();
     List<String> fsPartitions = new ArrayList<>();
     fsPartitionPaths.forEach(entry -> fsPartitions.add(entry.getFileName().toString()));
-    if (fsPartitions.isEmpty()) {
+    if (fsPartitions.isEmpty() && testTable.isNonPartitioned()) {
       fsPartitions.add("");
     }
     List<String> metadataPartitions = tableMetadata.getAllPartitionPaths();

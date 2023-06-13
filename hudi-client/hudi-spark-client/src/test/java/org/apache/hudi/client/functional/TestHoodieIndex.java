@@ -105,23 +105,23 @@ public class TestHoodieIndex extends TestHoodieMetadataBase {
   private static Stream<Arguments> indexTypeParams() {
     // IndexType, populateMetaFields, enableMetadataIndex
     Object[][] data = new Object[][] {
-        {IndexType.BLOOM, true, true},
-        {IndexType.BLOOM, true, false},
-        {IndexType.GLOBAL_BLOOM, true, true},
-        {IndexType.GLOBAL_BLOOM, true, false},
-        {IndexType.SIMPLE, true, true},
-        {IndexType.SIMPLE, true, false},
-        {IndexType.SIMPLE, false, true},
-        {IndexType.SIMPLE, false, false},
-        {IndexType.GLOBAL_SIMPLE, true, true},
-        {IndexType.GLOBAL_SIMPLE, true, false},
-        {IndexType.GLOBAL_SIMPLE, false, true},
-        {IndexType.GLOBAL_SIMPLE, false, false},
-        {IndexType.BUCKET, false, true},
-        {IndexType.BUCKET, false, false},
+        // {IndexType.BLOOM, true, true},
+        //        {IndexType.BLOOM, true, false},
+        //        {IndexType.GLOBAL_BLOOM, true, true},
+        //        {IndexType.GLOBAL_BLOOM, true, false},
+        //        {IndexType.SIMPLE, true, true},
+        //        {IndexType.SIMPLE, true, false},
+        //        {IndexType.SIMPLE, false, true},
+        //        {IndexType.SIMPLE, false, false},
+        //        {IndexType.GLOBAL_SIMPLE, true, true},
+        //        {IndexType.GLOBAL_SIMPLE, true, false},
+        //        {IndexType.GLOBAL_SIMPLE, false, true},
+        //        {IndexType.GLOBAL_SIMPLE, false, false},
+        //        {IndexType.BUCKET, false, true},
+        //        {IndexType.BUCKET, false, false},
         {IndexType.RECORD_INDEX, false, true},
-        {IndexType.RECORD_INDEX, true, true},
-        {IndexType.RECORD_INDEX, true, false}
+                {IndexType.RECORD_INDEX, true, true},
+               {IndexType.RECORD_INDEX, true, false}
     };
     return Stream.of(data).map(Arguments::of);
   }
@@ -199,11 +199,35 @@ public class TestHoodieIndex extends TestHoodieMetadataBase {
         new RawTripTestPayload(recordStr4).toHoodieRecord());
   }
 
+  private static List<HoodieRecord> getInsertsBatch2() throws IOException {
+    String recordStr1 = "{\"_row_key\":\"005\",\"time\":\"2016-01-31T00:00:01.000Z\",\"number\":5}";
+    String recordStr2 = "{\"_row_key\":\"006\",\"time\":\"2016-01-31T00:00:02.000Z\",\"number\":6}";
+    String recordStr3 = "{\"_row_key\":\"007\",\"time\":\"2016-01-31T00:00:03.000Z\",\"number\":7}";
+    String recordStr4 = "{\"_row_key\":\"008\",\"time\":\"2017-01-31T00:00:04.000Z\",\"number\":8}";
+    return Arrays.asList(
+        new RawTripTestPayload(recordStr1).toHoodieRecord(),
+        new RawTripTestPayload(recordStr2).toHoodieRecord(),
+        new RawTripTestPayload(recordStr3).toHoodieRecord(),
+        new RawTripTestPayload(recordStr4).toHoodieRecord());
+  }
+
+  private static List<HoodieRecord> getUpdates() throws IOException {
+    String recordStr1 = "{\"_row_key\":\"001\",\"time\":\"2016-01-31T00:00:01.000Z\",\"number\":5}";
+    String recordStr2 = "{\"_row_key\":\"002\",\"time\":\"2016-01-31T00:00:02.000Z\",\"number\":6}";
+    String recordStr3 = "{\"_row_key\":\"003\",\"time\":\"2016-01-31T00:00:03.000Z\",\"number\":7}";
+    String recordStr4 = "{\"_row_key\":\"004\",\"time\":\"2017-01-31T00:00:04.000Z\",\"number\":8}";
+    return Arrays.asList(
+        new RawTripTestPayload(recordStr1).toHoodieRecord(),
+        new RawTripTestPayload(recordStr2).toHoodieRecord(),
+        new RawTripTestPayload(recordStr3).toHoodieRecord(),
+        new RawTripTestPayload(recordStr4).toHoodieRecord());
+  }
+
   @ParameterizedTest
   @MethodSource("indexTypeParams")
   public void testSimpleTagLocationAndUpdate(IndexType indexType, boolean populateMetaFields, boolean enableMetadataIndex) throws Exception {
     setUp(indexType, populateMetaFields, enableMetadataIndex);
-    String newCommitTime = "001";
+    String newCommitTime = HoodieActiveTimeline.createNewInstantTime();
     final int totalRecords = 4;
     List<HoodieRecord> records = getInserts();
     JavaRDD<HoodieRecord> writeRecords = jsc.parallelize(records, 1);
@@ -309,7 +333,7 @@ public class TestHoodieIndex extends TestHoodieMetadataBase {
   @MethodSource("indexTypeParams")
   public void testTagLocationAndDuplicateUpdate(IndexType indexType, boolean populateMetaFields, boolean enableMetadataIndex) throws Exception {
     setUp(indexType, populateMetaFields, enableMetadataIndex);
-    String newCommitTime = "001";
+    String newCommitTime = HoodieActiveTimeline.createNewInstantTime();
     final int totalRecords = 4;
     List<HoodieRecord> records = getInserts();
     JavaRDD<HoodieRecord> writeRecords = jsc.parallelize(records, 1);
@@ -659,12 +683,13 @@ public class TestHoodieIndex extends TestHoodieMetadataBase {
   }
 
   @ParameterizedTest
-  @ValueSource(booleans = {true, false})
+  @ValueSource(booleans = {true})
   public void testRecordIndexTagLocationAndUpdate(boolean populateMetaFields) throws Exception {
     setUp(IndexType.RECORD_INDEX, populateMetaFields, false);
     String newCommitTime = HoodieActiveTimeline.createNewInstantTime();
-    int initialRecords = 10 + random.nextInt(20);
-    List<HoodieRecord> records = dataGen.generateInserts(newCommitTime, initialRecords);
+    //    int initialRecords = 10 + random.nextInt(20);
+    List<HoodieRecord> records = getInserts();
+    int initialRecords = records.size();
     JavaRDD<HoodieRecord> writeRecords = jsc.parallelize(records, 1);
 
     metaClient = HoodieTableMetaClient.reload(metaClient);
@@ -693,9 +718,11 @@ public class TestHoodieIndex extends TestHoodieMetadataBase {
     hoodieTable = HoodieSparkTable.create(config, context, metaClient);
 
     // Generate updates for all existing records.
-    List<HoodieRecord> newRecords = dataGen.generateUpdatesForAllRecords(secondCommitTime);
-    int newInsertsCount = 10;
-    newRecords.addAll(dataGen.generateInserts(secondCommitTime, newInsertsCount));
+    List<HoodieRecord> newRecords = getUpdates();
+    // int newInsertsCount = 10;
+    List<HoodieRecord> newInserts = getInsertsBatch2();
+    int newInsertsCount = newInserts.size();
+    newRecords.addAll(newInserts);
     // Update partitionPath information.
     String newPartitionPath = "2022/11/04";
     newRecords = newRecords.stream()

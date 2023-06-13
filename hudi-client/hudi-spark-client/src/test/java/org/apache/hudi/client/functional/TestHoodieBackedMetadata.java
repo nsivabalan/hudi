@@ -602,6 +602,7 @@ public class TestHoodieBackedMetadata extends TestHoodieMetadataBase {
   @Test
   public void testMetadataInsertUpsertCleanNonPartitioned() throws Exception {
     init(COPY_ON_WRITE);
+    testTable.setNonPartitioned();
     doWriteOperationNonPartitioned(testTable, "0000001", INSERT);
     doWriteOperationNonPartitioned(testTable, "0000002", UPSERT);
     testTable.doCleanBasedOnCommits("0000003", Arrays.asList("0000001"));
@@ -1268,6 +1269,7 @@ public class TestHoodieBackedMetadata extends TestHoodieMetadataBase {
   @Test
   public void testRollbackOperationsNonPartitioned() throws Exception {
     init(COPY_ON_WRITE);
+    testTable.setNonPartitioned();
     doWriteInsertAndUpsertNonPartitioned(testTable);
 
     // trigger an upsert
@@ -1402,6 +1404,9 @@ public class TestHoodieBackedMetadata extends TestHoodieMetadataBase {
   @MethodSource("tableTypeAndEnableOperationArgs")
   public void testMetadataBootstrapLargeCommitList(HoodieTableType tableType, boolean nonPartitionedDataset) throws Exception {
     init(tableType, true, true, true, false);
+    if (nonPartitionedDataset) {
+      testTable.setNonPartitioned();
+    }
     long baseCommitTime = Long.parseLong(HoodieActiveTimeline.createNewInstantTime());
     for (int i = 1; i < 25; i += 7) {
       long commitTime1 = getNextCommitTime(baseCommitTime);
