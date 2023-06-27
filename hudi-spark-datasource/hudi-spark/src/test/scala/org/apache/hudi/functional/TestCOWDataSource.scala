@@ -111,6 +111,32 @@ class TestCOWDataSource extends HoodieSparkClientTestBase with ScalaAssertionSup
     assertTrue(HoodieDataSourceHelpers.hasNewCommits(fs, basePath, "000"))
   }
 
+    @Test
+    def testReadClient(): Unit = {
+      // recordType: HoodieRecordType
+        val recordType = HoodieRecordType.AVRO
+      val (writeOpts, readOpts) = getWriterReaderOpts(recordType)
+
+        // Insert Operation
+      val records1 = recordsToStrings(dataGen.generateInserts("000", 100)).toList
+      val inputDF1 = spark.read.json(spark.sparkContext.parallelize(records1, 2))
+      inputDF1.write.format("org.apache.hudi")
+        .options(writeOpts)
+        .mode(SaveMode.Overwrite)
+        .save(basePath)
+
+        assertTrue(HoodieDataSourceHelpers.hasNewCommits(fs, basePath, "000"))
+
+        val snapshotDF1 = spark.read.format("org.apache.hudi")
+        .options(readOpts)
+        .load(basePath + "/*/*/*/*")
+      assertEquals(100, snapshotDF1.count())
+
+        inputDF1.sample(0.5).write.format("hudi").options(writeOpts)
+        .option(DataSourceWriteOptions.OPERATION.key() ,"INDEX")
+        .mode(SaveMode.Append).save(basePath)
+    }
+
   @ParameterizedTest
   @EnumSource(value = classOf[HoodieRecordType], names = Array("AVRO", "SPARK"))
   def testNoPrecombine(recordType: HoodieRecordType) {

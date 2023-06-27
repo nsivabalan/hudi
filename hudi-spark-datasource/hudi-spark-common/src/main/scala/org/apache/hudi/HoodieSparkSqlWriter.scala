@@ -383,20 +383,29 @@ object HoodieSparkSqlWriter {
               } else {
                 hoodieRecords
               }
-            client.startCommitWithTime(instantTime, commitActionType)
-            val writeResult = DataSourceUtils.doWriteOperation(client, dedupedHoodieRecords, instantTime, operation,
-              isPrepped)
-            (writeResult, client)
+            if (operation != WriteOperationType.INDEX) {
+              client.startCommitWithTime(instantTime, commitActionType)
+              val writeResult = DataSourceUtils.doWriteOperation(client, dedupedHoodieRecords, instantTime, operation,
+                isPrepped)
+              (writeResult, client)
+            } else {
+              log.warn("XXX Triggering tag location w/ READ client ")
+              (DataSourceUtils.triggerTagLocationWithReadClient(jsc, dedupedHoodieRecords, client.getConfig), client)
+            }
         }
 
       // Check for errors and commit the write.
       try {
-        val (writeSuccessful, compactionInstant, clusteringInstant) =
-          commitAndPerformPostOperations(sqlContext.sparkSession, df.schema,
-            writeResult, parameters, writeClient, tableConfig, jsc,
-            TableInstantInfo(basePath, instantTime, commitActionType, operation), extraPreCommitFn)
+        if (operation != WriteOperationType.INDEX) {
+          val (writeSuccessful, compactionInstant, clusteringInstant) =
+            commitAndPerformPostOperations(sqlContext.sparkSession, df.schema,
+              writeResult, parameters, writeClient, tableConfig, jsc,
+              TableInstantInfo(basePath, instantTime, commitActionType, operation), extraPreCommitFn)
 
-        (writeSuccessful, common.util.Option.ofNullable(instantTime), compactionInstant, clusteringInstant, writeClient, tableConfig)
+          (writeSuccessful, common.util.Option.ofNullable(instantTime), compactionInstant, clusteringInstant, writeClient, tableConfig)
+        } else {
+          (true, common.util.Option.ofNullable(instantTime), common.util.Option.empty(), common.util.Option.empty(), writeClient, tableConfig)
+        }
       } finally {
         // close the write client in all cases
         val asyncCompactionEnabled = isAsyncCompactionEnabled(writeClient, tableConfig, parameters, jsc.hadoopConfiguration())

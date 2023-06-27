@@ -37,6 +37,7 @@ import org.apache.hudi.common.util.TablePathUtils;
 import org.apache.hudi.config.HoodieCompactionConfig;
 import org.apache.hudi.config.HoodiePayloadConfig;
 import org.apache.hudi.config.HoodieWriteConfig;
+import org.apache.hudi.data.HoodieJavaRDD;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieNotSupportedException;
 import org.apache.hudi.exception.TableNotFoundException;
@@ -175,7 +176,7 @@ public class DataSourceUtils {
   }
 
   public static HoodieWriteConfig createHoodieConfig(String schemaStr, String basePath,
-      String tblName, Map<String, String> parameters) {
+                                                     String tblName, Map<String, String> parameters) {
     boolean asyncCompact = Boolean.parseBoolean(parameters.get(DataSourceWriteOptions.ASYNC_COMPACT_ENABLE().key()));
     boolean inlineCompact = !asyncCompact && parameters.get(DataSourceWriteOptions.TABLE_TYPE().key())
         .equals(DataSourceWriteOptions.MOR_TABLE_TYPE_OPT_VAL());
@@ -208,7 +209,7 @@ public class DataSourceUtils {
     switch (operation) {
       case BULK_INSERT:
         Option<BulkInsertPartitioner> userDefinedBulkInsertPartitioner =
-                createUserDefinedBulkInsertPartitioner(client.getConfig());
+            createUserDefinedBulkInsertPartitioner(client.getConfig());
         return new HoodieWriteResult(client.bulkInsert(hoodieRecords, instantTime, userDefinedBulkInsertPartitioner));
       case INSERT:
         return new HoodieWriteResult(client.insert(hoodieRecords, instantTime));
@@ -227,18 +228,27 @@ public class DataSourceUtils {
     }
   }
 
+  public static HoodieWriteResult triggerTagLocationWithReadClient(JavaSparkContext jssc, JavaRDD<HoodieRecord> hoodieRecords, HoodieWriteConfig writeConfig) throws HoodieException {
+    HoodieSparkEngineContext engineContext = new HoodieSparkEngineContext(jssc);
+    SparkRDDReadClient readClient = new SparkRDDReadClient(engineContext, writeConfig);
+    long startTime = System.currentTimeMillis();
+    readClient.tagLocation(hoodieRecords).count();
+    LOG.warn("Total tag location time :: " + (System.currentTimeMillis() - startTime));
+    return new HoodieWriteResult(HoodieJavaRDD.getJavaRDD(engineContext.emptyHoodieData()));
+  }
+
   public static HoodieWriteResult doDeleteOperation(SparkRDDWriteClient client, JavaRDD<HoodieKey> hoodieKeys,
-      String instantTime) {
+                                                    String instantTime) {
     return new HoodieWriteResult(client.delete(hoodieKeys, instantTime));
   }
 
   public static HoodieWriteResult doDeletePartitionsOperation(SparkRDDWriteClient client, List<String> partitionsToDelete,
-                                                    String instantTime) {
+                                                              String instantTime) {
     return client.deletePartitions(partitionsToDelete, instantTime);
   }
 
   public static HoodieRecord createHoodieRecord(GenericRecord gr, Comparable orderingVal, HoodieKey hKey,
-      String payloadClass, scala.Option<HoodieRecordLocation> recordLocation) throws IOException {
+                                                String payloadClass, scala.Option<HoodieRecordLocation> recordLocation) throws IOException {
     HoodieRecordPayload payload = DataSourceUtils.createPayload(payloadClass, gr, orderingVal);
     HoodieAvroRecord record = new HoodieAvroRecord<>(hKey, payload);
     if (recordLocation.isDefined()) {
@@ -260,13 +270,13 @@ public class DataSourceUtils {
   /**
    * Drop records already present in the dataset.
    *
-   * @param jssc JavaSparkContext
+   * @param jssc                  JavaSparkContext
    * @param incomingHoodieRecords HoodieRecords to deduplicate
-   * @param writeConfig HoodieWriteConfig
+   * @param writeConfig           HoodieWriteConfig
    */
   @SuppressWarnings("unchecked")
   public static JavaRDD<HoodieRecord> dropDuplicates(JavaSparkContext jssc, JavaRDD<HoodieRecord> incomingHoodieRecords,
-      HoodieWriteConfig writeConfig) {
+                                                     HoodieWriteConfig writeConfig) {
     try {
       SparkRDDReadClient client = new SparkRDDReadClient<>(new HoodieSparkEngineContext(jssc), writeConfig);
       return client.tagLocation(incomingHoodieRecords)
@@ -280,7 +290,7 @@ public class DataSourceUtils {
 
   @SuppressWarnings("unchecked")
   public static JavaRDD<HoodieRecord> dropDuplicates(JavaSparkContext jssc, JavaRDD<HoodieRecord> incomingHoodieRecords,
-      Map<String, String> parameters) {
+                                                     Map<String, String> parameters) {
     HoodieWriteConfig writeConfig =
         HoodieWriteConfig.newBuilder().withPath(parameters.get("path")).withProps(parameters).build();
     return dropDuplicates(jssc, incomingHoodieRecords, writeConfig);
@@ -294,13 +304,13 @@ public class DataSourceUtils {
    *   <li>Property has not been explicitly set by the writer</li>
    *   <li>Data schema contains {@code DecimalType} that would be affected by it</li>
    * </ul>
-   *
+   * <p>
    * If both of the aforementioned conditions are true, will override the default value of the config
    * (by essentially setting the value) to make sure that the produced Parquet data files could be
    * read by {@code AvroParquetReader}
    *
    * @param properties properties specified by the writer
-   * @param schema schema of the dataset being written
+   * @param schema     schema of the dataset being written
    */
   public static void tryOverrideParquetWriteLegacyFormatProperty(Map<String, String> properties, StructType schema) {
     if (HoodieDataTypeUtils.hasSmallPrecisionDecimalType(schema)
