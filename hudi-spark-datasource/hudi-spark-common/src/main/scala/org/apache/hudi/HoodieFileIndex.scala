@@ -30,7 +30,7 @@ import org.apache.hudi.keygen.{TimestampBasedAvroKeyGenerator, TimestampBasedKey
 import org.apache.hudi.metadata.HoodieMetadataPayload
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{And, Expression, Literal}
+import org.apache.spark.sql.catalyst.expressions.{And, EqualTo, Expression, Literal}
 import org.apache.spark.sql.execution.datasources.{FileIndex, FileStatusCache, NoopCache, PartitionDirectory}
 import org.apache.spark.sql.hudi.DataSkippingUtils.translateIntoColumnStatsIndexFilterExpr
 import org.apache.spark.sql.hudi.HoodieSqlCommonUtils
@@ -95,6 +95,8 @@ case class HoodieFileIndex(spark: SparkSession,
   @transient private lazy val columnStatsIndex = new ColumnStatsIndexSupport(spark, schema, metadataConfig, metaClient)
 
   @transient private lazy val recordLevelIndex = new RecordLevelIndexSupport(spark, metadataConfig, metaClient)
+
+  @transient private lazy val filePruningIndex = new FilePruningSupport(spark, metadataConfig, metaClient)
 
   override def rootPaths: Seq[Path] = getQueryPaths.asScala
 
@@ -204,6 +206,7 @@ case class HoodieFileIndex(spark: SparkSession,
     allBaseFileNames -- allIndexedFileNames
   }
 
+
   /**
    * Computes pruned list of candidate base-files' names based on provided list of {@link dataFilters}
    * conditions, by leveraging Metadata Table's Column Statistics index (hereon referred as ColStats for brevity)
@@ -228,50 +231,70 @@ case class HoodieFileIndex(spark: SparkSession,
     if (!isMetadataTableEnabled || !isDataSkippingEnabled) {
       validateConfig()
       Option.empty
-    } else if (recordLevelIndex.isIndexApplicable(queryFilters)) {
+    } /*else if (filePr.isIndexApplicable(queryFilters)) {
       Option.apply(recordLevelIndex.getCandidateFiles(allFiles, queryFilters))
-    } else if (!columnStatsIndex.isIndexAvailable || queryFilters.isEmpty || queryReferencedColumns.isEmpty) {
+    } */
+    else if (!filePruningIndex.isIndexAvailable || queryFilters.isEmpty || queryReferencedColumns.isEmpty) {
       validateConfig()
       Option.empty
     } else {
-      // NOTE: Since executing on-cluster via Spark API has its own non-trivial amount of overhead,
-      //       it's most often preferential to fetch Column Stats Index w/in the same process (usually driver),
-      //       w/o resorting to on-cluster execution.
-      //       For that we use a simple-heuristic to determine whether we should read and process CSI in-memory or
-      //       on-cluster: total number of rows of the expected projected portion of the index has to be below the
-      //       threshold (of 100k records)
-      val shouldReadInMemory = columnStatsIndex.shouldReadInMemory(this, queryReferencedColumns)
-
-      columnStatsIndex.loadTransposed(queryReferencedColumns, shouldReadInMemory) { transposedColStatsDF =>
-        val indexSchema = transposedColStatsDF.schema
-        val indexFilter =
-          queryFilters.map(translateIntoColumnStatsIndexFilterExpr(_, indexSchema))
-            .reduce(And)
-
-        val allIndexedFileNames =
-          transposedColStatsDF.select(HoodieMetadataPayload.COLUMN_STATS_FIELD_FILE_NAME)
-            .collect()
-            .map(_.getString(0))
-            .toSet
-
-        val prunedCandidateFileNames =
-          transposedColStatsDF.where(new Column(indexFilter))
-            .select(HoodieMetadataPayload.COLUMN_STATS_FIELD_FILE_NAME)
-            .collect()
-            .map(_.getString(0))
-            .toSet
-
-        // NOTE: Col-Stats Index isn't guaranteed to have complete set of statistics for every
-        //       base-file: since it's bound to clustering, which could occur asynchronously
-        //       at arbitrary point in time, and is not likely to be touching all of the base files.
-        //
-        //       To close that gap, we manually compute the difference b/w all indexed (by col-stats-index)
-        //       files and all outstanding base-files, and make sure that all base files not
-        //       represented w/in the index are included in the output of this method
-        val notIndexedFileNames = lookupFileNamesMissingFromIndex(allIndexedFileNames)
-
-        Some(prunedCandidateFileNames ++ notIndexedFileNames)
+     val candidateFiles : Option[Set[String]] = if (recordLevelIndex.isIndexAvailable && columnStatsIndex.isIndexAvailable) {
+        // both col stats and record level index available
+        val (colStatsQueryFilters, recordLevelIndexQueryFilters) : (Seq[Expression], Seq[Expression])
+        = filePruningIndex.sliceFiltersForColStatsAndRecordLevelIndex(queryFilters, queryReferencedColumns)
+        Option.apply(getCandidateFilesFromColStats(queryReferencedColumns, colStatsQueryFilters)
+          .map(candidateFiles => candidateFiles ++ recordLevelIndex.getCandidateFiles(allFiles, recordLevelIndexQueryFilters))
+          .getOrElse(recordLevelIndex.getCandidateFiles(allFiles, recordLevelIndexQueryFilters)).asInstanceOf[Set[String]])
+      } else if (recordLevelIndex.isIndexAvailable) {
+        // only record level index available
+        Option.apply(recordLevelIndex.getCandidateFiles(allFiles, queryFilters))
+      } else {
+        // only col stats available
+        getCandidateFilesFromColStats(queryReferencedColumns, queryFilters)
       }
+      candidateFiles
+    }
+  }
+
+  def getCandidateFilesFromColStats(queryReferencedColumns: Seq[String], queryFilters: Seq[Expression]): Option[Set[String]] = {
+
+    // NOTE: Since executing on-cluster via Spark API has its own non-trivial amount of overhead,
+    //       it's most often preferential to fetch Column Stats Index w/in the same process (usually driver),
+    //       w/o resorting to on-cluster execution.
+    //       For that we use a simple-heuristic to determine whether we should read and process CSI in-memory or
+    //       on-cluster: total number of rows of the expected projected portion of the index has to be below the
+    //       threshold (of 100k records)
+    val shouldReadInMemory = columnStatsIndex.shouldReadInMemory(this, queryReferencedColumns)
+
+    columnStatsIndex.loadTransposed(queryReferencedColumns, shouldReadInMemory) { transposedColStatsDF =>
+      val indexSchema = transposedColStatsDF.schema
+      val indexFilter =
+        queryFilters.map(translateIntoColumnStatsIndexFilterExpr(_, indexSchema))
+          .reduce(And)
+
+      val allIndexedFileNames =
+        transposedColStatsDF.select(HoodieMetadataPayload.COLUMN_STATS_FIELD_FILE_NAME)
+          .collect()
+          .map(_.getString(0))
+          .toSet
+
+      val prunedCandidateFileNames =
+        transposedColStatsDF.where(new Column(indexFilter))
+          .select(HoodieMetadataPayload.COLUMN_STATS_FIELD_FILE_NAME)
+          .collect()
+          .map(_.getString(0))
+          .toSet
+
+      // NOTE: Col-Stats Index isn't guaranteed to have complete set of statistics for every
+      //       base-file: since it's bound to clustering, which could occur asynchronously
+      //       at arbitrary point in time, and is not likely to be touching all of the base files.
+      //
+      //       To close that gap, we manually compute the difference b/w all indexed (by col-stats-index)
+      //       files and all outstanding base-files, and make sure that all base files not
+      //       represented w/in the index are included in the output of this method
+      val notIndexedFileNames = lookupFileNamesMissingFromIndex(allIndexedFileNames)
+
+      Some(prunedCandidateFileNames ++ notIndexedFileNames)
     }
   }
 
