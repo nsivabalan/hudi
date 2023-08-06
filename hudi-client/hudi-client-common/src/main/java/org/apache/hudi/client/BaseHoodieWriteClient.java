@@ -108,6 +108,7 @@ import java.util.stream.Collectors;
 import static org.apache.hudi.avro.AvroSchemaUtils.getAvroRecordQualifiedName;
 import static org.apache.hudi.common.model.HoodieCommitMetadata.SCHEMA_KEY;
 import static org.apache.hudi.metadata.HoodieTableMetadata.getMetadataTableBasePath;
+import static org.apache.hudi.common.util.FileIOUtils.killJVMIfDesired;
 
 /**
  * Abstract Write Client providing functionality for performing commit, index updates and rollback
@@ -368,6 +369,12 @@ public abstract class BaseHoodieWriteClient<T, I, K, O> extends BaseHoodieClient
    * @param writeStatuses WriteStatuses for the completed action.
    */
   protected void writeTableMetadata(HoodieTable table, String instantTime, HoodieCommitMetadata metadata, HoodieData<WriteStatus> writeStatuses) {
+    if (config.getBasePath().contains(".hoodie/metadata")) {
+      killJVMIfDesired("/tmp/fail4_mt_pre_commit.txt", "Fail metadata table commit for " + instantTime + " " + metadata.getOperationType(), 0.2);
+    } else {
+      killJVMIfDesired("/tmp/fail4_dt_pre_commit.txt", "Fail after metadata table commit/services before data table commit "
+          + instantTime + " " + metadata.getOperationType(), 0.2);
+    }
     context.setJobStatus(this.getClass().getSimpleName(), "Committing to metadata table: " + config.getTableName());
     Option<HoodieTableMetadataWriter> metadataWriterOpt = table.getMetadataWriter(instantTime);
     if (metadataWriterOpt.isPresent()) {
@@ -380,6 +387,11 @@ public abstract class BaseHoodieWriteClient<T, I, K, O> extends BaseHoodieClient
           throw new HoodieException("Failed to update metadata", e);
         }
       }
+    }
+
+    if (!config.getBasePath().contains(".hoodie/metadata")) {
+      killJVMIfDesired("/tmp/fail4_dt_post_commit.txt",
+          "Fail after metadata table commit/services before data table commit " + instantTime + " " + metadata.getOperationType(), 0.2);
     }
   }
 

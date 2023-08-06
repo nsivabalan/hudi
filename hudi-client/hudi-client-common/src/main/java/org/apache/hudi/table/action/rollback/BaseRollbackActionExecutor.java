@@ -53,6 +53,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
+import static org.apache.hudi.common.util.FileIOUtils.killJVMIfDesired;
+
 public abstract class BaseRollbackActionExecutor<T, I, K, O> extends BaseActionExecutor<T, I, K, O, HoodieRollbackMetadata> {
 
   private static final Logger LOG = LoggerFactory.getLogger(BaseRollbackActionExecutor.class);
@@ -253,10 +255,22 @@ public abstract class BaseRollbackActionExecutor<T, I, K, O> extends BaseActionE
         this.txnManager.beginTransaction(Option.of(inflightInstant), Option.empty());
       }
 
+      if (config.getBasePath().contains(".hoodie/metadata")) {
+        killJVMIfDesired("/tmp/fail72_mt_rollback.txt", "Fail metadata rollback for " + instantToRollback.toString(), 0.2);
+      } else {
+        killJVMIfDesired("/tmp/fail72_dt_rollback.txt", "Fail data table rollback just before writing to MDT " + instantToRollback.toString(), 0.2);
+      }
+
       // If publish the rollback to the timeline, we first write the rollback metadata to metadata table
       // Then transition the inflight rollback to completed state.
       if (!skipTimelinePublish) {
         writeTableMetadata(rollbackMetadata);
+
+        if (!config.getBasePath().contains(".hoodie/metadata")) {
+          killJVMIfDesired("/tmp/fail72_dt_rollback.txt", "Fail data table rollback after writing to MDT, before completing in DT "
+              + instantToRollback.toString(), 0.2);
+        }
+
         table.getActiveTimeline().transitionRollbackInflightToComplete(inflightInstant,
             TimelineMetadataUtils.serializeRollbackMetadata(rollbackMetadata));
         LOG.info("Rollback of Commits " + rollbackMetadata.getCommitsRollback() + " is complete");

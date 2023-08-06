@@ -30,6 +30,7 @@ import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -41,7 +42,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Random;
 import java.util.stream.Collectors;
 
 /**
@@ -50,6 +54,9 @@ import java.util.stream.Collectors;
 public class FileIOUtils {
   public static final Logger LOG = LoggerFactory.getLogger(FileIOUtils.class);
   public static final long KB = 1024;
+  public static final Map<String, Random> RANDOM_MAP = new HashMap<>();
+  public static final List<Boolean> SHOULD_SKIP_FAILURE_INJECTION = new ArrayList<>();
+  public static final List<Long> SKIP_UNTIL_TS = new ArrayList<>();
 
   public static void deleteDirectory(File directory) throws IOException {
     if (directory.exists()) {
@@ -240,5 +247,61 @@ public class FileIOUtils {
       throw new HoodieIOException("Yarn Local dirs can't be empty");
     }
     return localDirs;
+  }
+
+  public static void killJVMIfDesired(String signalFilePath, String msg) {
+    try {
+      final String val = FileIOUtils.readAsUTFString(new FileInputStream(signalFilePath));
+      boolean kill = Boolean.parseBoolean(val.trim());
+      if (kill) {
+        System.out.println("Killing the jvm at " + signalFilePath + " Reason: " + msg);
+        System.exit(1);
+      }
+    } catch (Exception e) {
+      System.err.println(">>> error killing the jvm at " + signalFilePath + " ...");
+      e.printStackTrace();
+    }
+  }
+
+  /**
+   * Kill with probability of 1/denom
+   *
+   * @param signalFilePath
+   * @param msg
+   * @param probability
+   */
+  public static void killJVMIfDesired(String signalFilePath, String msg, double probability) {
+    if (SHOULD_SKIP_FAILURE_INJECTION.isEmpty()) {
+      if (getRandom("internal").nextDouble() <= 0.1) {
+        SHOULD_SKIP_FAILURE_INJECTION.add(true);
+        SKIP_UNTIL_TS.add(System.currentTimeMillis() + 300000L);
+      } else {
+        SHOULD_SKIP_FAILURE_INJECTION.add(false);
+      }
+    }
+
+    if (SHOULD_SKIP_FAILURE_INJECTION.get(0) && System.currentTimeMillis() < SKIP_UNTIL_TS.get(0)) {
+      System.out.println("Skip failure injection for 5 minutes " + signalFilePath + " Reason: " + msg);
+      return;
+    }
+
+    try {
+      boolean kill = getRandom(signalFilePath).nextDouble() <= probability;
+      if (kill) {
+        System.out.println("Killing the jvm at " + signalFilePath + " Reason: " + msg);
+        System.exit(1);
+      } else {
+        System.out.println(
+            String.format("Decide to continue the job without failure injection (%s, %s)",
+                signalFilePath, msg));
+      }
+    } catch (Exception e) {
+      System.err.println(">>> error killing the jvm at " + signalFilePath + " ...");
+      e.printStackTrace();
+    }
+  }
+
+  private static Random getRandom(String signalFilePath) {
+    return RANDOM_MAP.computeIfAbsent(signalFilePath, key -> new Random());
   }
 }
