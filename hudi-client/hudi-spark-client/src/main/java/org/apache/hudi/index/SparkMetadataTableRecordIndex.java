@@ -101,6 +101,7 @@ public class SparkMetadataTableRecordIndex extends HoodieIndex<Object, Object> {
         .map(t -> t._2);
     ValidationUtils.checkState(partitionedKeyRDD.getNumPartitions() <= numFileGroups);
 
+    LOG.warn("XXX MDT record index ");
     // Lookup the keys in the record index
     HoodiePairData<String, HoodieRecordGlobalLocation> keyAndExistingLocations =
         HoodieJavaPairRDD.of(partitionedKeyRDD.mapPartitionsToPair(new RecordIndexFileGroupLookupFunction(hoodieTable)));
@@ -165,11 +166,14 @@ public class SparkMetadataTableRecordIndex extends HoodieIndex<Object, Object> {
     public Iterator<Tuple2<String, HoodieRecordGlobalLocation>> call(Iterator<String> recordKeyIterator) {
       List<String> keysToLookup = new ArrayList<>();
       recordKeyIterator.forEachRemaining(keysToLookup::add);
+      LOG.warn("ZZZ RecordIndexFileGroupLookupFunction");
 
       // recordIndexInfo object only contains records that are present in record_index.
       Map<String, HoodieRecordGlobalLocation> recordIndexInfo = hoodieTable.getMetadataTable().readRecordIndex(keysToLookup);
-      return recordIndexInfo.entrySet().stream()
+      Iterator<Tuple2<String, HoodieRecordGlobalLocation>> toReturn = recordIndexInfo.entrySet().stream()
           .map(e -> new Tuple2<>(e.getKey(), e.getValue())).iterator();
+      LOG.warn("ZZZ completed read record index call ");
+      return toReturn;
     }
   }
 

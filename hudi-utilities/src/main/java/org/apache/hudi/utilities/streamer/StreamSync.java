@@ -765,7 +765,7 @@ public class StreamSync implements Serializable, Closeable {
 
     boolean isEmpty = records.isEmpty();
     instantTime = startCommit(instantTime, !autoGenerateRecordKeys);
-    LOG.info("Starting commit  : " + instantTime);
+    LOG.warn("AAA Starting commit  : " + instantTime);
 
     HoodieWriteResult writeResult;
     Map<String, List<String>> partitionToReplacedFileIds = Collections.emptyMap();

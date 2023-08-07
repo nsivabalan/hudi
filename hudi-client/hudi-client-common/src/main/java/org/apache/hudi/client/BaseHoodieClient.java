@@ -98,6 +98,9 @@ public abstract class BaseHoodieClient implements Serializable, AutoCloseable {
     startEmbeddedServerView();
     initWrapperFSMetrics();
     runClientInitCallbacks();
+    if (clientConfig.getBasePath().endsWith("metadata")) {
+      LOG.warn("XXX instantiating write client for MDT ");
+    }
   }
 
   /**
@@ -109,6 +112,9 @@ public abstract class BaseHoodieClient implements Serializable, AutoCloseable {
     this.context.setJobStatus("", "");
     this.heartbeatClient.close();
     this.txnManager.close();
+    if (config.getBasePath().endsWith("metadata")) {
+      LOG.warn("XXX closing write client for MDT ");
+    }
   }
 
   private synchronized void stopEmbeddedServerView(boolean resetViewStorageConfig) {

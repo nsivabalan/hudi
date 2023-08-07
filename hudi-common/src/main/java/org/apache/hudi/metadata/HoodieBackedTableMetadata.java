@@ -242,6 +242,7 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
     }
 
     Map<String, HoodieRecord<HoodieMetadataPayload>> result;
+    LOG.warn("YYY getRecords by key for " + partitionName + ", key size " + keys.size());
 
     // Load the file slices for the partition. Each file slice is a shard which saves a portion of the keys.
     List<FileSlice> partitionFileSlices = partitionFileSliceMap.computeIfAbsent(partitionName,
@@ -307,6 +308,7 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
       throw new HoodieIOException("Error merging records from metadata table for  " + keys.size() + " key : ", ioe);
     } finally {
       if (!reuse) {
+        LOG.warn("YYY Closing readers since reuse is set to false ");
         closeReader(readers);
       }
     }
@@ -415,6 +417,7 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
 
   private Pair<HoodieSeekingFileReader<?>, HoodieMetadataLogRecordReader> openReaders(String partitionName, FileSlice slice) {
     try {
+      LOG.warn("YYY Opening readers for " + slice.getFileId() + " " + slice.getBaseInstantTime());
       HoodieTimer timer = HoodieTimer.start();
       // Open base file reader
       Pair<HoodieSeekingFileReader<?>, Long> baseFileReaderOpenTimePair = getBaseFileReader(slice, timer);
@@ -518,6 +521,7 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
 
   @Override
   public void close() {
+    LOG.warn("YYY close within HBackedMetadata");
     closePartitionReaders();
     partitionFileSliceMap.clear();
   }
@@ -538,6 +542,7 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
    */
   private void closePartitionReaders() {
     for (Pair<String, String> partitionFileSlicePair : partitionReaders.get().keySet()) {
+      LOG.warn("YYY closing partition readers for " + partitionFileSlicePair.getKey() + " : " + partitionFileSlicePair.getValue());
       close(partitionFileSlicePair);
     }
     partitionReaders.get().clear();
@@ -547,9 +552,11 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
     if (readers != null) {
       try {
         if (readers.getKey() != null) {
+          LOG.warn("YYY Cloosing base file reader " + readers.getKey().toString());
           readers.getKey().close();
         }
         if (readers.getValue() != null) {
+          LOG.warn("YYY Closing log file reader " + readers.getValue().toString());
           readers.getValue().close();
         }
       } catch (Exception e) {
@@ -603,10 +610,13 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
     dataMetaClient.reloadActiveTimeline();
     if (metadataMetaClient != null) {
       metadataMetaClient.reloadActiveTimeline();
+      LOG.warn("YYY closing MDT FSV and re-instantiating new one");
+      metadataFileSystemView.close();
       metadataFileSystemView = getFileSystemView(metadataMetaClient);
     }
     // the cached reader has max instant time restriction, they should be cleared
     // because the metadata timeline may have changed.
+    LOG.warn("YYY Closing all partition readers within reset");
     closePartitionReaders();
     partitionFileSliceMap.clear();
   }

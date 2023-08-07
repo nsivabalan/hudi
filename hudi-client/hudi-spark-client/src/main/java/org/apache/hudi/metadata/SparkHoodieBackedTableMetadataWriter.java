@@ -134,6 +134,7 @@ public class SparkHoodieBackedTableMetadataWriter extends HoodieBackedTableMetad
     ValidationUtils.checkState(metadataMetaClient != null, "Metadata table is not fully initialized yet.");
     HoodieData<HoodieRecord> preppedRecords = prepRecords(partitionRecordsMap);
     JavaRDD<HoodieRecord> preppedRecordRDD = HoodieJavaRDD.getJavaRDD(preppedRecords);
+    LOG.warn(randomInt + ", XXX committing " + instantTime + " to MDT. will be fetching write client ");
 
     try (SparkRDDWriteClient writeClient = (SparkRDDWriteClient) getWriteClient()) {
       // rollback partially failed writes if any.
@@ -178,6 +179,7 @@ public class SparkHoodieBackedTableMetadataWriter extends HoodieBackedTableMetad
       // reload timeline
       metadataMetaClient.reloadActiveTimeline();
     }
+    LOG.warn(randomInt + " XXD mdt write client should have been closed ");
 
     // Update total size of the metadata and count of base/log files
     metrics.ifPresent(m -> m.updateSizeMetrics(metadataMetaClient, metadata, dataMetaClient.getTableConfig().getMetadataPartitions()));
@@ -199,7 +201,10 @@ public class SparkHoodieBackedTableMetadataWriter extends HoodieBackedTableMetad
   @Override
   public BaseHoodieWriteClient getWriteClient() {
     if (writeClient == null) {
+      LOG.warn(randomInt + " XXX Instantiating MDT write client ");
       writeClient = new SparkRDDWriteClient(engineContext, metadataWriteConfig, true);
+    } else {
+      LOG.warn(randomInt + " XXX re-using same MDT write client");
     }
     return writeClient;
   }

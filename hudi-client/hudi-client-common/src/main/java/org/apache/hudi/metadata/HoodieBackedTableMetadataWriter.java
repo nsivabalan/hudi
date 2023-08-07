@@ -95,6 +95,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Random;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -121,6 +122,8 @@ import static org.apache.hudi.metadata.HoodieTableMetadataUtil.getInflightMetada
  */
 public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMetadataWriter {
 
+  private static final Random RANDOM = new Random(0XDEED);
+
   private static final Logger LOG = LoggerFactory.getLogger(HoodieBackedTableMetadataWriter.class);
 
   public static final String METADATA_COMPACTION_TIME_SUFFIX = "001";
@@ -146,6 +149,7 @@ public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMeta
   protected final List<MetadataPartitionType> enabledPartitionTypes;
   // Is the MDT bootstrapped and ready to be read from
   private boolean initialized = false;
+  protected int randomInt = -1;
 
   /**
    * Hudi backed table metadata writer.
@@ -161,6 +165,8 @@ public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMeta
                                             HoodieFailedWritesCleaningPolicy failedWritesCleaningPolicy,
                                             HoodieEngineContext engineContext,
                                             Option<String> inflightInstantTimestamp) {
+    this.randomInt = RANDOM.nextInt(1000000);
+    LOG.warn(randomInt + " XXX Instantiating new MDT writer " + (inflightInstantTimestamp.isPresent() ? inflightInstantTimestamp.get() : " "));
     this.dataWriteConfig = writeConfig;
     this.engineContext = engineContext;
     this.hadoopConf = new SerializableConfiguration(hadoopConf);
@@ -187,12 +193,16 @@ public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMeta
 
   private void initMetadataReader() {
     if (this.metadata != null) {
+      LOG.warn(randomInt + " XXX closing existing reader and re-instantiating within writer");
       this.metadata.close();
+    } else {
+      LOG.warn(randomInt + " XXX Instantiating MDT reader within writer ");
     }
 
     try {
       this.metadata = new HoodieBackedTableMetadata(engineContext, dataWriteConfig.getMetadataConfig(), dataWriteConfig.getBasePath(), true);
       this.metadataMetaClient = metadata.getMetadataMetaClient();
+      LOG.warn(randomInt + " XXX Instantiated new MDT reader within writer ");
     } catch (Exception e) {
       throw new HoodieException("Could not open MDT for reads", e);
     }
@@ -388,7 +398,7 @@ public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMeta
       // Find the commit timestamp to use for this partition. Each initialization should use its own unique commit time.
       String commitTimeForPartition = generateUniqueCommitInstantTime(initializationTime);
 
-      LOG.info("Initializing MDT partition " + partitionType.name() + " at instant " + commitTimeForPartition);
+      LOG.warn(randomInt + " XXX Initializing MDT partition " + partitionType.name() + " at instant " + commitTimeForPartition);
 
       Pair<Integer, HoodieData<HoodieRecord>> fileGroupCountAndRecordsPair;
       try {
@@ -428,6 +438,7 @@ public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMeta
       metadataMetaClient.reloadActiveTimeline();
       dataMetaClient.getTableConfig().setMetadataPartitionState(dataMetaClient, partitionType, true);
       // initialize the metadata reader again so the MDT partition can be read after initialization
+      LOG.warn(randomInt + ", Instantiating MDT reader at the end of initializeFromFilesystem");
       initMetadataReader();
     }
 
@@ -719,7 +730,7 @@ public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMeta
     // the bulkInsert.
     final String msg = String.format("Creating %d file groups for partition %s with base fileId %s at instant time %s",
         fileGroupCount, metadataPartition.getPartitionPath(), metadataPartition.getFileIdPrefix(), instantTime);
-    LOG.info(msg);
+    LOG.warn(randomInt + " XXX " + msg);
     final List<String> fileGroupFileIds = IntStream.range(0, fileGroupCount)
         .mapToObj(i -> HoodieTableMetadataUtil.getFileIDForFileGroup(metadataPartition, i))
         .collect(Collectors.toList());
@@ -955,6 +966,7 @@ public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMeta
     Map<String, DirectoryInfo> dirInfoMap = dirInfoList.stream().collect(Collectors.toMap(DirectoryInfo::getRelativePath, Function.identity()));
     dirInfoList.clear();
 
+    LOG.warn(randomInt + " XXX Fetching new write client for restore ");
     getWriteClient().restoreToInstant(restoreToInstantTime, false);
 
     // At this point we have also reverted the cleans which have occurred after the restoreToInstantTime. Hence, a sync
@@ -1013,6 +1025,7 @@ public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMeta
 
       if (deltacommitsSinceCompaction.containsInstant(deltaCommitInstant)) {
         LOG.info("Rolling back MDT deltacommit " + commitToRollbackInstantTime);
+        LOG.warn(randomInt + " XXX Fetching write client for rollback ");
         if (!getWriteClient().rollback(commitToRollbackInstantTime, rollbackInstantTime)) {
           throw new HoodieMetadataException("Failed to rollback deltacommit at " + commitToRollbackInstantTime);
         }
@@ -1043,7 +1056,10 @@ public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMeta
   @Override
   public void close() throws Exception {
     if (metadata != null) {
+      LOG.warn(randomInt + " XXX closing metadata reader from w/n mdt writer");
       metadata.close();
+    } else {
+      LOG.warn(randomInt + " XXX nothing to close in mdt writer since there is no reader");
     }
   }
 
@@ -1127,6 +1143,7 @@ public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMeta
     HoodieTimer metadataTableServicesTimer = HoodieTimer.start();
     boolean allTableServicesExecutedSuccessfullyOrSkipped = true;
     try {
+      LOG.warn(randomInt + " XXX Fetching write client for perform table services ");
       BaseHoodieWriteClient writeClient = getWriteClient();
       // Run any pending table services operations.
       runPendingTableServicesOperations(writeClient);
@@ -1411,6 +1428,7 @@ public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMeta
 
   protected void closeInternal() {
     try {
+      LOG.warn(randomInt + " XXX close internal w/n mdt writer ");
       close();
     } catch (Exception e) {
       throw new HoodieException("Failed to close HoodieMetadata writer ", e);
