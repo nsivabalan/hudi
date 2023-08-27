@@ -77,14 +77,15 @@ public class TimelineMetadataUtils {
   }
 
   public static HoodieRollbackMetadata convertRollbackMetadata(String startRollbackTime, Option<Long> durationInMs,
-                                                               List<HoodieInstant> instants, List<HoodieRollbackStat> rollbackStats) {
+                                                               List<HoodieInstant> instants, List<HoodieRollbackStat> rollbackStats,
+                                                               Map<java.lang.String,java.lang.Long> logFilesFromFailedCommit) {
     Map<String, HoodieRollbackPartitionMetadata> partitionMetadataBuilder = new HashMap<>();
     int totalDeleted = 0;
     for (HoodieRollbackStat stat : rollbackStats) {
       Map<String, Long> rollbackLogFiles = stat.getCommandBlocksCount().keySet().stream()
           .collect(Collectors.toMap(f -> f.getPath().toString(), FileStatus::getLen));
       HoodieRollbackPartitionMetadata metadata = new HoodieRollbackPartitionMetadata(stat.getPartitionPath(),
-          stat.getSuccessDeleteFiles(), stat.getFailedDeleteFiles(), rollbackLogFiles);
+          stat.getSuccessDeleteFiles(), stat.getFailedDeleteFiles(), rollbackLogFiles, Collections.emptyMap());
       partitionMetadataBuilder.put(stat.getPartitionPath(), metadata);
       totalDeleted += stat.getSuccessDeleteFiles().size();
     }

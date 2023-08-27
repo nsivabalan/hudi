@@ -26,14 +26,12 @@ import org.apache.hudi.client.SparkRDDWriteClient;
 import org.apache.hudi.client.WriteStatus;
 import org.apache.hudi.client.common.HoodieSparkEngineContext;
 import org.apache.hudi.client.functional.TestHoodieBackedMetadata;
-import org.apache.hudi.client.utils.MetadataTableUtils;
 import org.apache.hudi.common.HoodieRollbackStat;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.config.HoodieStorageConfig;
 import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.model.HoodieCommitMetadata;
-import org.apache.hudi.common.model.HoodieDeltaWriteStat;
 import org.apache.hudi.common.model.HoodieFailedWritesCleaningPolicy;
 import org.apache.hudi.common.model.HoodieFileGroup;
 import org.apache.hudi.common.model.HoodieRecord;
@@ -51,19 +49,14 @@ import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
 import org.apache.hudi.common.table.view.SyncableFileSystemView;
 import org.apache.hudi.common.table.view.TableFileSystemView;
 import org.apache.hudi.common.testutils.HoodieTestDataGenerator;
-import org.apache.hudi.common.testutils.HoodieTestTable;
 import org.apache.hudi.common.util.CollectionUtils;
-import org.apache.hudi.common.util.FileIOUtils;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.config.HoodieCleanConfig;
 import org.apache.hudi.config.HoodieCompactionConfig;
-import org.apache.hudi.config.HoodieIndexConfig;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.exception.HoodieIOException;
 import org.apache.hudi.index.HoodieIndex;
-import org.apache.hudi.metadata.HoodieBackedTableMetadata;
-import org.apache.hudi.metadata.HoodieTableMetadata;
 import org.apache.hudi.table.HoodieSparkTable;
 import org.apache.hudi.table.HoodieTable;
 import org.apache.hudi.table.action.HoodieWriteMetadata;
@@ -72,7 +65,6 @@ import org.apache.hudi.testutils.HoodieMergeOnReadTestUtils;
 import org.apache.hudi.testutils.SparkClientFunctionalTestHarness;
 
 import org.apache.avro.generic.GenericRecord;
-import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.spark.api.java.JavaRDD;
@@ -82,15 +74,12 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.File;
-import java.io.FilenameFilter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -1165,7 +1154,7 @@ public class TestHoodieSparkMergeOnReadTableRollback extends SparkClientFunction
     String basePath = basePath().substring(7);
     HoodieWriteConfig cfg = getConfigMDTRollback(basePath);
     HoodieTableMetaClient metaClient = getHoodieMetaClient(HoodieTableType.MERGE_ON_READ);
-    SparkRDDWriteClient client =  getHoodieWriteClient(cfg);
+    SparkRDDWriteClient client = getHoodieWriteClient(cfg);
     HoodieTestDataGenerator dataGen = new HoodieTestDataGenerator();
 
     //normal insert
@@ -1178,12 +1167,13 @@ public class TestHoodieSparkMergeOnReadTableRollback extends SparkClientFunction
     metaClient = HoodieTableMetaClient.reload(metaClient);
     TestHoodieBackedMetadata.validateMetadata(cfg, Option.empty(), fs(), basePath, metaClient, hadoopConf(), new HoodieSparkEngineContext(jsc()), TestHoodieBackedMetadata.metadata(client));
   }
+
   @Test
   public void testRollbackWithFailurePostMDT() throws IOException {
     String basePath = basePath().substring(7);
     HoodieWriteConfig cfg = getConfigMDTRollback(basePath);
     HoodieTableMetaClient metaClient = getHoodieMetaClient(HoodieTableType.MERGE_ON_READ);
-    SparkRDDWriteClient client =  getHoodieWriteClient(cfg);
+    SparkRDDWriteClient client = getHoodieWriteClient(cfg);
     HoodieTestDataGenerator dataGen = new HoodieTestDataGenerator();
 
     //normal insert
@@ -1222,7 +1212,7 @@ public class TestHoodieSparkMergeOnReadTableRollback extends SparkClientFunction
     String basePath = basePath().substring(7);
     HoodieWriteConfig cfg = getConfigMDTRollback(basePath);
     HoodieTableMetaClient metaClient = getHoodieMetaClient(HoodieTableType.MERGE_ON_READ);
-    SparkRDDWriteClient client =  getHoodieWriteClient(cfg);
+    SparkRDDWriteClient client = getHoodieWriteClient(cfg);
     HoodieTestDataGenerator dataGen = new HoodieTestDataGenerator();
 
     //normal insert
@@ -1249,7 +1239,7 @@ public class TestHoodieSparkMergeOnReadTableRollback extends SparkClientFunction
 
     //Make the MDT appear to fail mid write by deleting the commit in the MDT timline. The MDT does not use markers so we do not need to recreate them
     String metadataBasePath = basePath + "/.hoodie/metadata";
-    HoodieTableMetaClient metadataMetaClient =  HoodieTableMetaClient.builder().setConf(hadoopConf()).setBasePath(metadataBasePath).build();
+    HoodieTableMetaClient metadataMetaClient = HoodieTableMetaClient.builder().setConf(hadoopConf()).setBasePath(metadataBasePath).build();
     HoodieInstant latestCommitInstant = metadataMetaClient.getActiveTimeline().lastInstant().get();
     File metadatadeltacommit = new File(metadataBasePath + "/.hoodie/" + latestCommitInstant.getFileName());
     assertTrue(metadatadeltacommit.delete());

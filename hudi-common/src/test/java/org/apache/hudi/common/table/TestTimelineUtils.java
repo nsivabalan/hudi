@@ -506,7 +506,7 @@ public class TestTimelineUtils extends HoodieCommonTestHarness {
     HoodieRollbackStat rollbackStat = new HoodieRollbackStat(partition, deletedFiles, Collections.emptyList(), Collections.emptyMap());
     List<HoodieRollbackStat> rollbackStats = new ArrayList<>();
     rollbackStats.add(rollbackStat);
-    return TimelineMetadataUtils.convertRollbackMetadata(commitTs, Option.empty(), rollbacks, rollbackStats);
+    return TimelineMetadataUtils.convertRollbackMetadata(commitTs, Option.empty(), rollbacks, rollbackStats, Collections.emptyMap());
   }
 
   private byte[] getCommitMetadata(String basePath, String partition, String commitTs, int count, Map<String, String> extraMetadata)

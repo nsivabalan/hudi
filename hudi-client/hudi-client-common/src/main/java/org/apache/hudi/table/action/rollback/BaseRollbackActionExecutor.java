@@ -49,7 +49,9 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
@@ -110,11 +112,14 @@ public abstract class BaseRollbackActionExecutor<T, I, K, O> extends BaseActionE
 
     HoodieTimer rollbackTimer = HoodieTimer.start();
     List<HoodieRollbackStat> stats = doRollbackAndGetStats(rollbackPlan);
+    Map<String, Long> logFilesFromFailedCommit = new HashMap();
+    rollbackPlan.getRollbackRequests().forEach(rollbackRequest -> logFilesFromFailedCommit.putAll(rollbackRequest.getLogBlocksToBeDeleted()));
     HoodieRollbackMetadata rollbackMetadata = TimelineMetadataUtils.convertRollbackMetadata(
         instantTime,
         Option.of(rollbackTimer.endTimer()),
         Collections.singletonList(instantToRollback),
-        stats);
+        stats,
+        logFilesFromFailedCommit);
     finishRollback(inflightInstant, rollbackMetadata);
 
     // Finally, remove the markers post rollback.

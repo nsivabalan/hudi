@@ -650,7 +650,7 @@ public class TestIncrementalFSViewSync extends HoodieCommonTestHarness {
     rollbacks.add(instant);
 
     HoodieRollbackMetadata rollbackMetadata =
-        TimelineMetadataUtils.convertRollbackMetadata(rollbackInstant, Option.empty(), rollbacks, rollbackStats);
+        TimelineMetadataUtils.convertRollbackMetadata(rollbackInstant, Option.empty(), rollbacks, rollbackStats, Collections.emptyMap());
     if (isRestore) {
       List<HoodieRollbackMetadata> rollbackM = new ArrayList<>();
       rollbackM.add(rollbackMetadata);

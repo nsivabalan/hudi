@@ -30,7 +30,6 @@ import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieAvroPayload;
 import org.apache.hudi.common.model.HoodieBaseFile;
-import org.apache.hudi.common.model.HoodieDeltaWriteStat;
 import org.apache.hudi.common.model.HoodieKey;
 import org.apache.hudi.common.model.HoodieLogFile;
 import org.apache.hudi.common.model.HoodieRecord;
@@ -430,6 +429,7 @@ public class SparkClientFunctionalTestHarness implements SparkProvider, HoodieMe
     HoodieLogFile logFile = new HoodieLogFile(writeStat.getPath());
     writeMarkerFile(cfg, metaClient, commitTime, writeStat, 1, FSUtils.getWriteTokenFromLogPath(logFile.getPath()), new ArrayList<>());
   }
+
   protected void writeMarkerFile(HoodieWriteConfig cfg, HoodieTableMetaClient metaClient, String commitTime, HoodieWriteStat writeStat, Integer logVersion, String logWriteToken,
                                  List<HoodieRecord> hoodieRecords) throws IOException, InterruptedException {
     final WriteMarkers writeMarkers = WriteMarkersFactory.get(cfg.getMarkersType(),
