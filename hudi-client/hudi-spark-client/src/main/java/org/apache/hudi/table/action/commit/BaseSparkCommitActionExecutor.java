@@ -51,6 +51,7 @@ import org.apache.hudi.io.HoodieMergeHandle;
 import org.apache.hudi.io.HoodieMergeHandleFactory;
 import org.apache.hudi.keygen.BaseKeyGenerator;
 import org.apache.hudi.keygen.factory.HoodieSparkKeyGeneratorFactory;
+import org.apache.hudi.metadata.HoodieTableMetadata;
 import org.apache.hudi.table.HoodieTable;
 import org.apache.hudi.table.WorkloadProfile;
 import org.apache.hudi.table.WorkloadStat;
@@ -278,7 +279,9 @@ public abstract class BaseSparkCommitActionExecutor<T> extends
     updateIndex(writeStatusRDD, result);
     result.setPartitionToReplaceFileIds(getPartitionToReplacedFileIds(result));
     if (config.getBasePath().contains(".hoodie/metadata")) {
-      killJVMIfDesired("/tmp/fail2_mt_write.txt", "Fail metadata table writing before commit " + instantTime, 0.2);
+      if (!instantTime.startsWith(HoodieTableMetadata.SOLO_COMMIT_TIMESTAMP)) {
+        killJVMIfDesired("/tmp/fail2_mt_write.txt", "Fail metadata table writing before commit " + instantTime, 0.2);
+      }
     } else {
       killJVMIfDesired("/tmp/fail1_dt_write.txt", "Fail data table writing before commit " + instantTime, 0.2);
     }
