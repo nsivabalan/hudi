@@ -1315,7 +1315,7 @@ public abstract class HoodieBackedTableMetadataWriter<I> implements HoodieTableM
       return;
     }
 
-    killJVMIfDesired("/tmp/fail102_mt_write.txt", "Fail metadata table just before cleaning " + instantTime, 0.2);
+    killJVMIfDesired("/tmp/fail102_mt_write.txt", "Fail metadata table just before cleaning " + instantTime, 0.1);
     // Trigger cleaning with suffixes based on the same instant time. This ensures that any future
     // delta commits synced over will not have an instant time lesser than the last completed instant on the
     // metadata table.
