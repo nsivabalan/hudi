@@ -205,7 +205,7 @@ Users can set table properties while creating a table. The important table prope
 :::
 
 ### Enabling Data Skipping Using Column Stats
-Users can enable Record Level index using the following table properties.
+Users can enable column stats index using the following table properties.
 
 ```sql
 TBLPROPERTIES(
@@ -216,7 +216,7 @@ TBLPROPERTIES(
 ```
 
 ### Enabling Data Skipping Using RLI
-Users can enable column stats index using the following table properties.
+Users can enable Record Level index using the following table properties.
 
 ```sql
 TBLPROPERTIES(

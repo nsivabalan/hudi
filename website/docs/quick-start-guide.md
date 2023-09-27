@@ -337,7 +337,7 @@ defaultValue="scala"
 values={[
 { label: 'Scala', value: 'scala', },
 { label: 'Python', value: 'python', },
-{ label: 'Spark SQL', value: 'sparksql', }
+{ label: 'Spark SQL', value: 'sparksql', },
 ]}
 >
 
@@ -346,10 +346,10 @@ values={[
 ```scala
 // spark-shell
 val tripsSnapshotDF = spark.read.format("hudi").load(basePath)
-tripsSnapshotDF.createOrReplaceTempView("hudi_trips_snapshot")
+tripsSnapshotDF.createOrReplaceTempView("hudi_table")
 
-spark.sql("SELECT fare, begin_lon, begin_lat, ts FROM  hudi_trips_snapshot WHERE fare > 20.0").show()
-spark.sql("SELECT _hoodie_commit_time, _hoodie_record_key, _hoodie_partition_path, rider, driver, fare FROM  hudi_trips_snapshot").show()
+spark.sql("SELECT fare, begin_lon, begin_lat, ts FROM  hudi_table WHERE fare > 20.0").show()
+spark.sql("SELECT _hoodie_commit_time, _hoodie_record_key, _hoodie_partition_path, rider, driver, fare FROM  hudi_table").show()
 ```
 </TabItem>
 <TabItem value="python">
@@ -357,10 +357,10 @@ spark.sql("SELECT _hoodie_commit_time, _hoodie_record_key, _hoodie_partition_pat
 ```python
 # pyspark
 tripsSnapshotDF = spark.read.format("hudi").load(basePath)
-tripsSnapshotDF.createOrReplaceTempView("hudi_trips_snapshot")
+tripsSnapshotDF.createOrReplaceTempView("hudi_table")
 
-spark.sql("SELECT fare, begin_lon, begin_lat, ts FROM  hudi_trips_snapshot WHERE fare > 20.0").show()
-spark.sql("SELECT _hoodie_commit_time, _hoodie_record_key, _hoodie_partition_path, rider, driver, fare FROM  hudi_trips_snapshot").show()
+spark.sql("SELECT fare, begin_lon, begin_lat, ts FROM  hudi_table WHERE fare > 20.0").show()
+spark.sql("SELECT _hoodie_commit_time, _hoodie_record_key, _hoodie_partition_path, rider, driver, fare FROM  hudi_table").show()
 ```
 </TabItem>
 <TabItem value="sparksql">
@@ -611,10 +611,10 @@ deletesDf.write.format("hudi").
 
 // run the same read query as above.
 val roAfterDeleteViewDF = spark.read.format("hudi").load(basePath)
-roAfterDeleteViewDF.registerTempTable("hudi_trips_snapshot")
+roAfterDeleteViewDF.registerTempTable("hudi_table")
 
 // fetch should return (total - 2) records
-spark.sql("SELECT uuid, partitionpath FROM hudi_trips_snapshot").count()
+spark.sql("SELECT uuid, partitionpath FROM hudi_table").count()
 ```
 
 :::info Key requirements
@@ -654,8 +654,8 @@ val hard_delete_df = spark.read.format("hudi").load(basePath).limit(2)
 
 # run the same read query as above.
 roAfterDeleteViewDF = spark.read.format("hudi").load(basePath)
-roAfterDeleteViewDF.createOrReplaceTempView("hudi_trips_snapshot")
-spark.sql("SELECT uuid, partitionpath FROM hudi_trips_snapshot").count()
+roAfterDeleteViewDF.createOrReplaceTempView("hudi_table")
+spark.sql("SELECT uuid, partitionpath FROM hudi_table").count()
 
 ```
 :::info Key requirements
@@ -767,9 +767,9 @@ values={[
 // spark-shell
 spark.read.format("hudi")
   .load(basePath)
-  .createOrReplaceTempView("hudi_trips_snapshot")
+  .createOrReplaceTempView("hudi_table")
 
-val commits = spark.sql("SELECT DISTINCT(_hoodie_commit_time) AS commitTime FROM  hudi_trips_snapshot ORDER BY commitTime")
+val commits = spark.sql("SELECT DISTINCT(_hoodie_commit_time) AS commitTime FROM  hudi_table ORDER BY commitTime")
   .map(k => k.getString(0)).take(50)
 val beginTime = commits(commits.length - 2) // commit time we are interested in
 
@@ -791,9 +791,9 @@ spark.sql("SELECT `_hoodie_commit_time`, fare, begin_lon, begin_lat, ts FROM  hu
 # reload data
 spark.read.format("hudi"). \
   load(basePath). \
-  createOrReplaceTempView("hudi_trips_snapshot")
+  createOrReplaceTempView("hudi_table")
 
-commits = list(map(lambda row: row[0], spark.sql("SELECT DISTINCT(_hoodie_commit_time) AS commitTime FROM  hudi_trips_snapshot ORDER BY commitTime").limit(50).collect()))
+commits = list(map(lambda row: row[0], spark.sql("SELECT DISTINCT(_hoodie_commit_time) AS commitTime FROM  hudi_table ORDER BY commitTime").limit(50).collect()))
 beginTime = commits[len(commits) - 2] # commit time we are interested in
 
 # incrementally query data
