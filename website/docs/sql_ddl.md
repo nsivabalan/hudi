@@ -204,6 +204,28 @@ Users can set table properties while creating a table. The important table prope
 `primaryKey`, `preCombineField`, and `type` and other properties are case-sensitive. 
 :::
 
+### Enabling Data Skipping Using Column Stats
+Users can enable Record Level index using the following table properties.
+
+```sql
+TBLPROPERTIES(
+            'hoodie.metadata.enable' = 'true',
+            'hoodie.metadata.index.column.stats.enable' = 'true',
+            'hoodie.enable.data.skipping' = 'true'
+        )
+```
+
+### Enabling Data Skipping Using RLI
+Users can enable column stats index using the following table properties.
+
+```sql
+TBLPROPERTIES(
+            'hoodie.metadata.enable' = 'true',
+            'hoodie.metadata.record.index.enable' = 'true',
+            'hoodie.enable.data.skipping' = 'true'
+        )
+```
+
 ### Spark Alter Table
 
 ```sql
