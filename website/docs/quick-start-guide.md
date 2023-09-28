@@ -921,15 +921,36 @@ spark.read.format("hudi"). \
 <TabItem value="sparksql">
 
 ```sql
+CREATE TABLE hudi_table_cdc (
+    ts BIGINT,
+    uuid STRING,
+    rider STRING,
+    driver STRING,
+    fare DOUBLE,
+    city STRING
+) USING HUDI
+PARTITIONED BY (city) TBLPROPERTIES
+(
+    hoodie.table.cdc.enabled = 'true'
+)
+LOCATION 'file:///tmp/hudi_table_cdc';
+INSERT INTO hudi_table_cdc
+VALUES
+(1695159649087,'334e26e9-8355-45cc-97c6-c31daf0df330','rider-A','driver-K',19.10,'san_francisco'),
+(1695091554788,'e96c4396-3fad-413a-a942-4cb36106d721','rider-C','driver-M',27.70 ,'san_francisco'),
+(1695516137016,'e3cf430c-889d-4015-bc98-59bdce1e530c','rider-F','driver-P',34.15,'sao_paulo'    ),
+(1695173887231,'3eeb61f7-c2b0-4636-99bd-5d7a5a1d2c04','rider-I','driver-S',41.06 ,'chennai'      );
+
+UPDATE hudi_table SET fare = fare * 100 WHERE city = 'sao_paulo';
 -- incrementally query data by path
 -- start from earliest available commit, end at latest available commit.
-SELECT * FROM hudi_table_changes('path/to/table', 'cdc', 'earliest');
+SELECT * FROM hudi_table_changes('file:///tmp/hudi_table_cdc', 'cdc', 'earliest');
 
 -- start from earliest, end at 202305160000.
-SELECT * FROM hudi_table_changes('path/to/table', 'cdc', 'earliest', '202305160000');
+SELECT * FROM hudi_table_changes('file:///tmp/hudi_table_cdc', 'cdc', 'earliest', '202305160000');
 
 -- start from 202305150000, end at 202305160000.
-SELECT * FROM hudi_table_changes('path/to/table', 'cdc', '202305150000', '202305160000');
+SELECT * FROM hudi_table_changes('file:///tmp/hudi_table_cdc', 'cdc', '202305150000', '202305160000');
 ```
 </TabItem
 >

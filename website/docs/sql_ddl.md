@@ -204,25 +204,30 @@ Users can set table properties while creating a table. The important table prope
 `primaryKey`, `preCombineField`, and `type` and other properties are case-sensitive. 
 :::
 
-### Enabling Data Skipping Using Column Stats
-Users can enable column stats index using the following table properties.
+### Passing Table Properties and Writer Configs for the table with DDL
+Users can pass the table properties like Lock configurations to the TBLPROPERTIES.
 
 ```sql
+-- Properties to use Lock configurations to support Multi Writers
 TBLPROPERTIES(
-            'hoodie.metadata.enable' = 'true',
-            'hoodie.metadata.index.column.stats.enable' = 'true',
-            'hoodie.enable.data.skipping' = 'true'
-        )
+  hoodie.write.lock.zookeeper.url = "zookeeper",
+  hoodie.write.lock.zookeeper.port = "2181",
+  hoodie.write.lock.zookeeper.lock_key = "tableName",
+  hoodie.write.lock.provider = "org.apache.hudi.client.transaction.lock.ZookeeperBasedLockProvider",
+  hoodie.write.concurrency.mode = "optimistic_concurrency_control",
+  hoodie.write.lock.zookeeper.base_path = "/tableName"
+)
 ```
 
-### Enabling Data Skipping Using RLI
-Users can enable Record Level index using the following table properties.
+
+### Enabling Column Stats / Record Level index for the table
+Users can enable column stats index or Record Level Index using the following table properties.
+For Advanced Configuration See <a href="/docs/configurations/#Metadata-Configs">Metadata Configurations</a>
 
 ```sql
 TBLPROPERTIES(
-            'hoodie.metadata.enable' = 'true',
-            'hoodie.metadata.record.index.enable' = 'true',
-            'hoodie.enable.data.skipping' = 'true'
+            'hoodie.metadata.index.column.stats.enable' = 'true'
+            'hoodie.metadata.record.index.enable' = 'true' 
         )
 ```
 
