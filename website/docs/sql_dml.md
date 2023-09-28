@@ -184,7 +184,7 @@ DELETE FROM hudi_cow_pt_tbl WHERE name = 'a1';
 These DML operations give you powerful tools for managing your Hudi tables using Spark SQL. 
 You can control the behavior of these operations using various configuration options, as explained in the documentation.
 
-### Passing Options 
+### Passing Options [Should we remove ???] 
 
 You can pass options to the underlying Spark SQL operations using the `OPTIONS` clause. For example:
 
