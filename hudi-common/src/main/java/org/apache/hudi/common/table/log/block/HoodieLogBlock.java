@@ -54,7 +54,7 @@ public abstract class HoodieLogBlock {
    * like HoodieLogBlockVersionV1/V2 and implement/override operations there
    * Current log block version is V3.
    */
-  public static int version = 3;
+  public static int version = 2;
   // Header for each log block
   private final Map<HeaderMetadataType, String> logBlockHeader;
   // Footer for each log block

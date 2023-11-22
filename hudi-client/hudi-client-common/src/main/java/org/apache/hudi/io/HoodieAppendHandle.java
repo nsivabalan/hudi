@@ -466,13 +466,11 @@ public class HoodieAppendHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O
             ? HoodieRecord.RECORD_KEY_METADATA_FIELD
             : hoodieTable.getMetaClient().getTableConfig().getRecordKeyFieldProp();
 
-        blocks.add(getBlock(config, pickLogDataBlockFormat(), recordList, getUpdatedHeader(header, blockSequenceNumber++, attemptNumber, config,
-            addBlockIdentifier()), keyField));
+        blocks.add(getBlock(config, pickLogDataBlockFormat(), recordList, header, keyField));
       }
 
       if (appendDeleteBlocks && recordsToDelete.size() > 0) {
-        blocks.add(new HoodieDeleteBlock(recordsToDelete.toArray(new DeleteRecord[0]), getUpdatedHeader(header, blockSequenceNumber++, attemptNumber, config,
-            addBlockIdentifier())));
+        blocks.add(new HoodieDeleteBlock(recordsToDelete.toArray(new DeleteRecord[0]), header));
       }
 
       if (blocks.size() > 0) {
