@@ -54,6 +54,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import static org.apache.hudi.common.util.FileIOUtils.killJVMIfDesired;
 import static org.apache.hudi.common.util.StringUtils.isNullOrEmpty;
 
 public class CleanActionExecutor<T, I, K, O> extends BaseActionExecutor<T, I, K, O, HoodieCleanMetadata> {
@@ -224,7 +225,16 @@ public class CleanActionExecutor<T, I, K, O> extends BaseActionExecutor<T, I, K,
       if (!skipLocking) {
         this.txnManager.beginTransaction(Option.of(inflightInstant), Option.empty());
       }
+      if (config.getBasePath().contains(".hoodie/metadata")) {
+        killJVMIfDesired("/tmp/fail32_mt_clean.txt", "Fail metadata table cleaning " + instantTime, 0.3);
+      } else {
+        killJVMIfDesired("/tmp/fail32_dt_clean.txt", "Fail data table cleaning before applying to MDT " + instantTime, 0.3);
+      }
       writeTableMetadata(metadata, inflightInstant.getTimestamp());
+      if (!config.getBasePath().contains(".hoodie/metadata")) {
+        killJVMIfDesired("/tmp/fail32_dt_clean.txt", "Fail data table cleaning after applying to MDT, but before completing in DT "
+            + instantTime, 0.3);
+      }
       table.getActiveTimeline().transitionCleanInflightToComplete(inflightInstant,
           TimelineMetadataUtils.serializeCleanMetadata(metadata));
       LOG.info("Marked clean started on " + inflightInstant.getTimestamp() + " as complete");

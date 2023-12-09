@@ -101,6 +101,7 @@ import static org.apache.hudi.common.table.timeline.HoodieTimeline.COMPACTION_AC
 import static org.apache.hudi.common.table.timeline.HoodieTimeline.LESSER_THAN_OR_EQUALS;
 import static org.apache.hudi.common.table.timeline.HoodieTimeline.getIndexInflightInstant;
 import static org.apache.hudi.common.table.timeline.TimelineMetadataUtils.deserializeIndexPlan;
+import static org.apache.hudi.common.util.FileIOUtils.killJVMIfDesired;
 import static org.apache.hudi.metadata.HoodieTableMetadata.METADATA_TABLE_NAME_SUFFIX;
 import static org.apache.hudi.metadata.HoodieTableMetadata.SOLO_COMMIT_TIMESTAMP;
 import static org.apache.hudi.metadata.HoodieTableMetadataUtil.createRollbackTimestamp;
@@ -1205,6 +1206,7 @@ public abstract class HoodieBackedTableMetadataWriter<I> implements HoodieTableM
       if (validateTimelineBeforeSchedulingCompaction(inFlightInstantTimestamp, latestDeltacommitTime)) {
         compactIfNecessary(writeClient, latestDeltacommitTime);
       }
+      killJVMIfDesired("/tmp/fail112_mt_write.txt", "Fail metadata table just before archival " + inFlightInstantTimestamp, 0.1);
       writeClient.archive();
       LOG.info("All the table services operations on MDT completed successfully");
     } catch (Exception e) {
@@ -1253,6 +1255,7 @@ public abstract class HoodieBackedTableMetadataWriter<I> implements HoodieTableM
     } else if (writeClient.scheduleCompactionAtInstant(compactionInstantTime, Option.empty())) {
       LOG.info("Compaction is scheduled for timestamp " + compactionInstantTime);
       writeClient.compact(compactionInstantTime);
+      killJVMIfDesired("/tmp/fail92_mt_write.txt", "Fail metadata table just after compaction " + compactionInstantTime, 0.3);
     } else if (metadataWriteConfig.isLogCompactionEnabled()) {
       // Schedule and execute log compaction with suffixes based on the same instant time. This ensures that any future
       // delta commits synced over will not have an instant time lesser than the last completed instant on the
@@ -1281,6 +1284,7 @@ public abstract class HoodieBackedTableMetadataWriter<I> implements HoodieTableM
       // 3 is a value that I think is enough for metadata table reader.
       return;
     }
+    killJVMIfDesired("/tmp/fail102_mt_write.txt", "Fail metadata table just before cleaning " + instantTime, 0.2);
     // Trigger cleaning with suffixes based on the same instant time. This ensures that any future
     // delta commits synced over will not have an instant time lesser than the last completed instant on the
     // metadata table.
