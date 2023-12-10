@@ -1011,7 +1011,8 @@ public abstract class HoodieTable<T, I, K, O> implements Serializable {
     // (1) This is data table
     // (2) Metadata table is disabled in HoodieWriteConfig for the writer
     return !HoodieTableMetadata.isMetadataTable(metaClient.getBasePath())
-        && !config.isMetadataTableEnabled();
+        && !config.isMetadataTableEnabled()
+        && !metaClient.getTableConfig().getMetadataPartitions().isEmpty();
   }
 
   /**
