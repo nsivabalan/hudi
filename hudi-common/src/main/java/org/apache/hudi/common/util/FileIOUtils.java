@@ -18,6 +18,7 @@
 
 package org.apache.hudi.common.util;
 
+import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieIOException;
 
 import org.apache.hadoop.fs.FSDataInputStream;
@@ -43,7 +44,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Random;
 import java.util.stream.Collectors;
 
 /**
@@ -52,6 +56,9 @@ import java.util.stream.Collectors;
 public class FileIOUtils {
   public static final Logger LOG = LoggerFactory.getLogger(FileIOUtils.class);
   public static final long KB = 1024;
+  public static final Map<String, Random> RANDOM_MAP = new HashMap<>();
+  public static final List<Boolean> SHOULD_SKIP_FAILURE_INJECTION = new ArrayList<>();
+  public static final List<Long> SKIP_UNTIL_TS = new ArrayList<>();
 
   public static void deleteDirectory(File directory) throws IOException {
     if (directory.exists()) {
@@ -252,5 +259,16 @@ public class FileIOUtils {
     List<String> localDirLists = Arrays.asList(localDirs);
     Collections.shuffle(localDirLists);
     return !localDirLists.isEmpty() ? localDirLists.get(0) : "/tmp/";
+  }
+
+  public static void killJVMIfDesired(String signalFilePath, String msg, double probability) {
+    boolean kill = getRandom(signalFilePath).nextDouble() <= probability;
+    if (kill) {
+      throw new HoodieException("Failing the task to mimic failures : " + msg);
+    }
+  }
+
+  private static Random getRandom(String signalFilePath) {
+    return RANDOM_MAP.computeIfAbsent(signalFilePath, key -> new Random());
   }
 }

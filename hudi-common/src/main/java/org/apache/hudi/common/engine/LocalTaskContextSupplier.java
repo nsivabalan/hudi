@@ -51,4 +51,9 @@ public final class LocalTaskContextSupplier extends TaskContextSupplier {
     return () -> 0;
   }
 
+  @Override
+  public Supplier<Integer> getStageAttemptNumberSupplier() {
+    return () -> 0;
+  }
+
 }

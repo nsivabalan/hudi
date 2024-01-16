@@ -29,6 +29,7 @@ import org.apache.hudi.common.model.HoodieWriteStat;
 import org.apache.hudi.common.model.HoodieWriteStat.RuntimeStats;
 import org.apache.hudi.common.model.IOType;
 import org.apache.hudi.common.model.MetadataValues;
+import org.apache.hudi.common.util.FileIOUtils;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.exception.HoodieInsertException;
@@ -63,6 +64,9 @@ public class HoodieCreateHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O
   private Map<String, HoodieRecord<T>> recordMap;
   private boolean useWriterSchema = false;
   private final boolean preserveMetadata;
+  private int attemptNo;
+  private int partitionId;
+  private int stageId;
 
   public HoodieCreateHandle(HoodieWriteConfig config, String instantTime, HoodieTable<T, I, K, O> hoodieTable,
                             String partitionPath, String fileId, TaskContextSupplier taskContextSupplier) {
@@ -94,6 +98,13 @@ public class HoodieCreateHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O
     writeStatus.setStat(new HoodieWriteStat());
 
     this.path = makeNewPath(partitionPath);
+    attemptNo = taskContextSupplier.getAttemptNumberSupplier().get();
+    partitionId = taskContextSupplier.getPartitionIdSupplier().get();
+    stageId = taskContextSupplier.getStageIdSupplier().get();
+
+    LOG.info("XXX Create handle for Spark partition " + partitionId + ", task attempt No " + attemptNo
+        + ", stage Id " + stageId + ", stage attempt no" + taskContextSupplier.getStageAttemptNumberSupplier().get()
+        + " :: " + partitionPath + ", fileId " + fileId);
 
     try {
       HoodiePartitionMetadata partitionMetadata = new HoodiePartitionMetadata(fs, instantTime,
@@ -200,6 +211,8 @@ public class HoodieCreateHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O
    */
   @Override
   public List<WriteStatus> close() {
+
+
     LOG.info("Closing the file " + writeStatus.getFileId() + " as we are done with all the records " + recordsWritten);
     try {
       if (isClosed()) {
@@ -215,6 +228,19 @@ public class HoodieCreateHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O
       }
 
       setupWriteStatus();
+
+      LOG.info("YYY Create handle for Spark partition " + partitionId + ", task attempt No " + attemptNo
+          + ", stage Id " + stageId + ", stage attempt no " +  taskContextSupplier.getStageAttemptNumberSupplier().get()
+          + " :: " + partitionPath + ", fileId " + fileId + ", total records "
+          + writeStatus.getStat().getNumWrites() + ", num inserts " + writeStatus.getStat().getNumInserts());
+      /*if (stageId  == 3 && taskContextSupplier.getStageAttemptNumberSupplier().get() == 0 && partitionId == 0) {
+        FileIOUtils.killJVMIfDesired("/tmp/file1", "Triggering failure from Create Handle " + partitionPath + " : "
+            + fileId, 1.0);
+      }*/
+      if (attemptNo <=2 && partitionId == 0) {
+        FileIOUtils.killJVMIfDesired("/tmp/file1", "Triggering failure from Create Handle " + partitionPath + " : "
+          + fileId, 1.0);
+      }
 
       LOG.info(String.format("CreateHandle for partitionPath %s fileID %s, took %d ms.",
           writeStatus.getStat().getPartitionPath(), writeStatus.getStat().getFileId(),

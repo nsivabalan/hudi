@@ -29,6 +29,7 @@ import org.apache.hudi.keygen.SimpleKeyGenerator;
 import org.apache.hudi.keygen.factory.HoodieSparkKeyGeneratorFactory;
 import org.apache.hudi.table.HoodieTable;
 
+import org.apache.spark.TaskContext;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.StructType;
@@ -217,7 +218,7 @@ public class BulkInsertDataInternalWriterHelper {
 
   private HoodieRowCreateHandle createHandle(String partitionPath) {
     return new HoodieRowCreateHandle(hoodieTable, writeConfig, partitionPath, getNextFileId(),
-        instantTime, taskPartitionId, taskId, taskEpochId, structType, shouldPreserveHoodieMetadata);
+        instantTime, taskPartitionId, taskId, taskEpochId, TaskContext.get().stageAttemptNumber(), structType, shouldPreserveHoodieMetadata);
   }
 
   protected String getNextFileId() {

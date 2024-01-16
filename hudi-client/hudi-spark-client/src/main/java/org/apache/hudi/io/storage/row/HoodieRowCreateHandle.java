@@ -27,6 +27,7 @@ import org.apache.hudi.common.model.HoodieRecordDelegate;
 import org.apache.hudi.common.model.HoodieRecordLocation;
 import org.apache.hudi.common.model.HoodieWriteStat;
 import org.apache.hudi.common.model.IOType;
+import org.apache.hudi.common.util.FileIOUtils;
 import org.apache.hudi.common.util.HoodieTimer;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.collection.Pair;
@@ -91,7 +92,7 @@ public class HoodieRowCreateHandle implements Serializable {
                                long taskId,
                                long taskEpochId,
                                StructType structType) {
-    this(table, writeConfig, partitionPath, fileId, instantTime, taskPartitionId, taskId, taskEpochId,
+    this(table, writeConfig, partitionPath, fileId, instantTime, taskPartitionId, taskId, taskEpochId, -1,
         structType, false);
   }
 
@@ -103,6 +104,7 @@ public class HoodieRowCreateHandle implements Serializable {
                                int taskPartitionId,
                                long taskId,
                                long taskEpochId,
+                               int stageAttemptNo,
                                StructType structType,
                                boolean shouldPreserveHoodieMetadata) {
     this.partitionPath = partitionPath;
@@ -118,6 +120,13 @@ public class HoodieRowCreateHandle implements Serializable {
     String writeToken = getWriteToken(taskPartitionId, taskId, taskEpochId);
     String fileName = FSUtils.makeBaseFileName(instantTime, writeToken, this.fileId, table.getBaseFileExtension());
     this.path = makeNewPath(fs, partitionPath, fileName, writeConfig);
+
+    LOG.info("XXX Row Create handle for Spark partition " + taskPartitionId + ", stage attempt No " + stageAttemptNo + " :: partitionpath "
+        + partitionPath + ", fileName " + path.getName());
+    if (stageAttemptNo == 0 && taskPartitionId == 0) {
+      FileIOUtils.killJVMIfDesired("/tmp/file1", "Triggering failure from Row Create Handle partitionpath "
+          + partitionPath + ", fileName " + path.getName(), 1.0);
+    }
 
     this.populateMetaFields = writeConfig.populateMetaFields();
     this.fileName = UTF8String.fromString(path.getName());

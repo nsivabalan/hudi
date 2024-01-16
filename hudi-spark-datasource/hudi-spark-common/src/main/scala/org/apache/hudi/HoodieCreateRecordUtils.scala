@@ -110,8 +110,12 @@ object HoodieCreateRecordUtils {
         val avroRecords: RDD[GenericRecord] = HoodieSparkUtils.createRdd(df, recordName, recordNameSpace,
           Some(writerSchema))
 
+        log.warn("XXX Generating records for " + avroRecords.getNumPartitions + " spark partitions")
+
         avroRecords.mapPartitions(it => {
           val sparkPartitionId = TaskContext.getPartitionId()
+          log.warn("XXX Generating records for spark partition no : " + sparkPartitionId)
+
           val keyGenProps = new TypedProperties(config.getProps)
           if (autoGenerateRecordKeys) {
             keyGenProps.setProperty(KeyGenUtils.RECORD_KEY_GEN_PARTITION_ID_CONFIG, String.valueOf(sparkPartitionId))

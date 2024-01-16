@@ -50,4 +50,9 @@ public class JavaTaskContextSupplier extends TaskContextSupplier {
     return () -> 0;
   }
 
+  @Override
+  public Supplier<Integer> getStageAttemptNumberSupplier() {
+    return () -> 0;
+  }
+
 }

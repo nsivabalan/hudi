@@ -26,6 +26,8 @@ import org.apache.hudi.index.bucket.BucketIdentifier;
 import org.apache.hudi.io.storage.row.HoodieRowCreateHandle;
 import org.apache.hudi.keygen.constant.KeyGeneratorOptions;
 import org.apache.hudi.table.HoodieTable;
+
+import org.apache.spark.TaskContext;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.unsafe.types.UTF8String;
@@ -108,7 +110,7 @@ public class BucketBulkInsertDataInternalWriterHelper extends BulkInsertDataInte
       String partitionPath = String.valueOf(fileId.getLeft());
       LOG.info("Creating new file for partition path " + partitionPath);
       HoodieRowCreateHandle rowCreateHandle = new HoodieRowCreateHandle(hoodieTable, writeConfig, partitionPath, getNextBucketFileId(bucketId),
-          instantTime, taskPartitionId, taskId, taskEpochId, structType, shouldPreserveHoodieMetadata);
+          instantTime, taskPartitionId, taskId, taskEpochId, TaskContext.get().attemptNumber(), structType, shouldPreserveHoodieMetadata);
       handles.put(fileId, rowCreateHandle);
     }
     return handles.get(fileId);
