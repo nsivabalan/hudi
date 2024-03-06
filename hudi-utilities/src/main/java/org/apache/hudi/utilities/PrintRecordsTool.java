@@ -26,7 +26,10 @@ import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.TableSchemaResolver;
 import org.apache.hudi.common.table.log.HoodieLogFormat;
+import org.apache.hudi.common.table.log.block.HoodieCommandBlock;
+import org.apache.hudi.common.table.log.block.HoodieCorruptBlock;
 import org.apache.hudi.common.table.log.block.HoodieDataBlock;
+import org.apache.hudi.common.table.log.block.HoodieDeleteBlock;
 import org.apache.hudi.common.table.log.block.HoodieLogBlock;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.VisibleForTesting;
@@ -119,6 +122,9 @@ public class PrintRecordsTool implements Serializable {
 
     @Parameter(names = {"--print-all-records", "ar"})
     public Boolean printAllRecords = false;
+
+    @Parameter(names = {"--print-log-blocks-info", "lbi"})
+    public Boolean printLogBlocksInfo = false;
 
     @Parameter(names = {"--props"}, description = "path to properties file on localfs or dfs, with configurations for "
         + "hoodie client, schema provider, key generator and data source. For hoodie client props, sane defaults are "
@@ -248,32 +254,31 @@ public class PrintRecordsTool implements Serializable {
         // read the avro blocks
         while (reader.hasNext()) {
           HoodieLogBlock n = reader.next();
+          String fileName = n.getBlockContentLocation().get().getLogFile().getFileName();
           if (n instanceof HoodieDataBlock) {
-            LOG.info("Processing next block " + n.getBlockContentLocation().get());
+            LOG.info("Processing next block " + fileName + ", log block type " + n.getBlockType());
             HoodieDataBlock blk = (HoodieDataBlock) n;
-
+            HoodieLogBlock.HoodieLogBlockType logBlockType = blk.getBlockType();
             try (ClosableIterator<HoodieRecord<IndexedRecord>> recordItr = blk.getRecordIterator(HoodieRecord.HoodieRecordType.AVRO)) {
+              int counter = 0;
               while (recordItr.hasNext()) {
                 HoodieRecord<IndexedRecord> next = recordItr.next();
-                if (cfg.printAllRecords) {
-                  LOG.info("Record " + ((GenericRecord) next.getData()).get(HoodieRecord.RECORD_KEY_METADATA_FIELD).toString()
-                      + " " + ((GenericRecord) next.getData()).toString());
-                } else {
-                  if (keysToFilter.contains(((GenericRecord) next.getData()).get(HoodieRecord.RECORD_KEY_METADATA_FIELD).toString())) {
-                    LOG.info("============= Matching Record " + ((GenericRecord) next.getData()).get(HoodieRecord.RECORD_KEY_METADATA_FIELD)
-                        + " found in " + blk.getBlockContentLocation().get().getLogFile() + " ============== ");
-                    if (cfg.colsToPrint != null) {
-                      Arrays.stream(cfg.colsToPrint.split(",")).forEach(colToPrint -> {
-                        LOG.info("Record value for " + colToPrint + " -> " + ((GenericRecord) next.getData()).get(colToPrint));
-                      });
-                    } else {
-                      LOG.info("Record data " + ((GenericRecord) next.getData()).toString());
-                    }
-                  }
-                }
+                counter++;
+                printHoodieRecord(next, keysToFilter, fileName, logBlockType);
+              }
+              if (cfg.printLogBlocksInfo) {
+                // if print only log blocks info,
+                LOG.info("Processed " + counter + " records from " + fileName);
               }
             }
-            LOG.info("Finished processing " + n.getBlockContentLocation().get().getLogFile().getFileName());
+            LOG.info("Finished processing " + fileName);
+          } else if (n instanceof HoodieDeleteBlock) {
+            LOG.info("Encountered delete block ");
+          } else if (n instanceof HoodieCorruptBlock) {
+            LOG.info("Encountered corrupt block at " + fileName);
+          } else if (n instanceof HoodieCommandBlock) {
+            LOG.info("Encountered delete command block at " + fileName);
+            LOG.info("Total records in delete command block " + ((HoodieDeleteBlock)n).getRecordsToDelete().length);
           }
         }
         LOG.info("Closing reader for " + reader.getLogFile().getFileName());
@@ -282,6 +287,30 @@ public class PrintRecordsTool implements Serializable {
     }
   }
 
+  private void printHoodieRecord(HoodieRecord<IndexedRecord> next, Set<String> keysToFilter, String fileName,
+                                 HoodieLogBlock.HoodieLogBlockType logBlockType) {
+    if (cfg.printAllRecords) {
+      LOG.info("Record " + ((GenericRecord) next.getData()).get(HoodieRecord.RECORD_KEY_METADATA_FIELD).toString()
+            + " " + ((GenericRecord) next.getData()).toString());
+    } else if (!cfg.printLogBlocksInfo) {
+      if (logBlockType == HoodieLogBlock.HoodieLogBlockType.AVRO_DATA_BLOCK || logBlockType == HoodieLogBlock.HoodieLogBlockType.PARQUET_DATA_BLOCK
+          || logBlockType == HoodieLogBlock.HoodieLogBlockType.HFILE_DATA_BLOCK) {
+        // print matching records
+        if (keysToFilter.contains(((GenericRecord) next.getData()).get(HoodieRecord.RECORD_KEY_METADATA_FIELD).toString())) {
+          LOG.info("============= Matching Record " + ((GenericRecord) next.getData()).get(HoodieRecord.RECORD_KEY_METADATA_FIELD)
+              + " found in " + fileName + " ============== ");
+          if (cfg.colsToPrint != null) {
+            Arrays.stream(cfg.colsToPrint.split(",")).forEach(colToPrint -> {
+              LOG.info("Record value for " + colToPrint + " -> " + ((GenericRecord) next.getData()).get(colToPrint));
+            });
+          } else {
+            LOG.info("Record data " + ((GenericRecord) next.getData()).toString());
+          }
+        }
+      }
+    }
+  }
+  
   private Option<FileSlice> getMatchingFileSlice(String instantTime, Pair<String, String> partitionPathFileIDPair, HoodieTable hoodieTable) {
     AtomicReference<Option<FileSlice>> sliceToReturn = new AtomicReference<>(Option.empty());
     if (nonEmpty(instantTime)
