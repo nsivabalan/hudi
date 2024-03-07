@@ -65,7 +65,9 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 import static java.util.stream.Collectors.toList;
 import static org.apache.hudi.common.util.StringUtils.nonEmpty;
@@ -125,6 +127,9 @@ public class PrintRecordsTool implements Serializable {
 
     @Parameter(names = {"--print-log-blocks-info", "lbi"})
     public Boolean printLogBlocksInfo = false;
+
+    @Parameter(names = {"--log-files-location", "lfl"})
+    public String logFiles = null;
 
     @Parameter(names = {"--props"}, description = "path to properties file on localfs or dfs, with configurations for "
         + "hoodie client, schema provider, key generator and data source. For hoodie client props, sane defaults are "
@@ -233,65 +238,81 @@ public class PrintRecordsTool implements Serializable {
   @VisibleForTesting
   void printRecs(HoodieWriteConfig writeConfig, HoodieSparkEngineContext context, HoodieTableMetaClient metaClient) throws IOException {
     HoodieTable table = HoodieSparkTable.create(writeConfig, context, metaClient);
-    printLogRecords(table, Pair.of(cfg.partitionPath, cfg.fileId), Collections.singleton(cfg.recordKey));
+    printLogRecords(table, cfg.recordKey == null ? Collections.emptySet() :
+        Arrays.stream(cfg.recordKey.split(",")).map(key -> key.trim()).collect(Collectors.toSet()));
   }
 
-  private void printLogRecords(HoodieTable hoodieTable, Pair<String, String> partitionPathFileIDPair, Set<String> keysToFilter) throws IOException {
-    LOG.info("Looking for record key " + Arrays.toString(keysToFilter.toArray()) + " in partition " + partitionPathFileIDPair.getKey()
-        + ", fileID " + partitionPathFileIDPair.getValue() + ", with base instant time " + cfg.baseInstantTime);
+  private void printLogRecords(HoodieTable hoodieTable, Set<String> keysToFilter) throws IOException {
     FileSystem fs = hoodieTable.getMetaClient().getFs();
-    Option<FileSlice> fileSliceOption = getMatchingFileSlice(cfg.baseInstantTime, partitionPathFileIDPair, hoodieTable);
-    if (fileSliceOption.isPresent()) {
-      List<Path> logFilePaths = fileSliceOption.get().getLogFiles().map(hoodieLogFile -> hoodieLogFile.getPath()).collect(toList());
-      LOG.info("Log files for the matching file slice " + Arrays.toString(logFilePaths.toArray()));
-      for (Path logFile : logFilePaths) {
-        LOG.info("Processing log file " + logFile.getName());
-        MessageType schema = TableSchemaResolver.readSchemaFromLogFile(fs, new CachingPath(logFile.toString()));
-        Schema writerSchema = schema != null
-            ? new AvroSchemaConverter().convert(Objects.requireNonNull(schema)) : null;
-        HoodieLogFormat.Reader reader =
-            HoodieLogFormat.newReader(fs, new HoodieLogFile(new CachingPath(logFile.toString())), writerSchema);
-        // read the avro blocks
-        while (reader.hasNext()) {
-          HoodieLogBlock n = reader.next();
-          String fileName = n.getBlockContentLocation().get().getLogFile().getFileName();
-          if (n instanceof HoodieDataBlock) {
-            LOG.info("Processing next block " + fileName + ", log block type " + n.getBlockType());
-            HoodieDataBlock blk = (HoodieDataBlock) n;
-            HoodieLogBlock.HoodieLogBlockType logBlockType = blk.getBlockType();
-            try (ClosableIterator<HoodieRecord<IndexedRecord>> recordItr = blk.getRecordIterator(HoodieRecord.HoodieRecordType.AVRO)) {
-              int counter = 0;
-              while (recordItr.hasNext()) {
-                HoodieRecord<IndexedRecord> next = recordItr.next();
-                counter++;
-                printHoodieRecord(next, keysToFilter, fileName, logBlockType);
-              }
-              if (cfg.printLogBlocksInfo) {
-                // if print only log blocks info,
-                LOG.info("Processed " + counter + " records from " + fileName);
-              }
-            }
-            LOG.info("Finished processing " + fileName);
-          } else if (n instanceof HoodieDeleteBlock) {
-            LOG.info("Encountered delete block ");
-          } else if (n instanceof HoodieCorruptBlock) {
-            LOG.info("Encountered corrupt block at " + fileName);
-          } else if (n instanceof HoodieCommandBlock) {
-            LOG.info("Encountered delete command block at " + fileName);
-            LOG.info("Total records in delete command block " + ((HoodieDeleteBlock)n).getRecordsToDelete().length);
-          }
-        }
-        LOG.info("Closing reader for " + reader.getLogFile().getFileName());
-        reader.close();
+    if (cfg.logFiles == null) {
+      Pair<String, String> partitionPathFileIDPair = Pair.of(cfg.partitionPath, cfg.fileId);
+      LOG.info("Looking for record key " + Arrays.toString(keysToFilter.toArray()) + " in partition " + partitionPathFileIDPair.getKey()
+          + ", fileID " + partitionPathFileIDPair.getValue() + ", with base instant time " + cfg.baseInstantTime);
+      Option<FileSlice> fileSliceOption = getMatchingFileSlice(cfg.baseInstantTime, partitionPathFileIDPair, hoodieTable);
+      if (fileSliceOption.isPresent()) {
+        List<Path> logFilePaths = fileSliceOption.get().getLogFiles().map(hoodieLogFile -> hoodieLogFile.getPath()).collect(toList());
+        printRecordsFromLogFiles(logFilePaths, fs, keysToFilter);
       }
+    } else {
+      LOG.info("Looking for record key " + Arrays.toString(keysToFilter.toArray()) + " in log files " + cfg.logFiles);
+      List<Path> logFilePaths = Arrays.stream(cfg.logFiles.split(",")).map(key -> key.trim()).map(file -> new Path(file)).collect(toList());
+      printRecordsFromLogFiles(logFilePaths, fs, keysToFilter);
     }
   }
 
+  private void printRecordsFromLogFiles(List<Path> logFilePaths, FileSystem fs, Set<String> keysToFilter) throws IOException {
+    LOG.info("Log files for the matching file slice " + Arrays.toString(logFilePaths.toArray()));
+    AtomicInteger totalMatchedRecords = new AtomicInteger(0);
+    for (Path logFile : logFilePaths) {
+      LOG.info("Processing log file " + logFile.getName());
+      MessageType schema = TableSchemaResolver.readSchemaFromLogFile(fs, new CachingPath(logFile.toString()));
+      Schema writerSchema = schema != null
+          ? new AvroSchemaConverter().convert(Objects.requireNonNull(schema)) : null;
+      HoodieLogFormat.Reader reader =
+          HoodieLogFormat.newReader(fs, new HoodieLogFile(new CachingPath(logFile.toString())), writerSchema);
+      // read the avro blocks
+      while (reader.hasNext()) {
+        HoodieLogBlock n = reader.next();
+        String fileName = n.getBlockContentLocation().get().getLogFile().getFileName();
+        if (n instanceof HoodieDataBlock) {
+          LOG.info("Processing next block " + fileName + ", log block type " + n.getBlockType());
+          HoodieDataBlock blk = (HoodieDataBlock) n;
+          HoodieLogBlock.HoodieLogBlockType logBlockType = blk.getBlockType();
+          try (ClosableIterator<HoodieRecord<IndexedRecord>> recordItr = blk.getRecordIterator(HoodieRecord.HoodieRecordType.AVRO)) {
+            int counter = 0;
+            while (recordItr.hasNext()) {
+              HoodieRecord<IndexedRecord> next = recordItr.next();
+              counter++;
+              printHoodieRecord(next, keysToFilter, fileName, logBlockType, totalMatchedRecords);
+            }
+            if (cfg.printLogBlocksInfo) {
+              // if print only log blocks info,
+              LOG.info("Processed " + counter + " records from " + fileName);
+            }
+          }
+          LOG.info("Finished processing " + fileName);
+        } else if (n instanceof HoodieDeleteBlock) {
+          LOG.info("Encountered delete block ");
+          LOG.info("Total records in delete command block " + ((HoodieDeleteBlock)n).getRecordsToDelete().length);
+        } else if (n instanceof HoodieCorruptBlock) {
+          LOG.info("Encountered corrupt block at " + fileName);
+        } else if (n instanceof HoodieCommandBlock) {
+          LOG.info("Encountered command block at " + fileName + ", and block type " + ((HoodieCommandBlock)n).getType().name()
+              + ", with target instant : " + n.getLogBlockHeader().get(HoodieLogBlock.HeaderMetadataType.TARGET_INSTANT_TIME));
+        }
+      }
+      LOG.info("Closing reader for " + reader.getLogFile().getFileName());
+      reader.close();
+    }
+    LOG.info("Total matched records " + totalMatchedRecords.get());
+  }
+
   private void printHoodieRecord(HoodieRecord<IndexedRecord> next, Set<String> keysToFilter, String fileName,
-                                 HoodieLogBlock.HoodieLogBlockType logBlockType) {
+                                 HoodieLogBlock.HoodieLogBlockType logBlockType, AtomicInteger totalMatchedRecords) {
     if (cfg.printAllRecords) {
       LOG.info("Record " + ((GenericRecord) next.getData()).get(HoodieRecord.RECORD_KEY_METADATA_FIELD).toString()
             + " " + ((GenericRecord) next.getData()).toString());
+      totalMatchedRecords.incrementAndGet();
     } else if (!cfg.printLogBlocksInfo) {
       if (logBlockType == HoodieLogBlock.HoodieLogBlockType.AVRO_DATA_BLOCK || logBlockType == HoodieLogBlock.HoodieLogBlockType.PARQUET_DATA_BLOCK
           || logBlockType == HoodieLogBlock.HoodieLogBlockType.HFILE_DATA_BLOCK) {
@@ -299,6 +320,7 @@ public class PrintRecordsTool implements Serializable {
         if (keysToFilter.contains(((GenericRecord) next.getData()).get(HoodieRecord.RECORD_KEY_METADATA_FIELD).toString())) {
           LOG.info("============= Matching Record " + ((GenericRecord) next.getData()).get(HoodieRecord.RECORD_KEY_METADATA_FIELD)
               + " found in " + fileName + " ============== ");
+          totalMatchedRecords.incrementAndGet();
           if (cfg.colsToPrint != null) {
             Arrays.stream(cfg.colsToPrint.split(",")).forEach(colToPrint -> {
               LOG.info("Record value for " + colToPrint + " -> " + ((GenericRecord) next.getData()).get(colToPrint));
@@ -327,25 +349,4 @@ public class PrintRecordsTool implements Serializable {
     }
     return sliceToReturn.get();
   }
-
-  /*private static List<String> getFilePaths(String propsPath, Configuration hadoopConf) {
-    List<String> filePaths = new ArrayList<>();
-    FileSystem fs = FSUtils.getFs(
-        propsPath,
-        Option.ofNullable(hadoopConf).orElseGet(Configuration::new)
-    );
-
-    try (BufferedReader reader = new BufferedReader(new InputStreamReader(fs.open(new Path(propsPath))))) {
-      String line = reader.readLine();
-      while (line != null) {
-        filePaths.add(line);
-        line = reader.readLine();
-      }
-    } catch (IOException ioe) {
-      LOG.error("Error reading in properties from dfs from file." + propsPath);
-      throw new HoodieIOException("Cannot read properties from dfs from file " + propsPath, ioe);
-    }
-    return filePaths;
-  }*/
-
 }
