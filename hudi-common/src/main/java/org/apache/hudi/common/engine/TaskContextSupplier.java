@@ -32,7 +32,7 @@ public abstract class TaskContextSupplier implements Serializable {
 
   public abstract Supplier<Integer> getStageIdSupplier();
 
-  public abstract Supplier<Long> getAttemptIdSupplier();
+  public abstract Supplier<Long> getTaskAttemptIdSupplier();
 
   public abstract Option<String> getProperty(EngineProperty prop);
 
@@ -40,4 +40,8 @@ public abstract class TaskContextSupplier implements Serializable {
    * @returns the attempt number for the task of interest. Attempt starts with 0 and goes up by 1 on retries.
    */
   public abstract Supplier<Integer> getAttemptNumberSupplier();
+
+  public Supplier<Integer> getStageAttemptNumberSupplier() {
+    return () -> -1;
+  }
 }

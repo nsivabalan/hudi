@@ -226,7 +226,7 @@ public abstract class HoodieWriteHandle<T, I, K, O> extends HoodieIOHandle<T, I,
   }
 
   protected long getAttemptId() {
-    return taskContextSupplier.getAttemptIdSupplier().get();
+    return taskContextSupplier.getTaskAttemptIdSupplier().get();
   }
 
   private static Schema getWriteSchema(HoodieWriteConfig config) {

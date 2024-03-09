@@ -148,7 +148,7 @@ object HoodieDatasetBulkInsertHelper
       val taskContextSupplier: TaskContextSupplier = table.getTaskContextSupplier
       val taskPartitionId = taskContextSupplier.getPartitionIdSupplier.get
       val taskId = taskContextSupplier.getStageIdSupplier.get.toLong
-      val taskEpochId = taskContextSupplier.getAttemptIdSupplier.get
+      val taskEpochId = taskContextSupplier.getTaskAttemptIdSupplier.get
 
       val writer = writeConfig.getIndexType match {
         case HoodieIndex.IndexType.BUCKET if writeConfig.getBucketIndexEngineType

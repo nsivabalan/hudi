@@ -52,7 +52,7 @@ public class FlinkTaskContextSupplier extends TaskContextSupplier {
   }
 
   @Override
-  public Supplier<Long> getAttemptIdSupplier() {
+  public Supplier<Long> getTaskAttemptIdSupplier() {
     return () -> (long) this.flinkRuntimeContext.getAttemptNumber();
   }
 

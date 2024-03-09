@@ -19,6 +19,7 @@
 
 package org.apache.hudi.index.bloom;
 
+import org.apache.hudi.client.SparkTaskContextSupplier;
 import org.apache.hudi.client.common.HoodieSparkEngineContext;
 import org.apache.hudi.common.config.SerializableConfiguration;
 import org.apache.hudi.common.data.HoodiePairData;
@@ -51,6 +52,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
@@ -89,6 +91,7 @@ public class SparkHoodieBloomIndexHelper extends BaseHoodieBloomIndexHelper {
       Map<String, List<BloomIndexFileInfo>> partitionToFileInfo,
       Map<String, Long> recordsPerPartition) {
 
+    LOG.info("XXX SparkHoodieBloomIndexHelper.findMatchingFilesForRecordKeys");
     int inputParallelism = HoodieJavaPairRDD.getJavaPairRDD(partitionRecordKeyPairs).getNumPartitions();
     int configuredBloomIndexParallelism = config.getBloomIndexParallelism();
 
@@ -159,8 +162,14 @@ public class SparkHoodieBloomIndexHelper extends BaseHoodieBloomIndexHelper {
           .mapPartitions(new HoodieFileProbingFunction(baseFileOnlyViewBroadcast, hadoopConf), true);
 
     } else if (config.useBloomIndexBucketizedChecking()) {
+      LOG.info("XXX Starting bucketized bloom check");
       Map<HoodieFileGroupId, Long> comparisonsPerFileGroup = computeComparisonsPerFileGroup(
           config, recordsPerPartition, partitionToFileInfo, fileComparisonsRDD, context);
+      LOG.info("XXX Computations per file group ");
+      comparisonsPerFileGroup.forEach((k,v) -> {
+        LOG.info("XXX     " + k.getFileId() + " -> " + v);
+      });
+
       Partitioner partitioner = new BucketizedBloomCheckPartitioner(targetParallelism, comparisonsPerFileGroup,
           config.getBloomIndexKeysPerBucket());
 
@@ -301,7 +310,28 @@ public class SparkHoodieBloomIndexHelper extends BaseHoodieBloomIndexHelper {
 
     @Override
     public Iterator<List<HoodieKeyLookupResult>> call(Iterator<Tuple2<HoodieFileGroupId, String>> fileGroupIdRecordKeyPairIterator) {
-      return new LazyKeyCheckIterator(fileGroupIdRecordKeyPairIterator);
+      SparkTaskContextSupplier contextSupplier = new SparkTaskContextSupplier();
+      LOG.info("XXX HoodieSparkBloomIndexCheckFunction stageId : " + contextSupplier.getStageIdSupplier().get()
+          + ", stage attempt number " + contextSupplier.getStageAttemptNumberSupplier().get()
+          + ", task/spark partition Id " + contextSupplier.getPartitionIdSupplier().get() + ", task attempt Id "
+          + contextSupplier.getTaskAttemptIdSupplier().get() + ", task attempt No " + contextSupplier.getAttemptNumberSupplier().get());
+
+      List<Tuple2<HoodieFileGroupId, String>> fileGroupIdRecordKeyPairs = new ArrayList<>();
+      Map<HoodieFileGroupId, Long> countPerFileGroup = new HashMap<>();
+      while (fileGroupIdRecordKeyPairIterator.hasNext()) {
+        Tuple2<HoodieFileGroupId, String> entry = fileGroupIdRecordKeyPairIterator.next();
+        fileGroupIdRecordKeyPairs.add(entry);
+        if (!countPerFileGroup.containsKey(entry._1)) {
+          countPerFileGroup.put(entry._1, 0L);
+        }
+        countPerFileGroup.put(entry._1, countPerFileGroup.get(entry._1) + 1);
+      }
+      LOG.info("YYY HoodieSparkBloomIndexCheckFunction " + fileGroupIdRecordKeyPairs.size() + " stageId : " + contextSupplier.getStageIdSupplier().get()
+          + ", stage attempt number " + contextSupplier.getStageAttemptNumberSupplier().get()
+          + ", task/spark partition Id " + contextSupplier.getPartitionIdSupplier().get() + ", task attempt Id "
+          + contextSupplier.getTaskAttemptIdSupplier().get() + ", task attempt No " + contextSupplier.getAttemptNumberSupplier().get());
+      LOG.info("YYY HoodieSparkBloomIndexCheckFunction Printing file group mapping " + countPerFileGroup.entrySet().toString());
+      return new LazyKeyCheckIterator(fileGroupIdRecordKeyPairs.iterator());
     }
   }
 }

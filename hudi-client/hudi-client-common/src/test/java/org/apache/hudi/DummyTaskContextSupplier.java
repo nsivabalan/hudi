@@ -37,7 +37,7 @@ public class DummyTaskContextSupplier extends TaskContextSupplier {
   }
 
   @Override
-  public Supplier<Long> getAttemptIdSupplier() {
+  public Supplier<Long> getTaskAttemptIdSupplier() {
     return null;
   }
 

@@ -96,7 +96,7 @@ public class TestJavaCopyOnWriteActionExecutor extends HoodieJavaClientTestHarne
       when(record.getPartitionPath()).thenReturn(partitionPath);
       String writeToken = FSUtils.makeWriteToken(context.getTaskContextSupplier().getPartitionIdSupplier().get(),
           context.getTaskContextSupplier().getStageIdSupplier().get(),
-          context.getTaskContextSupplier().getAttemptIdSupplier().get());
+          context.getTaskContextSupplier().getTaskAttemptIdSupplier().get());
       HoodieCreateHandle io = new HoodieCreateHandle(config, instantTime, table, partitionPath, fileName,
           context.getTaskContextSupplier());
       Pair<Path, String> result = Pair.of(io.makeNewPath(record.getPartitionPath()), writeToken);

@@ -36,7 +36,7 @@ public class JavaTaskContextSupplier extends TaskContextSupplier {
   }
 
   @Override
-  public Supplier<Long> getAttemptIdSupplier() {
+  public Supplier<Long> getTaskAttemptIdSupplier() {
     return () -> 0L;
   }
 

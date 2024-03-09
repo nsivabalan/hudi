@@ -46,13 +46,18 @@ public class SparkTaskContextSupplier extends TaskContextSupplier implements Ser
   }
 
   @Override
-  public Supplier<Long> getAttemptIdSupplier() {
+  public Supplier<Long> getTaskAttemptIdSupplier() {
     return () -> TaskContext.get().taskAttemptId();
   }
 
   @Override
   public Supplier<Integer> getAttemptNumberSupplier() {
     return () -> TaskContext.get().attemptNumber();
+  }
+
+  @Override
+  public Supplier<Integer> getStageAttemptNumberSupplier() {
+    return () -> TaskContext.get().stageAttemptNumber();
   }
 
   @Override

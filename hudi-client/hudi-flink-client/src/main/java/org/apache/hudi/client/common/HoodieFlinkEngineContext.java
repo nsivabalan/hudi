@@ -212,7 +212,7 @@ public class HoodieFlinkEngineContext extends HoodieEngineContext {
       return () -> 1;
     }
 
-    public Supplier<Long> getAttemptIdSupplier() {
+    public Supplier<Long> getTaskAttemptIdSupplier() {
       return () -> 0L;
     }
 

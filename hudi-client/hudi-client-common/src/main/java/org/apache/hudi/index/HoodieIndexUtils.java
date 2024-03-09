@@ -131,6 +131,7 @@ public class HoodieIndexUtils {
                                                                                       final HoodieTable hoodieTable) {
     context.setJobStatus(HoodieIndexUtils.class.getSimpleName(), "Load latest base files from all partitions: " + hoodieTable.getConfig().getTableName());
     return context.flatMap(partitions, partitionPath -> {
+      LOG.info("XXX Fetching latest base files for " + partitionPath);
       List<Pair<String, HoodieBaseFile>> filteredFiles =
           getLatestBaseFilesForPartition(partitionPath, hoodieTable).stream()
               .map(baseFile -> Pair.of(partitionPath, baseFile))

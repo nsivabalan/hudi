@@ -20,6 +20,9 @@ package org.apache.hudi.index.bloom;
 
 import org.apache.hudi.common.util.collection.Pair;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -32,6 +35,7 @@ import java.util.Set;
  * matching index files for any given recordKey that needs to be looked up.
  */
 class IntervalTreeBasedIndexFileFilter implements IndexFileFilter {
+  private static final Logger LOG = LoggerFactory.getLogger(IntervalTreeBasedIndexFileFilter.class);
 
   private final Map<String, KeyRangeLookupTree> partitionToFileIndexLookUpTree = new HashMap<>();
   private final Map<String, Set<String>> partitionToFilesWithNoRanges = new HashMap<>();
@@ -42,7 +46,9 @@ class IntervalTreeBasedIndexFileFilter implements IndexFileFilter {
    * @param partitionToFileIndexInfo Map of partition to List of {@link BloomIndexFileInfo}s
    */
   IntervalTreeBasedIndexFileFilter(final Map<String, List<BloomIndexFileInfo>> partitionToFileIndexInfo) {
+    LOG.info("XXX Instantiating IntervalTreeBasedIndexFileFilter");
     partitionToFileIndexInfo.forEach((partition, bloomIndexFiles) -> {
+      LOG.info("XXX IntervalTreeBasedIndexFileFilter constructing tree for " + partition);
       // Note that the interval tree implementation doesn't have auto-balancing to ensure logN search time.
       // So, we are shuffling the input here hoping the tree will not have any skewness. If not, the tree could be
       // skewed which could result in N search time instead of logN.
@@ -60,6 +66,7 @@ class IntervalTreeBasedIndexFileFilter implements IndexFileFilter {
         }
       });
       partitionToFileIndexLookUpTree.put(partition, lookUpTree);
+      LOG.info("XXX IntervalTreeBasedIndexFileFilter construction completed for " + partition);
     });
   }
 

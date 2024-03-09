@@ -18,6 +18,7 @@
 
 package org.apache.hudi.table.action.commit;
 
+import org.apache.hudi.client.SparkTaskContextSupplier;
 import org.apache.hudi.client.WriteStatus;
 import org.apache.hudi.client.clustering.update.strategy.SparkAllowUpdateStrategy;
 import org.apache.hudi.client.utils.SparkPartitionUtils;
@@ -25,6 +26,8 @@ import org.apache.hudi.client.utils.SparkValidatorUtils;
 import org.apache.hudi.common.data.HoodieData;
 import org.apache.hudi.common.data.HoodieData.HoodieDataCacheKey;
 import org.apache.hudi.common.engine.HoodieEngineContext;
+import org.apache.hudi.common.function.SerializableFunction;
+import org.apache.hudi.common.function.SerializablePairFunction;
 import org.apache.hudi.common.model.HoodieCommitMetadata;
 import org.apache.hudi.common.model.HoodieFileGroupId;
 import org.apache.hudi.common.model.HoodieKey;
@@ -68,6 +71,7 @@ import java.io.IOException;
 import java.io.Serializable;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -80,6 +84,7 @@ import java.util.stream.Collectors;
 import scala.Tuple2;
 
 import static org.apache.hudi.common.util.ClusteringUtils.getAllFileGroupsInPendingClusteringPlans;
+import static org.apache.hudi.common.util.FileIOUtils.killJVMIfDesired;
 import static org.apache.hudi.common.util.StringUtils.getUTF8Bytes;
 import static org.apache.hudi.config.HoodieWriteConfig.WRITE_STATUS_STORAGE_LEVEL_VALUE;
 
@@ -192,12 +197,40 @@ public abstract class BaseSparkCommitActionExecutor<T> extends
     HashMap<String, WorkloadStat> partitionPathStatMap = new HashMap<>();
     WorkloadStat globalStat = new WorkloadStat();
 
+    LOG.info("XXX Just before building workload profile. num partitions for inputRecords " + inputRecords.getNumPartitions());
+
     // group the records by partitionPath + currentLocation combination, count the number of
     // records in each partition
-    Map<Tuple2<String, Option<HoodieRecordLocation>>, Long> partitionLocationCounts = inputRecords
+    Map<Tuple2<String, Option<HoodieRecordLocation>>, Long> partitionLocationCounts = inputRecords.mapPartitions(
+        (SerializableFunction<Iterator<HoodieRecord<T>>, Iterator<Pair<Tuple2<String, Option<HoodieRecordLocation>>, HoodieRecord>>>) v1 -> {
+          SparkTaskContextSupplier contextSupplier = new SparkTaskContextSupplier();
+          LOG.info("XXX map partitions just before building work load profile stageId : " + contextSupplier.getStageIdSupplier().get()
+              + ", stage attempt number " + contextSupplier.getStageAttemptNumberSupplier().get()
+              + ", task/spark partition Id " + contextSupplier.getPartitionIdSupplier().get() + ", task attempt Id "
+              + contextSupplier.getTaskAttemptIdSupplier().get() + ", task attempt No " + contextSupplier.getAttemptNumberSupplier().get());
+          List<Pair<Tuple2<String, Option<HoodieRecordLocation>>, HoodieRecord>> toReturn = new ArrayList<>();
+          while (v1.hasNext()) {
+            HoodieRecord rec = v1.next();
+            toReturn.add(Pair.of(new Tuple2(rec.getPartitionPath(), Option.ofNullable(rec.getCurrentLocation())), rec));
+          }
+          LOG.info("YYY Total records for this partition " + toReturn.size() + " just before building work load profile stageId : "
+              + contextSupplier.getStageIdSupplier().get()
+              + ", stage attempt number " + contextSupplier.getStageAttemptNumberSupplier().get()
+              + ", task/spark partition Id " + contextSupplier.getPartitionIdSupplier().get() + ", task attempt Id "
+              + contextSupplier.getTaskAttemptIdSupplier().get() + ", task attempt No " + contextSupplier.getAttemptNumberSupplier().get());
+          if (contextSupplier.getStageAttemptNumberSupplier().get() == 0 && contextSupplier.getPartitionIdSupplier().get() == 0) {
+            LOG.error("XXX Failing staged Id  " + contextSupplier.getStageIdSupplier().get() + " for attempt no 0 "
+                + contextSupplier.getStageAttemptNumberSupplier().get() + ", for spark task " + contextSupplier.getPartitionIdSupplier().get());
+            killJVMIfDesired("/tmp/fail32_mt_clean.txt", "Fail spark task ", 1.0);
+          }
+          return toReturn.iterator();
+        }, true)
+        .mapToPair((SerializablePairFunction<Pair<Tuple2<String, Option<HoodieRecordLocation>>, HoodieRecord>, Tuple2<String, Option<HoodieRecordLocation>>, HoodieRecord>) t -> t).countByKey();
+
+    /*Map<Tuple2<String, Option<HoodieRecordLocation>>, Long> partitionLocationCounts = inputRecords
         .mapToPair(record -> Pair.of(
             new Tuple2<>(record.getPartitionPath(), Option.ofNullable(record.getCurrentLocation())), record))
-        .countByKey();
+        .countByKey();*/
 
     // count the number of both inserts and updates in each partition, update the counts to workLoadStats
     for (Map.Entry<Tuple2<String, Option<HoodieRecordLocation>>, Long> e : partitionLocationCounts.entrySet()) {

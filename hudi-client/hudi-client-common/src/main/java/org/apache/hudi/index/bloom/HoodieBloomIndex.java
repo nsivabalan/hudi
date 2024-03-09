@@ -171,6 +171,8 @@ public class HoodieBloomIndex extends HoodieIndex<Object, Object> {
     context.setJobStatus(this.getClass().getName(), "Obtain key ranges for file slices (range pruning=on): " + config.getTableName());
     return context.map(partitionPathFileIDList, pf -> {
       try {
+        LOG.info("XXX Loading min max keys from base file footer " + pf.getKey() + " : " + pf.getValue());
+
         HoodieRangeInfoHandle rangeInfoHandle = new HoodieRangeInfoHandle(config, hoodieTable, Pair.of(pf.getKey(), pf.getValue().getKey()));
         String[] minMaxKeys = rangeInfoHandle.getMinMaxKeys(pf.getValue().getValue());
         return Pair.of(pf.getKey(), new BloomIndexFileInfo(pf.getValue().getKey(), minMaxKeys[0], minMaxKeys[1]));
