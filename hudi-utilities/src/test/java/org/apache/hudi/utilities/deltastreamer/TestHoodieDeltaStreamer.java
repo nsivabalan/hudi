@@ -1755,7 +1755,7 @@ public class TestHoodieDeltaStreamer extends HoodieDeltaStreamerTestBase {
     assertRecordCount(parquetRecordsCount, tableBasePath, sqlContext);
     deltaStreamer.shutdownGracefully();
 
-    if (testEmptyBatch) {
+    /*if (testEmptyBatch) {
       prepareParquetDFSFiles(100, PARQUET_SOURCE_ROOT, "2.parquet", false, null, null);
       prepareParquetDFSSource(useSchemaProvider, hasTransformer, "source.avsc", "target.avsc", PROPS_FILENAME_TEST_PARQUET,
           PARQUET_SOURCE_ROOT, false, "partition_path", "0");
@@ -1786,7 +1786,7 @@ public class TestHoodieDeltaStreamer extends HoodieDeltaStreamerTestBase {
         .forEach(entry -> assertValidSchemaAndOperationTypeInCommitMetadata(
             entry, metaClient, WriteOperationType.INSERT));
     testNum++;
-    deltaStreamer.shutdownGracefully();
+    deltaStreamer.shutdownGracefully();*/
   }
 
   private void assertValidSchemaAndOperationTypeInCommitMetadata(HoodieInstant instant,

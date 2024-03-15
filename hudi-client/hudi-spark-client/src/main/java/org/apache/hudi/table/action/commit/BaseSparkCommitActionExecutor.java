@@ -21,6 +21,7 @@ package org.apache.hudi.table.action.commit;
 import org.apache.hudi.client.SparkTaskContextSupplier;
 import org.apache.hudi.client.WriteStatus;
 import org.apache.hudi.client.clustering.update.strategy.SparkAllowUpdateStrategy;
+import org.apache.hudi.client.common.HoodieSparkEngineContext;
 import org.apache.hudi.client.utils.SparkPartitionUtils;
 import org.apache.hudi.client.utils.SparkValidatorUtils;
 import org.apache.hudi.common.data.HoodieData;
@@ -197,6 +198,11 @@ public abstract class BaseSparkCommitActionExecutor<T> extends
     HashMap<String, WorkloadStat> partitionPathStatMap = new HashMap<>();
     WorkloadStat globalStat = new WorkloadStat();
 
+    HoodieSparkEngineContext sparkEngineContext = (HoodieSparkEngineContext) context;
+    Map<Integer, JavaRDD<?>> allCachedRdds = sparkEngineContext.getJavaSparkContext().getPersistentRDDs();
+
+    LOG.info("XXX 111 All persisted RDD IDs " + allCachedRdds.keySet().toString());
+
     LOG.info("XXX Just before building workload profile. num partitions for inputRecords " + inputRecords.getNumPartitions());
 
     // group the records by partitionPath + currentLocation combination, count the number of
@@ -231,6 +237,17 @@ public abstract class BaseSparkCommitActionExecutor<T> extends
         .mapToPair(record -> Pair.of(
             new Tuple2<>(record.getPartitionPath(), Option.ofNullable(record.getCurrentLocation())), record))
         .countByKey();*/
+
+    allCachedRdds = sparkEngineContext.getJavaSparkContext().getPersistentRDDs();
+
+    /*LOG.info("XXX 222 All persisted RDD IDs " + allCachedRdds.keySet().toString());
+    LOG.info("----- Going to sleep for 3 mins -------");
+    try {
+      Thread.sleep(1000 * 60 * 3);
+    } catch (InterruptedException e) {
+      e.printStackTrace();
+    }
+    LOG.info("----- Resuming after sleep -------");*/
 
     // count the number of both inserts and updates in each partition, update the counts to workLoadStats
     for (Map.Entry<Tuple2<String, Option<HoodieRecordLocation>>, Long> e : partitionLocationCounts.entrySet()) {

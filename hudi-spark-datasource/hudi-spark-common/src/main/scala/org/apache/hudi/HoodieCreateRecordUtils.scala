@@ -113,6 +113,9 @@ object HoodieCreateRecordUtils {
         avroRecords.mapPartitions(it => {
           val sparkPartitionId = TaskContext.getPartitionId()
           val keyGenProps = new TypedProperties(config.getProps)
+          log.info("XXX Map partitions call within create Record Utils 111. stageID "  + TaskContext.get().stageId()
+            + " stage Attempt No " + TaskContext.get().stageAttemptNumber() + " task/spark partitiondId " + TaskContext.getPartitionId()
+            + ", task Attempt No " + TaskContext.get().attemptNumber() + ", task attempt Id " + TaskContext.get().taskAttemptId())
           if (autoGenerateRecordKeys) {
             keyGenProps.setProperty(KeyGenUtils.RECORD_KEY_GEN_PARTITION_ID_CONFIG, String.valueOf(sparkPartitionId))
             keyGenProps.setProperty(KeyGenUtils.RECORD_KEY_GEN_INSTANT_TIME_CONFIG, instantTime)

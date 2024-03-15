@@ -78,6 +78,7 @@ public class HoodieBloomIndex extends HoodieIndex<Object, Object> {
       HoodieTable hoodieTable) {
     // Step 0: cache the input records if needed
     if (config.getBloomIndexUseCaching()) {
+      LOG.info("XXX Caching 111 " + records.getId());
       records.persist(new HoodieConfig(config.getProps())
           .getString(HoodieIndexConfig.BLOOM_INDEX_INPUT_STORAGE_LEVEL_VALUE));
     }
@@ -107,6 +108,8 @@ public class HoodieBloomIndex extends HoodieIndex<Object, Object> {
       records.unpersist();
       keyFilenamePairs.unpersist();
     }
+
+    records.getId();
 
     return taggedRecords;
   }

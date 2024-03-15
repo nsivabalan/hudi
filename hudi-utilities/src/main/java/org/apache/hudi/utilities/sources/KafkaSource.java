@@ -36,6 +36,8 @@ import org.apache.spark.streaming.kafka010.OffsetRange;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Arrays;
+
 import static org.apache.hudi.common.util.ConfigUtils.getBooleanWithAltKeys;
 
 abstract class KafkaSource<T> extends Source<JavaRDD<T>> {
@@ -72,6 +74,7 @@ abstract class KafkaSource<T> extends Source<JavaRDD<T>> {
       } else {
         offsetRanges = offsetGen.getNextOffsetRanges(lastCheckpointStr, sourceLimit, metrics);
       }
+      LOG.info("XXX Offset ranges " + Arrays.toString(offsetRanges));
       return toInputBatch(offsetRanges);
     } catch (org.apache.kafka.common.errors.TimeoutException e) {
       throw new HoodieSourceTimeoutException("Kafka Source timed out " + e.getMessage());
@@ -80,7 +83,7 @@ abstract class KafkaSource<T> extends Source<JavaRDD<T>> {
 
   private InputBatch<JavaRDD<T>> toInputBatch(OffsetRange[] offsetRanges) {
     long totalNewMsgs = KafkaOffsetGen.CheckpointUtils.totalNewMessages(offsetRanges);
-    LOG.info("About to read " + totalNewMsgs + " from Kafka for topic :" + offsetGen.getTopicName());
+    LOG.info("XXX About to read " + totalNewMsgs + " from Kafka for topic :" + offsetGen.getTopicName());
     if (totalNewMsgs <= 0) {
       metrics.updateStreamerSourceNewMessageCount(METRIC_NAME_KAFKA_MESSAGE_IN_COUNT, 0);
       return new InputBatch<>(Option.empty(), KafkaOffsetGen.CheckpointUtils.offsetsToStr(offsetRanges));

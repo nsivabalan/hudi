@@ -35,14 +35,20 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.serialization.StringDeserializer;
+import org.apache.spark.TaskContext;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
+import org.apache.spark.api.java.function.FlatMapFunction;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.streaming.kafka010.KafkaUtils;
 import org.apache.spark.streaming.kafka010.LocationStrategies;
 import org.apache.spark.streaming.kafka010.OffsetRange;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -56,6 +62,7 @@ import static org.apache.hudi.utilities.schema.KafkaOffsetPostProcessor.KAFKA_SO
  * Read json kafka data.
  */
 public class JsonKafkaSource extends KafkaSource<String> {
+  private static final Logger LOG = LoggerFactory.getLogger(JsonKafkaSource.class);
 
   public JsonKafkaSource(TypedProperties properties, JavaSparkContext sparkContext, SparkSession sparkSession,
                          SchemaProvider schemaProvider, HoodieIngestionMetrics metrics) {
@@ -77,10 +84,11 @@ public class JsonKafkaSource extends KafkaSource<String> {
             offsetRanges,
             LocationStrategies.PreferConsistent())
         .filter(x -> !StringUtils.isNullOrEmpty((String) x.value()));
-    return postProcess(maybeAppendKafkaOffsets(kafkaRDD));
+    JavaRDD<ConsumerRecord<Object, Object>> kafkaRDD1 = kafkaRDD.mapPartitions(new FlatMapFunc());
+    return postProcess(maybeAppendKafkaOffsets(kafkaRDD1));
   }
 
-  protected  JavaRDD<String> maybeAppendKafkaOffsets(JavaRDD<ConsumerRecord<Object, Object>> kafkaRDD) {
+  protected JavaRDD<String> maybeAppendKafkaOffsets(JavaRDD<ConsumerRecord<Object, Object>> kafkaRDD) {
     if (this.shouldAddOffsets) {
       return kafkaRDD.mapPartitions(partitionIterator -> {
         List<String> stringList = new LinkedList<>();
@@ -121,5 +129,21 @@ public class JsonKafkaSource extends KafkaSource<String> {
     }
 
     return processor.process(jsonStringRDD);
+  }
+
+  static class FlatMapFunc implements FlatMapFunction<Iterator<ConsumerRecord<Object, Object>>, ConsumerRecord<Object, Object>> {
+
+    @Override
+    public Iterator<ConsumerRecord<Object, Object>> call(Iterator<ConsumerRecord<Object, Object>> stringIterator) throws Exception {
+      List<ConsumerRecord<Object, Object>> records = new ArrayList<>();
+      while (stringIterator.hasNext()) {
+        records.add(stringIterator.next());
+      }
+      LOG.info("XXX kafka RDD retrigger 111 " + records.size() + ", for stageId "
+          + TaskContext.get().stageId() + " stage Attempt No " + TaskContext.get().stageAttemptNumber()
+          + " task/spark partitiondId " + TaskContext.getPartitionId() + ", task Attempt No " + TaskContext.get().attemptNumber()
+          + ", task attempt Id " + TaskContext.get().taskAttemptId());
+      return records.iterator();
+    }
   }
 }
