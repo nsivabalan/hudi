@@ -23,6 +23,8 @@ import org.apache.hudi.common.engine.HoodieLocalEngineContext;
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.common.table.view.FileSystemViewManager;
+import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
 import org.apache.hudi.common.util.ValidationUtils;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.metadata.HoodieMetadataFileSystemView;
@@ -91,9 +93,14 @@ public class ManifestFileWriter {
       LOG.info("Retrieve all partitions: " + partitions.size());
       Configuration hadoopConf = metaClient.getHadoopConf();
       HoodieLocalEngineContext engContext = new HoodieLocalEngineContext(hadoopConf);
-      HoodieMetadataFileSystemView fsView = new HoodieMetadataFileSystemView(engContext, metaClient,
-          metaClient.getActiveTimeline().getCommitsTimeline().filterCompletedInstants(),
-          HoodieMetadataConfig.newBuilder().enable(useFileListingFromMetadata).withAssumeDatePartitioning(assumeDatePartitioning).build());
+      boolean canUseMetadataTable = useFileListingFromMetadata && metaClient.getTableConfig().isMetadataTableAvailable();
+      HoodieTableFileSystemView fsView = FileSystemViewManager.createInMemoryFileSystemViewWithTimeline(engContext, metaClient,
+          HoodieMetadataConfig.newBuilder().enable(canUseMetadataTable).withAssumeDatePartitioning(assumeDatePartitioning).build(),
+          metaClient.getActiveTimeline().getCommitsTimeline().filterCompletedInstants());
+      if (canUseMetadataTable) {
+        // incase of MDT, we can load all partitions at once. If not for MDT, we can rely on fsView.getLatestBaseFiles(partition) for each partition to load from FS.
+        fsView.loadAllPartitions();
+      }
       return partitions.parallelStream().flatMap(partition -> fsView.getLatestBaseFiles(partition).map(useAbsolutePath ? HoodieBaseFile::getPath : HoodieBaseFile::getFileName));
     } catch (Exception e) {
       throw new HoodieException("Error in fetching latest base files.", e);
