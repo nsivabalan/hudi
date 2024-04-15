@@ -19,6 +19,7 @@
 package org.apache.hudi.sync.common.util;
 
 import org.apache.hudi.common.config.HoodieMetadataConfig;
+import org.apache.hudi.common.engine.HoodieEngineContext;
 import org.apache.hudi.common.engine.HoodieLocalEngineContext;
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.HoodieBaseFile;
@@ -26,8 +27,8 @@ import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.view.FileSystemViewManager;
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
 import org.apache.hudi.common.util.ValidationUtils;
+import org.apache.hudi.common.util.VisibleForTesting;
 import org.apache.hudi.exception.HoodieException;
-import org.apache.hudi.metadata.HoodieMetadataFileSystemView;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataOutputStream;
@@ -85,25 +86,37 @@ public class ManifestFileWriter {
     }
   }
 
+  @VisibleForTesting
   public static Stream<String> fetchLatestBaseFilesForAllPartitions(HoodieTableMetaClient metaClient,
       boolean useFileListingFromMetadata, boolean assumeDatePartitioning, boolean useAbsolutePath) {
     try {
-      List<String> partitions = FSUtils.getAllPartitionPaths(new HoodieLocalEngineContext(metaClient.getHadoopConf()),
-          metaClient.getBasePath(), useFileListingFromMetadata, assumeDatePartitioning);
-      LOG.info("Retrieve all partitions: " + partitions.size());
       Configuration hadoopConf = metaClient.getHadoopConf();
       HoodieLocalEngineContext engContext = new HoodieLocalEngineContext(hadoopConf);
       boolean canUseMetadataTable = useFileListingFromMetadata && metaClient.getTableConfig().isMetadataTableAvailable();
-      HoodieTableFileSystemView fsView = FileSystemViewManager.createInMemoryFileSystemViewWithTimeline(engContext, metaClient,
+      return getLatestBaseFiles(canUseMetadataTable, engContext, metaClient, useAbsolutePath, assumeDatePartitioning);
+    } catch (Exception e) {
+      throw new HoodieException("Error in fetching latest base files.", e);
+    }
+  }
+
+  @VisibleForTesting
+  static Stream<String> getLatestBaseFiles(boolean canUseMetadataTable, HoodieEngineContext engContext, HoodieTableMetaClient metaClient,
+                                           boolean useAbsolutePath, boolean assumeDatePartitioning) {
+    List<String> partitions = FSUtils.getAllPartitionPaths(engContext, metaClient.getBasePath(), canUseMetadataTable, assumeDatePartitioning);
+    LOG.info("Retrieve all partitions: " + partitions.size());
+    HoodieTableFileSystemView fsView = null;
+    try {
+      fsView = FileSystemViewManager.createInMemoryFileSystemViewWithTimeline(engContext, metaClient,
           HoodieMetadataConfig.newBuilder().enable(canUseMetadataTable).withAssumeDatePartitioning(assumeDatePartitioning).build(),
           metaClient.getActiveTimeline().getCommitsTimeline().filterCompletedInstants());
       if (canUseMetadataTable) {
         // incase of MDT, we can load all partitions at once. If not for MDT, we can rely on fsView.getLatestBaseFiles(partition) for each partition to load from FS.
         fsView.loadAllPartitions();
       }
-      return partitions.parallelStream().flatMap(partition -> fsView.getLatestBaseFiles(partition).map(useAbsolutePath ? HoodieBaseFile::getPath : HoodieBaseFile::getFileName));
-    } catch (Exception e) {
-      throw new HoodieException("Error in fetching latest base files.", e);
+      HoodieTableFileSystemView finalFsView = fsView;
+      return partitions.parallelStream().flatMap(partition -> finalFsView.getLatestBaseFiles(partition).map(useAbsolutePath ? HoodieBaseFile::getPath : HoodieBaseFile::getFileName));
+    } finally {
+      fsView.close();;
     }
   }
 
