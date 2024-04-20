@@ -114,7 +114,10 @@ public class ManifestFileWriter {
         fsView.loadAllPartitions();
       }
       HoodieTableFileSystemView finalFsView = fsView;
-      return partitions.parallelStream().flatMap(partition -> finalFsView.getLatestBaseFiles(partition).map(useAbsolutePath ? HoodieBaseFile::getPath : HoodieBaseFile::getFileName));
+      // if we do not collect and return stream directly, lazy evaluation happens and we end up closing the fsview in finally block which later
+      // fails the getLatestBaseFiles call. Hence we collect and return a stream.
+      return partitions.parallelStream().flatMap(partition -> finalFsView.getLatestBaseFiles(partition)
+          .map(useAbsolutePath ? HoodieBaseFile::getPath : HoodieBaseFile::getFileName)).collect(Collectors.toList()).stream();
     } finally {
       fsView.close();
     }
