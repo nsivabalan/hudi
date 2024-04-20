@@ -116,7 +116,7 @@ public class ManifestFileWriter {
       HoodieTableFileSystemView finalFsView = fsView;
       return partitions.parallelStream().flatMap(partition -> finalFsView.getLatestBaseFiles(partition).map(useAbsolutePath ? HoodieBaseFile::getPath : HoodieBaseFile::getFileName));
     } finally {
-      fsView.close();;
+      fsView.close();
     }
   }
 
