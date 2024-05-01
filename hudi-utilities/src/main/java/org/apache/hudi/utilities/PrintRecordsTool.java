@@ -19,7 +19,9 @@
 package org.apache.hudi.utilities;
 
 import org.apache.hudi.client.common.HoodieSparkEngineContext;
+import org.apache.hudi.common.config.HoodieConfig;
 import org.apache.hudi.common.config.TypedProperties;
+import org.apache.hudi.common.model.DeleteRecord;
 import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieLogFile;
 import org.apache.hudi.common.model.HoodieRecord;
@@ -39,6 +41,8 @@ import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.TableNotFoundException;
 import org.apache.hudi.hadoop.fs.CachingPath;
+import org.apache.hudi.io.storage.HoodieFileReader;
+import org.apache.hudi.io.storage.HoodieFileReaderFactory;
 import org.apache.hudi.table.HoodieSparkTable;
 import org.apache.hudi.table.HoodieTable;
 import org.apache.hudi.utilities.streamer.HoodieStreamer;
@@ -48,6 +52,7 @@ import com.beust.jcommander.Parameter;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.generic.IndexedRecord;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.parquet.avro.AvroSchemaConverter;
@@ -62,7 +67,9 @@ import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -130,6 +137,12 @@ public class PrintRecordsTool implements Serializable {
 
     @Parameter(names = {"--log-files-location", "lfl"})
     public String logFiles = null;
+
+    @Parameter(names = {"--compare-records", "cr"})
+    public Boolean compareRecords = false;
+
+    @Parameter(names = {"--new-base-parquet-file", "bpf"})
+    public String newBaseParquetFile = null;
 
     @Parameter(names = {"--props"}, description = "path to properties file on localfs or dfs, with configurations for "
         + "hoodie client, schema provider, key generator and data source. For hoodie client props, sane defaults are "
@@ -238,8 +251,8 @@ public class PrintRecordsTool implements Serializable {
   @VisibleForTesting
   void printRecs(HoodieWriteConfig writeConfig, HoodieSparkEngineContext context, HoodieTableMetaClient metaClient) throws IOException {
     HoodieTable table = HoodieSparkTable.create(writeConfig, context, metaClient);
-    printLogRecords(table, cfg.recordKey == null ? Collections.emptySet() :
-        Arrays.stream(cfg.recordKey.split(",")).map(key -> key.trim()).collect(Collectors.toSet()));
+    printLogRecords(table, cfg.recordKey == null ? Collections.emptySet()
+        : Arrays.stream(cfg.recordKey.split(",")).map(key -> key.trim()).collect(Collectors.toSet()));
   }
 
   private void printLogRecords(HoodieTable hoodieTable, Set<String> keysToFilter) throws IOException {
@@ -250,17 +263,74 @@ public class PrintRecordsTool implements Serializable {
           + ", fileID " + partitionPathFileIDPair.getValue() + ", with base instant time " + cfg.baseInstantTime);
       Option<FileSlice> fileSliceOption = getMatchingFileSlice(cfg.baseInstantTime, partitionPathFileIDPair, hoodieTable);
       if (fileSliceOption.isPresent()) {
-        List<Path> logFilePaths = fileSliceOption.get().getLogFiles().map(hoodieLogFile -> hoodieLogFile.getPath()).collect(toList());
-        printRecordsFromLogFiles(logFilePaths, fs, keysToFilter);
+        List<Path> logFilePaths = fileSliceOption.get().getLogFiles().sorted(HoodieLogFile.getLogFileComparator())
+            .map(l -> l.getPath()).collect(toList());
+        printRecordsFromLogFiles(logFilePaths, fs, keysToFilter, null);
       }
-    } else {
+    } else if (!cfg.compareRecords) {
       LOG.info("Looking for record key " + Arrays.toString(keysToFilter.toArray()) + " in log files " + cfg.logFiles);
       List<Path> logFilePaths = Arrays.stream(cfg.logFiles.split(",")).map(key -> key.trim()).map(file -> new Path(file)).collect(toList());
-      printRecordsFromLogFiles(logFilePaths, fs, keysToFilter);
+      printRecordsFromLogFiles(logFilePaths, fs, keysToFilter, null);
+    } else {
+      LOG.info("Comparing log records base file records");
+      LOG.info("Looking for record key " + Arrays.toString(keysToFilter.toArray()) + " in log files " + cfg.logFiles);
+      List<Path> logFilePaths = Arrays.stream(cfg.logFiles.split(",")).map(key -> key.trim()).map(file -> new Path(file)).collect(toList());
+      Map<String, GenericRecord> logRecords = new HashMap<>();
+      printRecordsFromLogFiles(logFilePaths, fs, keysToFilter, logRecords);
+
+      Map<String, GenericRecord> baseFileRecords = new HashMap<>();
+      printRecordsFromBasefile(cfg.newBaseParquetFile, keysToFilter, baseFileRecords, hoodieTable.getHadoopConf());
+
+      AtomicInteger totalMatched = new AtomicInteger(0);
+      keysToFilter.forEach(entry -> {
+        if (logRecords.containsKey(entry) && baseFileRecords.containsKey(entry)) {
+          if (compareTwoRecords(logRecords.get(entry), baseFileRecords.get(entry))) {
+            LOG.info("Both log record and base file record matched for " + entry);
+            totalMatched.getAndIncrement();
+          }
+        }
+      });
+
+      LOG.info("Total matched records after comparison :: " + totalMatched.get());
     }
   }
 
-  private void printRecordsFromLogFiles(List<Path> logFilePaths, FileSystem fs, Set<String> keysToFilter) throws IOException {
+  private boolean compareTwoRecords(GenericRecord genericRecord1, GenericRecord genericRecord2) {
+    List<Schema.Field> fields = genericRecord1.getSchema().getFields();
+    boolean misMatch = true;
+    for (Schema.Field field : fields) {
+      if (!field.name().startsWith("_hoodie")) {
+        if ((genericRecord1.get(field.name()) == null && genericRecord2.get(field.name()) != null)
+            || (genericRecord1.get(field.name()) != null && genericRecord2.get(field.name()) == null)) {
+          misMatch = false;
+        } else if (genericRecord1.get(field.name()) != null && genericRecord2.get(field.name()) != null
+            && !genericRecord1.get(field.name()).equals(genericRecord2.get(field.name()))) {
+          misMatch = false;
+        }
+      }
+      if (misMatch) {
+        break;
+      }
+    }
+    return true;
+  }
+
+  private void printRecordsFromBasefile(String baseFile, Set<String> keysToFilter, Map<String, GenericRecord> baseFileRecords,
+                                        Configuration conf) throws IOException {
+    LOG.info("Looking up base file " + baseFile + " for records");
+    HoodieFileReader baseFileReader = HoodieFileReaderFactory.getReaderFactory(HoodieRecord.HoodieRecordType.AVRO)
+        .getFileReader(new HoodieConfig(), conf, new Path(baseFile));
+    ClosableIterator<HoodieRecord> iter = baseFileReader.getRecordIterator();
+    while (iter.hasNext()) {
+      HoodieRecord rec = iter.next();
+      if (keysToFilter.contains((((GenericRecord) rec.getData()).get(HoodieRecord.RECORD_KEY_METADATA_FIELD).toString()))) {
+        LOG.info("Found matching record in base file for " + (((GenericRecord) rec.getData()).get(HoodieRecord.RECORD_KEY_METADATA_FIELD).toString()));
+        baseFileRecords.put((((GenericRecord) rec.getData()).get(HoodieRecord.RECORD_KEY_METADATA_FIELD).toString()), (GenericRecord) rec.getData());
+      }
+    }
+  }
+
+  private void printRecordsFromLogFiles(List<Path> logFilePaths, FileSystem fs, Set<String> keysToFilter, Map<String, GenericRecord> logRecords) throws IOException {
     LOG.info("Log files for the matching file slice " + Arrays.toString(logFilePaths.toArray()));
     AtomicInteger totalMatchedRecords = new AtomicInteger(0);
     for (Path logFile : logFilePaths) {
@@ -275,7 +345,8 @@ public class PrintRecordsTool implements Serializable {
         HoodieLogBlock n = reader.next();
         String fileName = n.getBlockContentLocation().get().getLogFile().getFileName();
         if (n instanceof HoodieDataBlock) {
-          LOG.info("Processing next block " + fileName + ", log block type " + n.getBlockType());
+          LOG.info("Processing next block " + fileName + ", log block type " + n.getBlockType()
+              + ", instant time " + n.getLogBlockHeader().get(HoodieLogBlock.HeaderMetadataType.INSTANT_TIME));
           HoodieDataBlock blk = (HoodieDataBlock) n;
           HoodieLogBlock.HoodieLogBlockType logBlockType = blk.getBlockType();
           try (ClosableIterator<HoodieRecord<IndexedRecord>> recordItr = blk.getRecordIterator(HoodieRecord.HoodieRecordType.AVRO)) {
@@ -283,7 +354,7 @@ public class PrintRecordsTool implements Serializable {
             while (recordItr.hasNext()) {
               HoodieRecord<IndexedRecord> next = recordItr.next();
               counter++;
-              printHoodieRecord(next, keysToFilter, fileName, logBlockType, totalMatchedRecords);
+              printHoodieRecord(next, keysToFilter, fileName, logBlockType, totalMatchedRecords, logRecords);
             }
             if (cfg.printLogBlocksInfo) {
               // if print only log blocks info,
@@ -292,12 +363,19 @@ public class PrintRecordsTool implements Serializable {
           }
           LOG.info("Finished processing " + fileName);
         } else if (n instanceof HoodieDeleteBlock) {
-          LOG.info("Encountered delete block ");
-          LOG.info("Total records in delete command block " + ((HoodieDeleteBlock)n).getRecordsToDelete().length);
+          LOG.info("Encountered delete block " + n.getLogBlockHeader().get(HoodieLogBlock.HeaderMetadataType.INSTANT_TIME));
+          LOG.info("Total records in delete command block " + ((HoodieDeleteBlock) n).getRecordsToDelete().length);
+          DeleteRecord[] deleteRecords = ((HoodieDeleteBlock) n).getRecordsToDelete();
+          Arrays.stream(deleteRecords).forEach(deleteRecord -> {
+            if (keysToFilter.contains(deleteRecord.getRecordKey())) {
+              LOG.info("Record key deleted in this block " + deleteRecord.getRecordKey() + ", ordering value " + deleteRecord.getOrderingValue()
+                  + ", partition path " + deleteRecord.getPartitionPath());
+            }
+          });
         } else if (n instanceof HoodieCorruptBlock) {
           LOG.info("Encountered corrupt block at " + fileName);
         } else if (n instanceof HoodieCommandBlock) {
-          LOG.info("Encountered command block at " + fileName + ", and block type " + ((HoodieCommandBlock)n).getType().name()
+          LOG.info("Encountered command block at " + fileName + ", and block type " + ((HoodieCommandBlock) n).getType().name()
               + ", with target instant : " + n.getLogBlockHeader().get(HoodieLogBlock.HeaderMetadataType.TARGET_INSTANT_TIME));
         }
       }
@@ -308,10 +386,11 @@ public class PrintRecordsTool implements Serializable {
   }
 
   private void printHoodieRecord(HoodieRecord<IndexedRecord> next, Set<String> keysToFilter, String fileName,
-                                 HoodieLogBlock.HoodieLogBlockType logBlockType, AtomicInteger totalMatchedRecords) {
+                                 HoodieLogBlock.HoodieLogBlockType logBlockType, AtomicInteger totalMatchedRecords,
+                                 Map<String, GenericRecord> logRecords) {
     if (cfg.printAllRecords) {
       LOG.info("Record " + ((GenericRecord) next.getData()).get(HoodieRecord.RECORD_KEY_METADATA_FIELD).toString()
-            + " " + ((GenericRecord) next.getData()).toString());
+          + " " + ((GenericRecord) next.getData()).toString());
       totalMatchedRecords.incrementAndGet();
     } else if (!cfg.printLogBlocksInfo) {
       if (logBlockType == HoodieLogBlock.HoodieLogBlockType.AVRO_DATA_BLOCK || logBlockType == HoodieLogBlock.HoodieLogBlockType.PARQUET_DATA_BLOCK
@@ -321,6 +400,9 @@ public class PrintRecordsTool implements Serializable {
           LOG.info("============= Matching Record " + ((GenericRecord) next.getData()).get(HoodieRecord.RECORD_KEY_METADATA_FIELD)
               + " found in " + fileName + " ============== ");
           totalMatchedRecords.incrementAndGet();
+          if (logRecords != null) {
+            logRecords.put((((GenericRecord) next.getData()).get(HoodieRecord.RECORD_KEY_METADATA_FIELD).toString()), (GenericRecord) next.getData());
+          }
           if (cfg.colsToPrint != null) {
             Arrays.stream(cfg.colsToPrint.split(",")).forEach(colToPrint -> {
               LOG.info("Record value for " + colToPrint + " -> " + ((GenericRecord) next.getData()).get(colToPrint));
@@ -332,7 +414,7 @@ public class PrintRecordsTool implements Serializable {
       }
     }
   }
-  
+
   private Option<FileSlice> getMatchingFileSlice(String instantTime, Pair<String, String> partitionPathFileIDPair, HoodieTable hoodieTable) {
     AtomicReference<Option<FileSlice>> sliceToReturn = new AtomicReference<>(Option.empty());
     if (nonEmpty(instantTime)

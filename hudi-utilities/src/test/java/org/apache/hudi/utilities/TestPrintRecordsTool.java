@@ -24,7 +24,6 @@ import org.apache.hudi.common.model.HoodieAvroPayload;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
-import org.apache.hudi.common.table.TableSchemaResolver;
 import org.apache.hudi.common.testutils.HoodieTestDataGenerator;
 import org.apache.hudi.config.HoodieCompactionConfig;
 import org.apache.hudi.config.HoodieIndexConfig;
@@ -95,6 +94,7 @@ public class TestPrintRecordsTool extends SparkClientFunctionalTestHarness {
     cfg.basePath = sourcePath;
     cfg.partitionPath = PARTITION_PATH;
     String dataFileToTest = null;
+    String logFileToTest = null;
     RemoteIterator<LocatedFileStatus> itr = null;
     try {
       itr = lfs.listFiles(new Path(sourcePath + "/2020/"), true);
@@ -103,6 +103,11 @@ public class TestPrintRecordsTool extends SparkClientFunctionalTestHarness {
         LOG.info(">>> Prepared test file: " + dataFile);
         if (dataFile.getName().endsWith(".parquet")) {
           dataFileToTest = dataFile.getName();
+        }
+        if (dataFile.getName().contains(".log")) {
+          logFileToTest = dataFile.getName();
+        }
+        if (dataFileToTest != null && logFileToTest != null) {
           break;
         }
       }
@@ -114,9 +119,15 @@ public class TestPrintRecordsTool extends SparkClientFunctionalTestHarness {
       HoodieSparkEngineContext context = new HoodieSparkEngineContext(jsc());
       HoodieTableMetaClient metaClient = HoodieTableMetaClient.builder().setConf(jsc().hadoopConfiguration()).setBasePath(cfg.basePath)
           .setLoadActiveTimelineOnLoad(true).build();
-      TableSchemaResolver schemaResolver = new TableSchemaResolver(metaClient);
       HoodieWriteConfig writeConfig = getHoodieWriteConfig(sourcePath);
       printRecordsTool.printRecs(writeConfig, context, metaClient);
+
+      cfg.logFiles = logFileToTest;
+      cfg.newBaseParquetFile = dataFileToTest;
+      cfg.compareRecords = true;
+
+      printRecordsTool.printRecs(writeConfig, context, metaClient);
+
     } catch (FileNotFoundException ex) {
       ex.printStackTrace();
     } catch (IOException ex) {
