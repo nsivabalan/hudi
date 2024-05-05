@@ -29,7 +29,7 @@ public abstract class HoodieIOHandle<T, I, K, O> {
 
   protected final String instantTime;
   protected final HoodieWriteConfig config;
-  protected final FileSystem fs;
+  protected FileSystem fs;
   protected final HoodieTable<T, I, K, O> hoodieTable;
 
   HoodieIOHandle(HoodieWriteConfig config, Option<String> instantTime, HoodieTable<T, I, K, O> hoodieTable) {
