@@ -79,11 +79,16 @@ public class TestUpsertPartitioner extends HoodieClientTestBase {
   private static final Schema SCHEMA = getSchemaFromResource(TestUpsertPartitioner.class, "/exampleSchema.avsc");
 
   private UpsertPartitioner getUpsertPartitioner(int smallFileSize, int numInserts, int numUpdates, int fileSize,
-      String testPartitionPath, boolean autoSplitInserts) throws Exception {
+                                                 String testPartitionPath, boolean autoSplitInserts) throws Exception {
+    return getUpsertPartitioner(smallFileSize, numInserts, numUpdates, fileSize, testPartitionPath, autoSplitInserts, 1000 * 1024);
+  }
+
+  private UpsertPartitioner getUpsertPartitioner(int smallFileSize, int numInserts, int numUpdates, int fileSize,
+      String testPartitionPath, boolean autoSplitInserts, int maxFileSize) throws Exception {
     HoodieWriteConfig config = makeHoodieClientConfigBuilder()
         .withCompactionConfig(HoodieCompactionConfig.newBuilder().compactionSmallFileSize(smallFileSize)
             .insertSplitSize(100).autoTuneInsertSplits(autoSplitInserts).build())
-        .withStorageConfig(HoodieStorageConfig.newBuilder().hfileMaxFileSize(1000 * 1024).parquetMaxFileSize(1000 * 1024).orcMaxFileSize(1000 * 1024).build())
+        .withStorageConfig(HoodieStorageConfig.newBuilder().hfileMaxFileSize(maxFileSize).parquetMaxFileSize(maxFileSize).orcMaxFileSize(maxFileSize).build())
         .build();
 
     FileCreateUtils.createCommit(basePath, "001");
@@ -210,6 +215,15 @@ public class TestUpsertPartitioner extends HoodieClientTestBase {
     assertEquals(0.4, insertBuckets.get(0).getLeft().weight, "insert " + insertSplitSize + " records");
     assertEquals(0.4, insertBuckets.get(1).getLeft().weight, "insert " + insertSplitSize + " records");
     assertEquals(0.2, insertBuckets.get(2).getLeft().weight, "insert " + remainedInsertSize + " records");
+  }
+
+  @Test
+  public void testUpsertPartitionerWithTinyFiles() throws Exception {
+    final String testPartitionPath = "2016/09/26";
+    UpsertPartitioner partitioner = getUpsertPartitioner(0, 5, 1, 1024, testPartitionPath, true, 5);
+    List<InsertBucketCumulativeWeightPair> insertBuckets = partitioner.getInsertBuckets(testPartitionPath);
+    //if this test fails, it won't even reach here before it times out
+    assertEquals(5, insertBuckets.size());
   }
 
   @Test
