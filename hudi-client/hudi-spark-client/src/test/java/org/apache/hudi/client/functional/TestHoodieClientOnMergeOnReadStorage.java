@@ -21,6 +21,7 @@ package org.apache.hudi.client.functional;
 import org.apache.hudi.client.SparkRDDWriteClient;
 import org.apache.hudi.client.transaction.lock.InProcessLockProvider;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
+import org.apache.hudi.common.config.HoodieStorageConfig;
 import org.apache.hudi.common.model.HoodieCommitMetadata;
 import org.apache.hudi.common.model.HoodieFailedWritesCleaningPolicy;
 import org.apache.hudi.common.model.HoodieLogFile;
@@ -133,6 +134,32 @@ public class TestHoodieClientOnMergeOnReadStorage extends HoodieClientTestBase {
     // Verify all the records.
     metaClient.reloadActiveTimeline();
     assertDataInMORTable(config, commitTime, timeStamp.get(), storageConf, Arrays.asList(dataGen.getPartitionPaths()));
+  }
+
+  @Test
+  public void testCompactionOnMORTable1() throws Exception {
+    dataGen = new HoodieTestDataGenerator(new String[]{HoodieTestDataGenerator.DEFAULT_FIRST_PARTITION_PATH});
+    HoodieWriteConfig config = getConfigBuilder(HoodieTestDataGenerator.TRIP_EXAMPLE_SCHEMA,
+        HoodieIndex.IndexType.INMEMORY).withAutoCommit(true)
+        .withCompactionConfig(HoodieCompactionConfig.newBuilder().withMaxNumDeltaCommitsBeforeCompaction(2).build())
+        .withStorageConfig(HoodieStorageConfig.newBuilder().logFileDataBlockMaxSize(1000000).logFileMaxSize(1000000).build())
+        .build();
+    SparkRDDWriteClient client = getHoodieWriteClient(config);
+
+    // Do insert and updates thrice one after the other.
+    // Insert
+    String commitTime = client.createNewInstantTime();
+    insertBatch(config, client, commitTime, "000", 10000, SparkRDDWriteClient::insert,
+        false, false, 10000, 10000, 1, Option.empty());
+
+    // Update
+    String commitTimeBetweenPrevAndNew = commitTime;
+    commitTime = client.createNewInstantTime();
+    updateBatch(config, client, commitTime, commitTimeBetweenPrevAndNew,
+        Option.of(Arrays.asList(commitTimeBetweenPrevAndNew)), "000", 10000, SparkRDDWriteClient::upsert,
+        false, false, 10000, 10000, 2, config.populateMetaFields());
+
+    System.out.println("asdafsdf");
   }
 
   @Test

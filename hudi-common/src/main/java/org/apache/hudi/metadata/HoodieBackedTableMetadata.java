@@ -856,16 +856,27 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
 
       // Map of (record-key, secondary-index-record)
       Map<String, HoodieRecord<HoodieMetadataPayload>> baseFileRecords = fetchBaseFileAllRecordsByPayload(baseFileReader, keySet, partitionName);
-      // Iterate over all provided log-records, merging them into existing records
-      logRecordsMap.forEach((key1, value1) -> baseFileRecords.merge(key1, value1, (oldRecord, newRecord) -> {
-        Option<HoodieRecord<HoodieMetadataPayload>> mergedRecord = HoodieMetadataPayload.combineSecondaryIndexRecord(oldRecord, newRecord);
-        return mergedRecord.orElseGet(null);
-      }));
-      baseFileRecords.forEach((key, value) -> {
-        if (!deletedRecordsFromLogs.contains(key)) {
-          recordKeyMap.put(key, value.getRecordKey());
-        }
-      });
+      if (baseFileRecords.isEmpty()) {
+        logRecordsMap.forEach((key1, value1) -> {
+          if (!value1.getData().isDeleted()) {
+            recordKeyMap.put(key1, value1.getRecordKey());
+          }
+        });
+      } else {
+        // Iterate over all provided log-records, merging them into existing records
+        logRecordsMap.forEach((key1, value1) -> baseFileRecords.merge(key1, value1, (oldRecord, newRecord) -> {
+          Option<HoodieRecord<HoodieMetadataPayload>> mergedRecord = HoodieMetadataPayload.combineSecondaryIndexRecord(oldRecord, newRecord);
+          if (!mergedRecord.isPresent() || mergedRecord.get().getData().isDeleted()) {
+            System.out.println("adfasdf");
+          }
+          return mergedRecord.orElseGet(null);
+        }));
+        baseFileRecords.forEach((key, value) -> {
+          if (!deletedRecordsFromLogs.contains(key)) {
+            recordKeyMap.put(key, value.getRecordKey());
+          }
+        });
+      }
     } catch (IOException ioe) {
       throw new HoodieIOException("Error merging records from metadata table for  " + recordKeys.size() + " key : ", ioe);
     } finally {

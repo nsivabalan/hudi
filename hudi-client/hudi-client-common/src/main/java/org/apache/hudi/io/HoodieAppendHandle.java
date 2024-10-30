@@ -475,6 +475,7 @@ public class HoodieAppendHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O
         if (appendDeleteBlocks) {
           recordsToDeleteWithPositions.clear();
         }
+        LOG.warn("XXX Staring new log block ");
       }
     } catch (Exception e) {
       throw new HoodieAppendException("Failed while appending records to " + writer.getLogFile().getPath(), e);
@@ -613,7 +614,7 @@ public class HoodieAppendHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O
     if (numberOfRecords >= (maxBlockSize / averageRecordSize)) {
       // Recompute averageRecordSize before writing a new block and update existing value with
       // avg of new and old
-      LOG.info("Flush log block to disk, the current avgRecordSize => " + averageRecordSize);
+      LOG.warn("Flush log block to disk, the current avgRecordSize => " + averageRecordSize);
       // Delete blocks will be appended after appending all the data blocks.
       appendDataAndDeleteBlocks(header, appendDeleteBlocks);
       estimatedNumberOfBytesWritten += averageRecordSize * numberOfRecords;
