@@ -819,7 +819,7 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
 
     // Parallel lookup keys from each file slice
     Map<String, String> reverseSecondaryKeyMap = new HashMap<>();
-    partitionFileSlices.parallelStream().forEach(partition -> {
+    partitionFileSlices.parallelStream().forEach(partition -> { // why not distributed computation?
       Map<String, String> partialResult = reverseLookupSecondaryKeys(partitionName, recordKeys, partition);
       synchronized (reverseSecondaryKeyMap) {
         reverseSecondaryKeyMap.putAll(partialResult);
@@ -829,6 +829,10 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
     return reverseSecondaryKeyMap;
   }
 
+  /*
+  Method is expected to lookup in secondary index file slice for a given set of record keys. We have to read the latest snapshot of SI file slice,
+  merge base and all log files and read all entries to get hold of all secondary keys matching the given record keys.
+   */
   private Map<String, String> reverseLookupSecondaryKeys(String partitionName, List<String> recordKeys, FileSlice fileSlice) {
     Map<String, String> recordKeyMap = new HashMap<>();
     Pair<HoodieSeekingFileReader<?>, HoodieMetadataLogRecordReader> readers = getOrCreateReaders(partitionName, fileSlice);
@@ -854,18 +858,28 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
         }
       });
 
+      // Again, we are missing to merge based on HoodieMergeKey.
       // Map of (record-key, secondary-index-record)
       Map<String, HoodieRecord<HoodieMetadataPayload>> baseFileRecords = fetchBaseFileAllRecordsByPayload(baseFileReader, keySet, partitionName);
-      // Iterate over all provided log-records, merging them into existing records
-      logRecordsMap.forEach((key1, value1) -> baseFileRecords.merge(key1, value1, (oldRecord, newRecord) -> {
-        Option<HoodieRecord<HoodieMetadataPayload>> mergedRecord = HoodieMetadataPayload.combineSecondaryIndexRecord(oldRecord, newRecord);
-        return mergedRecord.orElseGet(null);
-      }));
-      baseFileRecords.forEach((key, value) -> {
-        if (!deletedRecordsFromLogs.contains(key)) {
-          recordKeyMap.put(key, value.getRecordKey());
-        }
-      });
+      // baseFileRecords could be completely empty (say there is no base file). don't think we are handling that here.
+      if (baseFileRecords.isEmpty()) {
+        logRecordsMap.forEach((key1, value1) -> {
+          if (!value1.getData().isDeleted()) {
+            recordKeyMap.put(key1, value1.getRecordKey());
+          }
+        });
+      } else {
+        // Iterate over all provided log-records, merging them into existing records
+        logRecordsMap.forEach((key1, value1) -> baseFileRecords.merge(key1, value1, (oldRecord, newRecord) -> {
+          Option<HoodieRecord<HoodieMetadataPayload>> mergedRecord = HoodieMetadataPayload.combineSecondaryIndexRecord(oldRecord, newRecord);
+          return mergedRecord.orElseGet(null);
+        }));
+        baseFileRecords.forEach((key, value) -> {
+          if (!deletedRecordsFromLogs.contains(key)) {
+            recordKeyMap.put(key, value.getRecordKey());
+          }
+        });
+      }
     } catch (IOException ioe) {
       throw new HoodieIOException("Error merging records from metadata table for  " + recordKeys.size() + " key : ", ioe);
     } finally {
@@ -935,6 +949,7 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
         return Collections.emptyMap();
       }
 
+      // Missing to merge based on HoodieMergeKey.
       // Sort it here once so that we don't need to sort individually for base file and for each individual log files.
       Set<String> secondaryKeySet = new HashSet<>(secondaryKeys.size());
       List<String> sortedSecondaryKeys = new ArrayList<>(secondaryKeys);

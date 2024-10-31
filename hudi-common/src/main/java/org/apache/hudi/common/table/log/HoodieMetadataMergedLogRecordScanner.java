@@ -80,6 +80,40 @@ public class HoodieMetadataMergedLogRecordScanner extends BaseHoodieMergedLogRec
   public <T> void processNextRecord(HoodieRecord<T> newRecord) throws IOException {
     // Merge the new record with the existing record in the map
     HoodieRecord<T> oldRecord = (HoodieRecord<T>) records.get(newRecord.getRecordKey());
+    /* Based on the RFC,https://github.com/apache/hudi/pull/10814/files#r1824965298 , we are supposed to create a HoodieMergeKey using which the merges should happen.
+       But looks like we completely missed it. Here, we are merging just based on secondary key values. This is a very large gap, and don't think
+      sec index is even usable w/ this gap.
+      Few examples where this will break.
+
+     For eg:
+      sfo ➝ tripId1, false lf1
+      sfo ➝ tripId2, false lf1
+      sfo ➝ tripId10, false  lf1
+
+      And when a given combination of secondary index value and primary key combo gets deleted we add a deleted record.
+
+      sfo ➝ tripId10, true lf3
+
+      so, the expectation is that, after merging we should see the following:
+      sfo ➝ tripId1, false
+      sfo ➝ tripId2, false
+
+      But in reality, we might see no records returned from the log record scanner, since all merge logic is purely based on secondary index key.
+
+      Even if not for delete, we are overriding previous entries.
+
+      insert sfo -> tripId1, false : lf1
+      insert sfo -> tripId2, false : lf2
+      insert sfo -> tripId3, false : lf3
+      insert sfo -> tripId4, false : lf4
+
+      once we merge all 4 records, we only find {sfo -> tripId4, false} from LogRecordReader.
+
+      We have the same issue while merging base file records w/ merged log records as well. Not just for snapshot reads
+      (since snapshot reads might go through  BaseTableMetadata or HoodieBackedTableMetadata), but compaction for MDT goes through Merge handle.
+      So, we might need to incorporate HoodieMergeKey logic everywhere. Essentially, in storage we could have some X as record key,
+      but in memory we could have Y as the record key for a given record. And again, while serializing back to disk, it should go ahead w/ X as the record key.
+     */
     if (oldRecord != null) {
       LOG.debug("Merging new record with existing record in the map. Key: {}", newRecord.getRecordKey());
       recordMerger.fullOuterMerge(oldRecord, readerSchema, newRecord, readerSchema, this.getPayloadProps()).forEach(

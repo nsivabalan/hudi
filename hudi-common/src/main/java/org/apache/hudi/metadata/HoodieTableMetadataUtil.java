@@ -1926,6 +1926,28 @@ public class HoodieTableMetadataUtil {
     return addMetadataFields(getSchemaForFields(tableSchema, mergedFields));
   }
 
+  /**
+   * This method reads records from data files touched as part of the current commit metadata and computes secondary index values and prepares the SI records
+   * to be ingested into MDT.
+   *
+   * Q: I have raised this question in the caller as well. but anyways,
+   *    One thing I am not sure is, how does this work wrt log files in MOR table.
+   *    say we have an existing file slice w/ base file and 1 log file. In this commit metadata, we are adding a new log file say lf2.
+   *    So, to fetch the secondary index values that went into lf2, would it suffice if we just read only lf2. Shouldn't we read
+   *    the base file and merge log records from both lf1 and lf2 and then for the records that got retained from lf2, we should only consider the secondary
+   *    key values in them.
+   *
+   *    From what I see, the 2nd arg to this method, i.e. List<Pair<String, Pair<String, List<String>>>> partitionFiles
+   *    only has the files touched as part of current commit metadata.
+   * @param engineContext
+   * @param partitionFiles
+   * @param secondaryIndexMaxParallelism
+   * @param activeModule
+   * @param metaClient
+   * @param engineType
+   * @param indexDefinition
+   * @return
+   */
   public static HoodieData<HoodieRecord> readSecondaryKeysFromBaseFiles(HoodieEngineContext engineContext,
                                                                         List<Pair<String, Pair<String, List<String>>>> partitionFiles,
                                                                         int secondaryIndexMaxParallelism,
@@ -2000,6 +2022,19 @@ public class HoodieTableMetadataUtil {
     });
   }
 
+  /**
+   * We read records to ingest into Secondary index partition in MDT. This method is meant to read from one file slice in entirety.
+   * @param metaClient
+   * @param engineType
+   * @param logFilePaths
+   * @param tableSchema
+   * @param partition
+   * @param dataFilePath
+   * @param indexDefinition
+   * @param instantTime
+   * @return
+   * @throws Exception
+   */
   private static ClosableIterator<HoodieRecord> createSecondaryIndexGenerator(HoodieTableMetaClient metaClient,
                                                                               EngineType engineType, List<String> logFilePaths,
                                                                               Schema tableSchema, String partition,
@@ -2054,6 +2089,8 @@ public class HoodieTableMetadataUtil {
 
       @Override
       public HoodieRecord next() {
+        // fileSliceIterator could return empty records too(deleted entries). So, we need to ignore them (record.isDeleted()) and move to next one.
+        // don't think we are handling that here. here we assume for every next entry from fileSliceIterator, this next() is returning a value.
         HoodieRecord record = fileSliceIterator.next();
         String recordKey = record.getRecordKey(tableSchema, HoodieRecord.RECORD_KEY_METADATA_FIELD);
         String secondaryKeyFields = String.join(".", indexDefinition.getSourceFields());

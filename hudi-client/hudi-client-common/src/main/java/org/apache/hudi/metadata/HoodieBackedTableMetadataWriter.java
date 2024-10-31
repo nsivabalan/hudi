@@ -1147,13 +1147,58 @@ public abstract class HoodieBackedTableMetadataWriter<I> implements HoodieTableM
         });
   }
 
+  /*
+  Preparing records to be ingested into Secondary Index partition in MDT.
+  High level steps:
+  a. Fetch the sec index record entries for the records being updated from the current commit.
+  b. We also need to delete previous values of the records being updated or deleted. For eg, in commit1, we might have had row1 -> sfo. and in commit2, row1 could have updated the secondary index value to ny.
+     // So, in this case, we need to ingest {ny -> {row1, false}} and also delete {sfo -> {row1, true}} to secondary index.
+ c. Union the above (a) and (b) for the final set of secondary index records to be ingested to MDT.
+
+  Let's go into more details:
+  a. Fetch the sec index record entries for the records being updated from the current commit.
+    How: We fetch the file info from WriteStatus and read the data files directly and fetch the values for secondary keys.
+         We process only the files touched as part of this commit metadata, and read records from them to populate secondary index values.
+         Q: But one thing I am not sure is, how does it work wrt log files in MOR table.
+         say we have an existing file slice w/ base file and 1 log file. In this commit metadata, we are adding a new log file say lf2.
+         So, to fetch the secondary index values that went into lf2, would it suffice if we just read only lf2. Shouldn't we read
+         the base file and merge log records from both lf1 and lf2 and then for the records that got retained from lf2, we should only consider the secondary
+         key values in them.
+  b. We also need to delete previous values of the records being updated or deleted. For eg, in commit1, we might have had row1 -> sfo. and in commit2, row1 could have updated the secondary index value to ny.
+     // So, in this case, we need to ingest {ny -> {row1, false}} and also delete {sfo -> {row1, true}} to secondary index.
+     How do fetch the entries for delete:
+      b.i. Collect primary keys to be deleted or updated from the WriteStatus.
+      b.ii. Look up in sec index (full scan) and prepare sec index records by setting isDeleted to true. Since in secondary index,
+      keys are secondary key values, we ought to go w/ full scan.
+  c. Union the above (a) and (b) for the final set of secondary index records to be ingested to MDT.
+    Q: There are chances that we might have records w/ same key repeated, but w/ diff values. So, once we fix the HoodieMergeKey, we should be good.
+    for eg,
+    C1: row1 -> sfo
+    C2: row1 -> ny, row2 -> sfo
+
+    So, we will generate 3 SI records to be ingested into SI partition in MDT.
+    sfo -> {row1, true}
+    ny -> {row1, false}
+    sfo -> {row2, false}
+
+    So, we need to ensure our merge logic also consider primary key values while merging these records.
+
+    Few non-core operations which has gaps wrt this method.
+    insert-overwrite: apart from generating to insert records for files touched as part of current commit, we also need to delete all old record in the partition of interest.
+    Don't think we are doing that. We are only doing it for the primary keys touched in this commit metadata.
+    Delete partition: Again, similar semantics. We are not handling this write operation properly.
+         naive approach might have to lookup in RLI (full scan) and then do secondary index lookup to prepare records for SI partition. Same for insert overwrite as well.
+
+    Q: since we are relying on RLI for correctness of SI, not sure what will happen if someone uses it for non-global indexes. We could call it as a limiation for now.
+    but wanted to call it out.
+   */
   private HoodieData<HoodieRecord> getSecondaryIndexUpdates(HoodieCommitMetadata commitMetadata, String indexPartition, HoodieData<WriteStatus> writeStatus) throws Exception {
     List<Pair<String, Pair<String, List<String>>>> partitionFilePairs = getPartitionFilePairs(commitMetadata);
     // Build a list of keys that need to be removed. A 'delete' record will be emitted into the respective FileGroup of
     // the secondary index partition for each of these keys. For a commit which is deleting/updating a lot of records, this
     // operation is going to be expensive (in CPU, memory and IO)
     List<String> keysToRemove = new ArrayList<>();
-    writeStatus.collectAsList().forEach(status -> {
+    writeStatus.collectAsList().forEach(status -> { // we can't collect writeStatus in driver. We have to do it using distributed computation.
       status.getWrittenRecordDelegates().forEach(recordDelegate -> {
         // Consider those keys which were either updated or deleted in this commit
         if (!recordDelegate.getNewLocation().isPresent() || (recordDelegate.getCurrentLocation().isPresent() && recordDelegate.getNewLocation().isPresent())) {
@@ -1166,6 +1211,7 @@ public abstract class HoodieBackedTableMetadataWriter<I> implements HoodieTableM
     // This is obtained by scanning the entire secondary index partition in the metadata table
     // This could be an expensive operation for a large commit (updating/deleting millions of rows)
     Map<String, String> recordKeySecondaryKeyMap = metadata.getSecondaryKeys(keysToRemove, indexDefinition.getIndexName());
+    // we could maintain this as HoodiePairData only. don't need to collect it in driver.
     HoodieData<HoodieRecord> deletedRecords = getDeletedSecondaryRecordMapping(engineContext, recordKeySecondaryKeyMap, indexDefinition);
     int parallelism = Math.min(partitionFilePairs.size(), dataWriteConfig.getMetadataConfig().getSecondaryIndexParallelism());
 
@@ -1189,6 +1235,10 @@ public abstract class HoodieBackedTableMetadataWriter<I> implements HoodieTableM
    *    "partition2", { {"baseFile21", {"logFile21", "logFile22"}}, {"baseFile22", {"logFile21"} } }
    *  }
    * }
+   *
+   * I don't think this method returns 1 entry per partition or file slice. say we have added 3 log files, commit metadata will have 3 writeStats.
+   * So, here we end up have 3 entires in the returned list. But the expectation is that, we just have 1 entry per file slice.
+
    */
   private static List<Pair<String, Pair<String, List<String>>>> getPartitionFilePairs(HoodieCommitMetadata commitMetadata) {
     List<Pair<String, Pair<String, List<String>>>> partitionFilePairs = new ArrayList<>();
@@ -1212,6 +1262,8 @@ public abstract class HoodieBackedTableMetadataWriter<I> implements HoodieTableM
    */
   @Override
   public void update(HoodieCleanMetadata cleanMetadata, String instantTime) {
+    // nothing to update in secondary index. Bcoz, secondary index represents only the latest state of the data table always. Since, clean only touched earlier file
+    // versions, we don't need to do anything. We are good here.
     processAndCommit(instantTime, () -> HoodieTableMetadataUtil.convertMetadataToRecords(engineContext,
         cleanMetadata, instantTime, dataMetaClient, enabledPartitionTypes,
         dataWriteConfig.getBloomIndexParallelism(), dataWriteConfig.isMetadataColumnStatsIndexEnabled(),
@@ -1228,6 +1280,9 @@ public abstract class HoodieBackedTableMetadataWriter<I> implements HoodieTableM
   @Override
   public void update(HoodieRestoreMetadata restoreMetadata, String instantTime) {
     dataMetaClient.reloadActiveTimeline();
+    // we have made a fix to restore to delete all partitions in MDT except FILES and RLI parition for now. https://github.com/apache/hudi/pull/12098
+    // we might have to follow up and fix all these indexes, but for now, this is what happens.
+    // so we are good wrt restore and SI.
 
     // Fetch the commit to restore to (savepointed commit time)
     HoodieInstant restoreInstant = new HoodieInstant(REQUESTED, HoodieTimeline.RESTORE_ACTION, instantTime);
@@ -1291,6 +1346,10 @@ public abstract class HoodieBackedTableMetadataWriter<I> implements HoodieTableM
    */
   @Override
   public void update(HoodieRollbackMetadata rollbackMetadata, String instantTime) {
+    // Rollback in data table triggers a rollback in MDT as well. and rollback is meant for partially failed writes.
+    // So, we should be good wrt SI partition in MDT. We do not need to ingest anything to SI partition in MDT. So, if there was any partial written to SI
+    // due to a failed commit, RB will take care of deleting those log files.
+
     if (initialized && metadata != null) {
       // The commit which is being rolled back on the dataset
       final String commitToRollbackInstantTime = rollbackMetadata.getCommitsRollback().get(0);

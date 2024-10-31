@@ -344,6 +344,7 @@ public class HoodieMetadataPayload implements HoodieRecordPayload<HoodieMetadata
       HoodieRecord<HoodieMetadataPayload> oldRecord,
       HoodieRecord<HoodieMetadataPayload> newRecord) {
     // If the new record is tombstone, we can discard it
+    // we need to account for entire record being deleted here. i.e. newRecord.isDeleted || newRecord.getData().secondaryIndexMetadata.getIsDeleted()
     if (newRecord.getData().secondaryIndexMetadata.getIsDeleted()) {
       return Option.empty();
     }
