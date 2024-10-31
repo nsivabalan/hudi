@@ -39,6 +39,22 @@ class SecondaryIndexSupport(spark: SparkSession,
                             metaClient: HoodieTableMetaClient) extends RecordLevelIndexSupport(spark, metadataConfig, metaClient) {
   override def getIndexName: String = SecondaryIndexSupport.INDEX_NAME
 
+  /**
+   * Filtering/Pruning logic.
+   * a. apply the filter expressions and fetch the secondary key values of interest (we support = or IN)
+   * b. Get list of pruned file names based on prunedPartitionsAndFileSlices (base and log files).
+   *      - This step does account for RO queries by ignoring log files.
+   * c. Call metadataTable.readSecondaryIndex to fetch primary key record -> file location for the secondary keys of interest.
+   * Note that location might only refer to fileId.
+   * d. we go through the list from b and return entire file slice for matching fileIds from c.
+   * This looks good from correctness standpoint.
+   * @param fileIndex
+   * @param queryFilters
+   * @param queryReferencedColumns
+   * @param prunedPartitionsAndFileSlices
+   * @param shouldPushDownFilesFilter
+   * @return
+   */
   override def computeCandidateFileNames(fileIndex: HoodieFileIndex,
                                          queryFilters: Seq[Expression],
                                          queryReferencedColumns: Seq[String],
@@ -49,6 +65,7 @@ class SecondaryIndexSupport(spark: SparkSession,
     if (secondaryKeyConfigOpt.isEmpty) {
       Option.empty
     }
+
     lazy val (_, secondaryKeys) = if (isIndexAvailable) filterQueriesWithSecondaryKey(queryFilters, secondaryKeyConfigOpt.map(_._2)) else (List.empty, List.empty)
     if (isIndexAvailable && queryFilters.nonEmpty && secondaryKeys.nonEmpty) {
       val prunedStoragePaths = getPrunedStoragePaths(prunedPartitionsAndFileSlices, fileIndex)
@@ -113,6 +130,7 @@ class SecondaryIndexSupport(spark: SparkSession,
 object SecondaryIndexSupport {
   val INDEX_NAME = "secondary_index"
 
+  // looks like we are supporting only = or IN queries for secondary index lookup.
   def filterQueriesWithSecondaryKey(queryFilters: Seq[Expression],
                                     secondaryKeyConfigOpt: Option[String]): (List[Expression], List[String]) = {
     var secondaryKeyQueries: List[Expression] = List.empty
