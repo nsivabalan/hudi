@@ -1152,7 +1152,7 @@ public abstract class HoodieBackedTableMetadataWriter<I> implements HoodieTableM
   High level steps:
   a. Fetch the sec index record entries for the records being updated from the current commit.
   b. We also need to delete previous values of the records being updated or deleted. For eg, in commit1, we might have had row1 -> sfo. and in commit2, row1 could have updated the secondary index value to ny.
-     // So, in this case, we need to ingest {ny -> {row1, false}} and also delete {sfo -> {row1, true}} to secondary index.
+     // So, in this case, we need to ingest {{ny,row1} -> false}} and also delete {{sfo,row1} -> true}} to secondary index.
  c. Union the above (a) and (b) for the final set of secondary index records to be ingested to MDT.
 
   Let's go into more details:
@@ -1164,24 +1164,18 @@ public abstract class HoodieBackedTableMetadataWriter<I> implements HoodieTableM
          So, to fetch the secondary index values that went into lf2, would it suffice if we just read only lf2. Shouldn't we read
          the base file and merge log records from both lf1 and lf2 and then for the records that got retained from lf2, we should only consider the secondary
          key values in them.
-  b. We also need to delete previous values of the records being updated or deleted. For eg, in commit1, we might have had row1 -> sfo. and in commit2, row1 could have updated the secondary index value to ny.
-     // So, in this case, we need to ingest {ny -> {row1, false}} and also delete {sfo -> {row1, true}} to secondary index.
+  b. We also need to delete previous values of the records being updated or deleted. For eg, in commit1, we might have had row1 -> sfo. and in commit2,
+     row1 could have updated the secondary index value to ny.
+     // So, in this case, we need to ingest {{ny,row1} -> false}} and also delete {{sfo, row1} -> true}} to secondary index.
      How do fetch the entries for delete:
       b.i. Collect primary keys to be deleted or updated from the WriteStatus.
-      b.ii. Look up in sec index (full scan) and prepare sec index records by setting isDeleted to true. Since in secondary index,
-      keys are secondary key values, we ought to go w/ full scan.
+      b.ii. Look up in sec index (full scan) and prepare sec index records by setting isDeleted to true. Even though SI keys does contain primary key values,
+      we can't do a suffix based lookup. so, we got to do full scan in SI.
   c. Union the above (a) and (b) for the final set of secondary index records to be ingested to MDT.
-    Q: There are chances that we might have records w/ same key repeated, but w/ diff values. So, once we fix the HoodieMergeKey, we should be good.
-    for eg,
-    C1: row1 -> sfo
-    C2: row1 -> ny, row2 -> sfo
-
     So, we will generate 3 SI records to be ingested into SI partition in MDT.
-    sfo -> {row1, true}
-    ny -> {row1, false}
-    sfo -> {row2, false}
-
-    So, we need to ensure our merge logic also consider primary key values while merging these records.
+    {{sfo,row1} -> true}
+    {{ny,row1} -> false}
+    {{sfo,row2} -> false}
 
     Few non-core operations which has gaps wrt this method.
     insert-overwrite: apart from generating to insert records for files touched as part of current commit, we also need to delete all old record in the partition of interest.

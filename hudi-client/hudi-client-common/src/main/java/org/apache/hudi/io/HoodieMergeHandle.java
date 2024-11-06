@@ -101,8 +101,6 @@ public class HoodieMergeHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O>
 
   private static final Logger LOG = LoggerFactory.getLogger(HoodieMergeHandle.class);
 
-  // key in this map has to be switched to HoodieMergeKey. More details documented in HoodieMetadataMergedLogRecordScanner.java.
-  // and while serializing back to disk, we should fall back to orignal record key and not use HoodieMergeKey.
   protected Map<String, HoodieRecord<T>> keyToNewRecords;
   protected Set<String> writtenRecordKeys;
   protected HoodieFileWriter fileWriter;

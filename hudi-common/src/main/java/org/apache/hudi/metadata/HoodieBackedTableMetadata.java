@@ -896,6 +896,11 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
       return Collections.emptyMap();
     }
 
+    // we should try to re-use getRecordsByKeyPrefixes. and then parse the output from it and return just the secondary index value -> primary key value.
+    // we could change the signature of this method to return a Map<String, List<String>> to keep it simple.
+    // lets try to avoid any special reading from secondary index. W/ the new storage format design, we should be using existing file slice read methods in BaseTableMetadata
+    // or HoodieBackedTableMetadata.
+
     // Load the file slices for the partition. Each file slice is a shard which saves a portion of the keys.
     List<FileSlice> partitionFileSlices = partitionFileSliceMap.computeIfAbsent(partitionName,
         k -> HoodieTableMetadataUtil.getPartitionLatestMergedFileSlices(metadataMetaClient, metadataFileSystemView, partitionName));
@@ -949,7 +954,6 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
         return Collections.emptyMap();
       }
 
-      // Missing to merge based on HoodieMergeKey.
       // Sort it here once so that we don't need to sort individually for base file and for each individual log files.
       Set<String> secondaryKeySet = new HashSet<>(secondaryKeys.size());
       List<String> sortedSecondaryKeys = new ArrayList<>(secondaryKeys);
@@ -957,10 +961,11 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
       Collections.sort(sortedSecondaryKeys);
       Set<String> deletedRecordKeysFromLogs = new HashSet<>();
 
+      // need to do prefix based lookup.
       logRecordScanner.getRecords().forEach(record -> {
         HoodieMetadataPayload payload = record.getData();
         if (!payload.isDeleted()) {
-          String secondaryKey = payload.key;
+          String secondaryKey = payload.key; // lets retain the entire key as is which is a combination of sec index value and primary key value.
           if (secondaryKeySet.contains(secondaryKey)) {
             String recordKey = payload.getRecordKeyFromSecondaryIndex();
             logRecordsMap.computeIfAbsent(secondaryKey, k -> new HashMap<>()).put(recordKey, record);
@@ -970,6 +975,8 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
         }
       });
 
+      // lets merge along w/ base and before turning from thsi method, lets parse just the secondary index value from keys (non deleted) and return them.
+      // lets try to re-use fetchBaseFileRecordsByKeys which already does the prefix lookup.
       return readNonUniqueRecordsAndMergeWithLogRecords(baseFileReader, sortedSecondaryKeys, logRecordsMap, timings, partitionName, deletedRecordKeysFromLogs);
     } catch (IOException ioe) {
       throw new HoodieIOException("Error merging records from metadata table for  " + secondaryKeys.size() + " key : ", ioe);
