@@ -16,24 +16,33 @@
  * limitations under the License.
  */
 
-package org.apache.hudi.common.table.log.block;
+package org.apache.hudi;
 
-/**
- * A set of feature flags associated with a data log block format. Versions are changed when the log block format
- * changes. TODO(na) - Implement policies around major/minor versions
- */
-final class HoodieAvroDataBlockVersion extends HoodieLogBlockVersion {
+import org.apache.hudi.common.engine.EngineProperty;
+import org.apache.hudi.common.engine.TaskContextSupplier;
+import org.apache.hudi.common.util.Option;
 
-  HoodieAvroDataBlockVersion(int version) {
-    super(version);
+import java.util.function.Supplier;
+
+public class DummyTaskContextSupplier extends TaskContextSupplier {
+
+  @Override
+  public Supplier<Integer> getPartitionIdSupplier() {
+    return null;
   }
 
-  public boolean hasRecordCount() {
-    switch (super.getVersion()) {
-      case DEFAULT_VERSION:
-        return true;
-      default:
-        return true;
-    }
+  @Override
+  public Supplier<Integer> getStageIdSupplier() {
+    return null;
+  }
+
+  @Override
+  public Supplier<Long> getAttemptIdSupplier() {
+    return null;
+  }
+
+  @Override
+  public Option<String> getProperty(EngineProperty prop) {
+    return null;
   }
 }

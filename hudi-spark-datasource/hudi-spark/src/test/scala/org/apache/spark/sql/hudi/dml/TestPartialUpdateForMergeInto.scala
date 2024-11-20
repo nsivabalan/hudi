@@ -386,15 +386,19 @@ class TestPartialUpdateForMergeInto extends HoodieSparkSqlTestBase {
     val viewManager: FileSystemViewManager = FileSystemViewManager.createViewManager(
       engineContext, FileSystemViewStorageConfig.newBuilder.build,
       HoodieCommonConfig.newBuilder.build,
-      (v1: HoodieTableMetaClient) => {
-        HoodieTableMetadata.create(
-          engineContext, metaClient.getStorage, metadataConfig, metaClient.getBasePath.toString)
+      new SerializableFunctionUnchecked[HoodieTableMetaClient, HoodieTableMetadata] {
+        override def apply(v1: HoodieTableMetaClient): HoodieTableMetadata = {
+          HoodieTableMetadata.create(
+            engineContext, metaClient.getStorage, metadataConfig, metaClient.getBasePath.toString)
+        }
       }
     )
     val fsView: SyncableFileSystemView = viewManager.getFileSystemView(metaClient)
     val fileSlice: Optional[FileSlice] = fsView.getAllFileSlices("")
-      .filter((fileSlice: FileSlice) => {
-        HoodieTestUtils.getLogFileListFromFileSlice(fileSlice).size() == expectedNumLogFile
+      .filter(new Predicate[FileSlice] {
+        override def test(fileSlice: FileSlice): Boolean = {
+          HoodieTestUtils.getLogFileListFromFileSlice(fileSlice).size() == expectedNumLogFile
+        }
       })
       .findFirst()
     assertTrue(fileSlice.isPresent)

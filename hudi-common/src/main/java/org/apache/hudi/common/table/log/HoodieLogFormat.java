@@ -20,7 +20,6 @@ package org.apache.hudi.common.table.log;
 
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.HoodieLogFile;
-import org.apache.hudi.common.table.HoodieTableVersion;
 import org.apache.hudi.common.table.log.block.HoodieLogBlock;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.ReflectionUtils;
@@ -124,6 +123,8 @@ public interface HoodieLogFormat {
 
     // Buffer size
     private Integer bufferSize;
+    // Replication for the log file
+    private Short replication;
     // FileSystem
     private HoodieStorage storage;
     // Size threshold for the log file. Useful when used with a rolling log appender
@@ -145,13 +146,23 @@ public interface HoodieLogFormat {
     private String logWriteToken;
     // optional file suffix
     private String suffix;
+    // Rollover Log file write token
+    private String rolloverLogWriteToken;
     // file creation hook
     private LogFileCreationCallback fileCreationCallback;
 
-    private HoodieTableVersion tableVersion;
-
     public WriterBuilder withBufferSize(int bufferSize) {
       this.bufferSize = bufferSize;
+      return this;
+    }
+
+    public WriterBuilder withReplication(short replication) {
+      this.replication = replication;
+      return this;
+    }
+
+    public WriterBuilder withRolloverLogWriteToken(String rolloverLogWriteToken) {
+      this.rolloverLogWriteToken = rolloverLogWriteToken;
       return this;
     }
 
@@ -185,8 +196,8 @@ public interface HoodieLogFormat {
       return this;
     }
 
-    public WriterBuilder withInstantTime(String instantTime) {
-      this.instantTime = instantTime;
+    public WriterBuilder withDeltaCommit(String deltaCommit) {
+      this.instantTime = deltaCommit;
       return this;
     }
 
@@ -210,11 +221,6 @@ public interface HoodieLogFormat {
       return this;
     }
 
-    public WriterBuilder withTableVersion(HoodieTableVersion writeTableVersion) {
-      this.tableVersion = writeTableVersion;
-      return this;
-    }
-
     public Writer build() throws IOException {
       LOG.info("Building HoodieLogFormat Writer");
       if (storage == null) {
@@ -224,7 +230,7 @@ public interface HoodieLogFormat {
         throw new IllegalArgumentException("FileID is not specified");
       }
       if (instantTime == null) {
-        throw new IllegalArgumentException("Instant time is not specified");
+        throw new IllegalArgumentException("Delta commit time is not specified");
       }
       if (fileExtension == null) {
         throw new IllegalArgumentException("File extension is not specified");
@@ -233,41 +239,40 @@ public interface HoodieLogFormat {
         throw new IllegalArgumentException("Log file parent location is not specified");
       }
 
+      if (rolloverLogWriteToken == null) {
+        rolloverLogWriteToken = UNKNOWN_WRITE_TOKEN;
+      }
+
       if (fileCreationCallback == null) {
         // by default does nothing.
         fileCreationCallback = new LogFileCreationCallback() {};
       }
 
-      if (tableVersion == null) {
-        tableVersion = HoodieTableVersion.current();
-      }
-
       if (logVersion == null) {
         LOG.info("Computing the next log version for {} in {}", logFileId, parentPath);
-        boolean useBaseVersion = tableVersion.greaterThanOrEquals(HoodieTableVersion.EIGHT)
-            &&  logWriteToken != null;
-        if (useBaseVersion) {
-          // the log format writer handles the existence check.
-          logVersion = HoodieLogFile.LOGFILE_BASE_VERSION;
-        } else {
-          // compute from storage (expensive)
+        if (logWriteToken == null) {
+          // if the log write toke is null, scans the fs to fetch the latest write token.
           Option<Pair<Integer, String>> versionAndWriteToken =
               FSUtils.getLatestLogVersion(storage, parentPath, logFileId, fileExtension, instantTime);
           if (versionAndWriteToken.isPresent()) {
             logVersion = versionAndWriteToken.get().getKey();
             logWriteToken = versionAndWriteToken.get().getValue();
           } else {
-            // this is the case where there is no existing log-file.
             logVersion = HoodieLogFile.LOGFILE_BASE_VERSION;
-            logWriteToken = UNKNOWN_WRITE_TOKEN;
+            // this is the case where there is no existing log-file.
+            // Use rollover write token as write token to create new log file with tokens
+            logWriteToken = rolloverLogWriteToken;
           }
+        } else {
+          // the log format writer handles the existence check.
+          logVersion = HoodieLogFile.LOGFILE_BASE_VERSION;
         }
         LOG.info("Computed the next log version for {} in {} as {} with write-token {}", logFileId, parentPath, logVersion, logWriteToken);
       }
 
       if (logWriteToken == null) {
         fileLen = 0L;
-        logWriteToken = UNKNOWN_WRITE_TOKEN;
+        logWriteToken = rolloverLogWriteToken;
       }
 
       if (suffix != null) {
@@ -275,6 +280,7 @@ public interface HoodieLogFormat {
         // patch the write token with an optional suffix
         // instead of adding a new extension
         logWriteToken = logWriteToken + suffix;
+        rolloverLogWriteToken = rolloverLogWriteToken + suffix;
       }
 
       StoragePath logPath = new StoragePath(parentPath,
@@ -288,7 +294,7 @@ public interface HoodieLogFormat {
       return (Writer) ReflectionUtils.loadClass(
           DEFAULT_LOG_FORMAT_WRITER,
           new Class[] {HoodieStorage.class, HoodieLogFile.class, Integer.class, Short.class, Long.class, String.class, LogFileCreationCallback.class},
-          storage, logFile, bufferSize, null, sizeThreshold, logWriteToken, fileCreationCallback
+          storage, logFile, bufferSize, replication, sizeThreshold, rolloverLogWriteToken, fileCreationCallback
       );
     }
   }

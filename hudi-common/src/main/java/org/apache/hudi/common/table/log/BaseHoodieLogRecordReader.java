@@ -723,6 +723,15 @@ public abstract class BaseHoodieLogRecordReader<T> {
   }
 
   /**
+   * Checks if the current logblock belongs to a later instant.
+   */
+  private boolean isNewInstantBlock(HoodieLogBlock logBlock) {
+    return currentInstantLogBlocks.size() > 0 && currentInstantLogBlocks.peek().getBlockType() != CORRUPT_BLOCK
+        && !logBlock.getLogBlockHeader().get(INSTANT_TIME)
+        .contentEquals(currentInstantLogBlocks.peek().getLogBlockHeader().get(INSTANT_TIME));
+  }
+
+  /**
    * Process the set of log blocks belonging to the last instant which is read fully.
    */
   private void processQueuedBlocksForInstant(Deque<HoodieLogBlock> logBlocks, int numLogFilesSeen,
@@ -748,7 +757,7 @@ public abstract class BaseHoodieLogRecordReader<T> {
       }
     }
     // At this step the lastBlocks are consumed. We track approximate progress by number of log-files seen
-    progress = (float) (numLogFilesSeen - 1) / logFilePaths.size();
+    progress = (numLogFilesSeen - 1) / logFilePaths.size();
   }
 
   private boolean shouldLookupRecords() {
