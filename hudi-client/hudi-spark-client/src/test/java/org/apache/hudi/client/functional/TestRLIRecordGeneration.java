@@ -160,7 +160,7 @@ public class TestRLIRecordGeneration extends HoodieClientTestBase {
                 .collect(Collectors.toList()), Collections.emptyMap(), finalCommitTime3, writeConfig, actualInserts, actualDeletes);
 
         // process log files.
-        String latestCommitTimestamp = metaClient.reloadActiveTimeline().getCommitsTimeline().lastInstant().get().requestedTime();
+        String latestCommitTimestamp = metaClient.reloadActiveTimeline().getCommitsTimeline().lastInstant().get().getTimestamp();
         Option<Schema> writerSchemaOpt = tryResolveSchemaForTable(metaClient);
         writeStatuses3.stream().filter(writeStatus -> FSUtils.isLogFile(FSUtils.getFileName(writeStatus.getStat().getPath(), writeStatus.getPartitionPath())))
             .forEach(writeStatus -> {
