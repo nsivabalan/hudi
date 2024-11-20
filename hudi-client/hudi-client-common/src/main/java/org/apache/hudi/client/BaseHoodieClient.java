@@ -29,9 +29,10 @@ import org.apache.hudi.common.engine.HoodieEngineContext;
 import org.apache.hudi.common.model.HoodieCommitMetadata;
 import org.apache.hudi.common.model.HoodieWriteStat;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
 import org.apache.hudi.common.table.timeline.TimeGenerator;
 import org.apache.hudi.common.table.timeline.TimeGenerators;
-import org.apache.hudi.common.table.timeline.TimelineUtils;
+import org.apache.hudi.common.table.timeline.versioning.TimelineLayoutVersion;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.ReflectionUtils;
 import org.apache.hudi.common.util.StringUtils;
@@ -185,6 +186,7 @@ public abstract class BaseHoodieClient implements Serializable, AutoCloseable {
         .setBasePath(config.getBasePath())
         .setLoadActiveTimelineOnLoad(loadActiveTimelineOnLoad)
         .setConsistencyGuardConfig(config.getConsistencyGuardConfig())
+        .setLayoutVersion(Option.of(new TimelineLayoutVersion(config.getTimelineLayoutVersion())))
         .setTimeGeneratorConfig(config.getTimeGeneratorConfig())
         .setFileSystemRetryConfig(config.getFileSystemRetryConfig())
         .setMetaserverConfig(config.getProps()).build();
@@ -196,14 +198,14 @@ public abstract class BaseHoodieClient implements Serializable, AutoCloseable {
    * @param milliseconds Milliseconds to add to current time while generating the new instant time.
    */
   public String createNewInstantTime(long milliseconds) {
-    return TimelineUtils.generateInstantTime(true, timeGenerator, milliseconds);
+    return HoodieActiveTimeline.createNewInstantTime(true, timeGenerator, milliseconds);
   }
 
   /**
    * Returns next instant time in the correct format. An explicit Lock is enabled in the context.
    */
   public String createNewInstantTime() {
-    return TimelineUtils.generateInstantTime(true, timeGenerator);
+    return HoodieActiveTimeline.createNewInstantTime(true, timeGenerator);
   }
 
   /**
@@ -212,7 +214,7 @@ public abstract class BaseHoodieClient implements Serializable, AutoCloseable {
    * @param shouldLock Whether to lock the context to get the instant time.
    */
   public String createNewInstantTime(boolean shouldLock) {
-    return TimelineUtils.generateInstantTime(shouldLock, timeGenerator);
+    return HoodieActiveTimeline.createNewInstantTime(shouldLock, timeGenerator);
   }
 
   public Option<EmbeddedTimelineService> getTimelineServer() {

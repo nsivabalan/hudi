@@ -19,7 +19,6 @@ package org.apache.spark.sql.hudi.procedure
 
 import org.apache.hudi.common.table.HoodieTableMetaClient
 import org.apache.hudi.common.table.timeline.{HoodieInstant, HoodieTimeline}
-import org.apache.hudi.common.testutils.HoodieTestUtils.INSTANT_GENERATOR
 import org.apache.hudi.hadoop.fs.HadoopFSUtils
 import org.junit.jupiter.api.Assertions
 
@@ -57,13 +56,13 @@ class TestRunRollbackInflightTableServiceProcedure extends HoodieSparkProcedureT
       val clusteringInstant = metaClient.getActiveTimeline.getCompletedReplaceTimeline.getInstants.get(0)
       metaClient.getActiveTimeline.deleteInstantFileIfExists(clusteringInstant)
 
-      val clusteringInstantTime = clusteringInstant.requestedTime
+      val clusteringInstantTime = clusteringInstant.getTimestamp
 
       spark.sql(s"call run_rollback_inflight_tableservice(table => '$tableName', pending_instant => '$clusteringInstantTime')")
       Assertions.assertTrue(!metaClient.reloadActiveTimeline().getInstants
-        .contains(INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.CLUSTERING_ACTION, clusteringInstantTime)))
+        .contains(new HoodieInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.CLUSTERING_ACTION, clusteringInstantTime)))
       Assertions.assertTrue(metaClient.reloadActiveTimeline().getInstants
-        .contains(INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.REQUESTED, HoodieTimeline.CLUSTERING_ACTION, clusteringInstantTime)))
+        .contains(new HoodieInstant(HoodieInstant.State.REQUESTED, HoodieTimeline.CLUSTERING_ACTION, clusteringInstantTime)))
     }}
   }
 
@@ -108,13 +107,13 @@ class TestRunRollbackInflightTableServiceProcedure extends HoodieSparkProcedureT
         val compactionInstant: HoodieInstant = metaClient.getActiveTimeline.getReverseOrderedInstants.findFirst().get()
 
         metaClient.getActiveTimeline.deleteInstantFileIfExists(compactionInstant)
-        val compactionInstantTime = compactionInstant.requestedTime
+        val compactionInstantTime = compactionInstant.getTimestamp
 
         spark.sql(s"call run_rollback_inflight_tableservice(table => '$tableName', pending_instant => '$compactionInstantTime', delete_request_instant_file => true)")
         Assertions.assertTrue(!metaClient.reloadActiveTimeline().getInstants
-          .contains(INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.COMPACTION_ACTION, compactionInstantTime)))
+          .contains(new HoodieInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.COMPACTION_ACTION, compactionInstantTime)))
         Assertions.assertTrue(!metaClient.reloadActiveTimeline().getInstants
-          .contains(INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.REQUESTED, HoodieTimeline.COMPACTION_ACTION, compactionInstantTime)))
+          .contains(new HoodieInstant(HoodieInstant.State.REQUESTED, HoodieTimeline.COMPACTION_ACTION, compactionInstantTime)))
       }
     }
   }

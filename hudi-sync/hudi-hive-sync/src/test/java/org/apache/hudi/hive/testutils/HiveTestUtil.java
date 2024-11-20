@@ -43,6 +43,7 @@ import org.apache.hudi.common.table.log.HoodieLogFormat.Writer;
 import org.apache.hudi.common.table.log.block.HoodieAvroDataBlock;
 import org.apache.hudi.common.table.log.block.HoodieLogBlock;
 import org.apache.hudi.common.table.log.block.HoodieLogBlock.HeaderMetadataType;
+import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.testutils.FileCreateUtils;
 import org.apache.hudi.common.testutils.HoodieTestUtils;
 import org.apache.hudi.common.testutils.InProcessTimeGenerator;
@@ -103,8 +104,6 @@ import java.util.stream.Collectors;
 import static org.apache.hudi.common.table.HoodieTableMetaClient.METAFOLDER_NAME;
 import static org.apache.hudi.common.table.timeline.TimelineMetadataUtils.serializeCommitMetadata;
 import static org.apache.hudi.common.table.timeline.TimelineMetadataUtils.serializeRollbackMetadata;
-import static org.apache.hudi.common.testutils.HoodieTestUtils.COMMIT_METADATA_SER_DE;
-import static org.apache.hudi.common.testutils.HoodieTestUtils.INSTANT_FILE_NAME_GENERATOR;
 import static org.apache.hudi.common.util.StringUtils.getUTF8Bytes;
 import static org.apache.hudi.hive.HiveSyncConfigHolder.HIVE_BATCH_SYNC_PARTITION_NUM;
 import static org.apache.hudi.hive.HiveSyncConfigHolder.HIVE_PASS;
@@ -366,15 +365,15 @@ public class HiveTestUtil {
 
     createMetaFile(
         basePath,
-        INSTANT_FILE_NAME_GENERATOR.makeRequestedRollbackFileName(instantTime),
+        HoodieTimeline.makeRequestedRollbackFileName(instantTime),
         getUTF8Bytes(""));
     createMetaFile(
         basePath,
-        INSTANT_FILE_NAME_GENERATOR.makeInflightRollbackFileName(instantTime),
+        HoodieTimeline.makeInflightRollbackFileName(instantTime),
         getUTF8Bytes(""));
     createMetaFile(
         basePath,
-        INSTANT_FILE_NAME_GENERATOR.makeRollbackFileName(instantTime + "_" + InProcessTimeGenerator.createNewInstantTime()),
+        HoodieTimeline.makeRollbackFileName(instantTime + "_" + InProcessTimeGenerator.createNewInstantTime()),
         serializeRollbackMetadata(rollbackMetadata).get());
   }
 
@@ -773,15 +772,15 @@ public class HiveTestUtil {
   public static void createCommitFile(HoodieCommitMetadata commitMetadata, String instantTime, String basePath) throws IOException {
     createMetaFile(
         basePath,
-        INSTANT_FILE_NAME_GENERATOR.makeCommitFileName(instantTime + "_" + InProcessTimeGenerator.createNewInstantTime()),
-        serializeCommitMetadata(COMMIT_METADATA_SER_DE, commitMetadata).get());
+        HoodieTimeline.makeCommitFileName(instantTime + "_" + InProcessTimeGenerator.createNewInstantTime()),
+        serializeCommitMetadata(commitMetadata).get());
   }
 
   public static void createReplaceCommitFile(HoodieReplaceCommitMetadata commitMetadata, String instantTime) throws IOException {
     createMetaFile(
         basePath,
-        INSTANT_FILE_NAME_GENERATOR.makeReplaceFileName(instantTime + "_" + InProcessTimeGenerator.createNewInstantTime()),
-        serializeCommitMetadata(COMMIT_METADATA_SER_DE, commitMetadata).get());
+        HoodieTimeline.makeReplaceFileName(instantTime + "_" + InProcessTimeGenerator.createNewInstantTime()),
+        serializeCommitMetadata(commitMetadata).get());
   }
 
   public static void createCommitFileWithSchema(HoodieCommitMetadata commitMetadata, String instantTime, boolean isSimpleSchema) throws IOException {
@@ -793,16 +792,16 @@ public class HiveTestUtil {
       throws IOException {
     createMetaFile(
         basePath,
-        INSTANT_FILE_NAME_GENERATOR.makeCommitFileName(instantTime + "_" + InProcessTimeGenerator.createNewInstantTime()),
-        serializeCommitMetadata(COMMIT_METADATA_SER_DE, commitMetadata).get());
+        HoodieTimeline.makeCommitFileName(instantTime + "_" + InProcessTimeGenerator.createNewInstantTime()),
+        serializeCommitMetadata(commitMetadata).get());
   }
 
   private static void createDeltaCommitFile(HoodieCommitMetadata deltaCommitMetadata, String deltaCommitTime)
       throws IOException {
     createMetaFile(
         basePath,
-        INSTANT_FILE_NAME_GENERATOR.makeDeltaFileName(deltaCommitTime + "_" + InProcessTimeGenerator.createNewInstantTime()),
-        serializeCommitMetadata(COMMIT_METADATA_SER_DE, deltaCommitMetadata).get());
+        HoodieTimeline.makeDeltaFileName(deltaCommitTime + "_" + InProcessTimeGenerator.createNewInstantTime()),
+        serializeCommitMetadata(deltaCommitMetadata).get());
   }
 
   private static void createMetaFile(String basePath, String fileName, byte[] bytes)

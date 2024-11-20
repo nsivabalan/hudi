@@ -18,6 +18,7 @@
 
 package org.apache.hudi.async;
 
+import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.util.collection.Pair;
 
 import org.slf4j.Logger;
@@ -57,7 +58,7 @@ public abstract class HoodieAsyncService implements Serializable {
   // Run in daemon mode
   private final boolean runInDaemonMode;
   // Queue to hold pending compaction/clustering instants
-  private transient BlockingQueue<String> pendingInstants = new LinkedBlockingQueue<>();
+  private transient BlockingQueue<HoodieInstant> pendingInstants = new LinkedBlockingQueue<>();
   // Mutex lock for synchronized access to pendingInstants queue
   private transient ReentrantLock queueLock = new ReentrantLock();
   // Condition instance to use with the queueLock
@@ -196,23 +197,23 @@ public abstract class HoodieAsyncService implements Serializable {
 
   /**
    * Enqueues new pending table service instant.
-   * @param instantTime {@link String} to enqueue.
+   * @param instant {@link HoodieInstant} to enqueue.
    */
-  public void enqueuePendingAsyncServiceInstant(String instantTime) {
-    LOG.info("Enqueuing new pending table service instant: " + instantTime);
-    pendingInstants.add(instantTime);
+  public void enqueuePendingAsyncServiceInstant(HoodieInstant instant) {
+    LOG.info("Enqueuing new pending table service instant: " + instant.getTimestamp());
+    pendingInstants.add(instant);
   }
 
   /**
    * Fetch next pending compaction/clustering instant if available.
    *
-   * @return {@link String} corresponding to the next pending compaction/clustering.
+   * @return {@link HoodieInstant} corresponding to the next pending compaction/clustering.
    * @throws InterruptedException
    */
-  String fetchNextAsyncServiceInstant() throws InterruptedException {
+  HoodieInstant fetchNextAsyncServiceInstant() throws InterruptedException {
     LOG.info(String.format("Waiting for next instant up to %d seconds", POLLING_SECONDS));
-    String instantTime = pendingInstants.poll(POLLING_SECONDS, TimeUnit.SECONDS);
-    if (instantTime != null) {
+    HoodieInstant instant = pendingInstants.poll(POLLING_SECONDS, TimeUnit.SECONDS);
+    if (instant != null) {
       try {
         queueLock.lock();
         // Signal waiting thread
@@ -221,6 +222,6 @@ public abstract class HoodieAsyncService implements Serializable {
         queueLock.unlock();
       }
     }
-    return instantTime;
+    return instant;
   }
 }

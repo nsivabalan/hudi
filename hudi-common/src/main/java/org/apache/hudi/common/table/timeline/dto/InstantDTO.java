@@ -22,7 +22,6 @@ import org.apache.hudi.common.table.timeline.HoodieInstant;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import org.apache.hudi.common.table.timeline.InstantGenerator;
 
 /**
  * The data transfer object of instant.
@@ -44,16 +43,16 @@ public class InstantDTO {
 
     InstantDTO dto = new InstantDTO();
     dto.action = instant.getAction();
-    dto.timestamp = instant.requestedTime();
+    dto.timestamp = instant.getTimestamp();
     dto.state = instant.getState().toString();
     return dto;
   }
 
-  public static HoodieInstant toInstant(InstantDTO dto, InstantGenerator factory) {
+  public static HoodieInstant toInstant(InstantDTO dto) {
     if (null == dto) {
       return null;
     }
 
-    return factory.createNewInstant(HoodieInstant.State.valueOf(dto.state), dto.action, dto.timestamp);
+    return new HoodieInstant(HoodieInstant.State.valueOf(dto.state), dto.action, dto.timestamp);
   }
 }

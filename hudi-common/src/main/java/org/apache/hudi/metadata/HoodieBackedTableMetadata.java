@@ -36,7 +36,7 @@ import org.apache.hudi.common.model.HoodieRecord.HoodieRecordType;
 import org.apache.hudi.common.table.HoodieTableConfig;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
-import org.apache.hudi.common.table.timeline.InstantComparison;
+import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
 import org.apache.hudi.common.util.HoodieTimer;
 import org.apache.hudi.common.util.Option;
@@ -638,9 +638,9 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
         .getValidInstantTimestamps(dataMetaClient, metadataMetaClient);
 
     Option<HoodieInstant> latestMetadataInstant = metadataMetaClient.getActiveTimeline().filterCompletedInstants().lastInstant();
-    String latestMetadataInstantTime = latestMetadataInstant.map(HoodieInstant::requestedTime).orElse(SOLO_COMMIT_TIMESTAMP);
+    String latestMetadataInstantTime = latestMetadataInstant.map(HoodieInstant::getTimestamp).orElse(SOLO_COMMIT_TIMESTAMP);
     if (timeTravelInstant.isPresent()) {
-      latestMetadataInstantTime = InstantComparison.minTimestamp(latestMetadataInstantTime, timeTravelInstant.get());
+      latestMetadataInstantTime = HoodieTimeline.minTimestamp(latestMetadataInstantTime, timeTravelInstant.get());
     }
 
     boolean allowFullScan = allowFullScanOverride.orElseGet(() -> isFullScanAllowedForPartition(partitionName));
@@ -755,7 +755,7 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
     if (metadataMetaClient != null) {
       Option<HoodieInstant> latestInstant = metadataMetaClient.getActiveTimeline().getDeltaCommitTimeline().filterCompletedInstants().lastInstant();
       if (latestInstant.isPresent()) {
-        return Option.of(latestInstant.get().requestedTime());
+        return Option.of(latestInstant.get().getTimestamp());
       }
     }
     return Option.empty();
@@ -766,7 +766,7 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
     if (metadataMetaClient != null) {
       Option<HoodieInstant> latestCompaction = metadataMetaClient.getActiveTimeline().getCommitAndReplaceTimeline().filterCompletedInstants().lastInstant();
       if (latestCompaction.isPresent()) {
-        return Option.of(latestCompaction.get().requestedTime());
+        return Option.of(latestCompaction.get().getTimestamp());
       }
     }
     return Option.empty();

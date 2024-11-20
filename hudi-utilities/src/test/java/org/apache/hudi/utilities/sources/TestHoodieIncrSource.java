@@ -74,7 +74,6 @@ import static org.apache.hudi.common.model.WriteOperationType.BULK_INSERT;
 import static org.apache.hudi.common.model.WriteOperationType.INSERT;
 import static org.apache.hudi.common.model.WriteOperationType.UPSERT;
 import static org.apache.hudi.common.testutils.HoodieTestUtils.DEFAULT_PARTITION_PATHS;
-import static org.apache.hudi.common.testutils.HoodieTestUtils.INSTANT_GENERATOR;
 import static org.apache.hudi.common.testutils.HoodieTestUtils.RAW_TRIPS_TEST_NAME;
 import static org.apache.hudi.testutils.Assertions.assertNoWriteErrors;
 import static org.apache.hudi.utilities.sources.helpers.IncrSourceHelper.MissingCheckpointStrategy.READ_UPTO_LATEST_COMMIT;
@@ -219,7 +218,7 @@ public class TestHoodieIncrSource extends SparkClientFunctionalTestHarness {
       // The checkpoint should not go past this commit
       HoodieActiveTimeline activeTimeline = metaClient.getActiveTimeline();
       HoodieInstant instant4 = activeTimeline
-          .filter(instant -> instant.requestedTime().equals(inserts.get(4).getInstantTime())).firstInstant().get();
+          .filter(instant -> instant.getTimestamp().equals(inserts.get(4).getInstantTime())).firstInstant().get();
       Option<byte[]> instant4CommitData = activeTimeline.getInstantDetails(instant4);
       activeTimeline.revertToInflight(instant4);
       metaClient.reloadActiveTimeline();
@@ -267,12 +266,12 @@ public class TestHoodieIncrSource extends SparkClientFunctionalTestHarness {
           inserts.get(5).getCompletionTime());
 
       activeTimeline.reload().saveAsComplete(
-          INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, instant4.getAction(), inserts.get(4).getInstantTime()),
+          new HoodieInstant(HoodieInstant.State.INFLIGHT, instant4.getAction(), inserts.get(4).getInstantTime()),
           instant4CommitData);
 
       // find instant4's new completion time
       String instant4CompletionTime = activeTimeline.reload().getInstantsAsStream()
-          .filter(instant -> instant.requestedTime().equals(instant4.requestedTime()))
+          .filter(instant -> instant.getTimestamp().equals(instant4.getTimestamp()))
           .findFirst().get().getCompletionTime();
 
       // After the inflight commit completes, the checkpoint should move on after incremental pull
@@ -348,14 +347,14 @@ public class TestHoodieIncrSource extends SparkClientFunctionalTestHarness {
               .filter(instant -> ClusteringUtils.getClusteringPlan(metaClient, instant).isPresent())
               .firstInstant();
       assertTrue(clusteringInstant.isPresent());
-      assertTrue(clusteringInstant.get().requestedTime().compareTo(latestCommitTimestamp) < 0);
+      assertTrue(clusteringInstant.get().getTimestamp().compareTo(latestCommitTimestamp) < 0);
 
       if (tableType == MERGE_ON_READ) {
         // Pending compaction exists
         Option<HoodieInstant> compactionInstant =
             metaClient.getActiveTimeline().filterPendingCompactionTimeline().firstInstant();
         assertTrue(compactionInstant.isPresent());
-        assertTrue(compactionInstant.get().requestedTime().compareTo(latestCommitTimestamp) < 0);
+        assertTrue(compactionInstant.get().getTimestamp().compareTo(latestCommitTimestamp) < 0);
       }
 
       // test SnapshotLoadQuerySplitter to split snapshot query .
@@ -663,7 +662,7 @@ public class TestHoodieIncrSource extends SparkClientFunctionalTestHarness {
     }
 
     public String getInstantTime() {
-      return instant.requestedTime();
+      return instant.getTimestamp();
     }
 
     public String getCompletionTime() {

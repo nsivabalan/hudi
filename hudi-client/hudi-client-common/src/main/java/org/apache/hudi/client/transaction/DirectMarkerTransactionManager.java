@@ -24,7 +24,6 @@ import org.apache.hudi.client.transaction.lock.ZookeeperBasedLockProvider;
 import org.apache.hudi.common.config.LockConfiguration;
 import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
-import org.apache.hudi.common.table.timeline.InstantGenerator;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.exception.HoodieNotSupportedException;
@@ -46,21 +45,21 @@ public class DirectMarkerTransactionManager extends TransactionManager {
     this.filePath = partitionPath + "/" + fileId;
   }
 
-  public void beginTransaction(String newTxnOwnerInstantTime, InstantGenerator instantGenerator) {
+  public void beginTransaction(String newTxnOwnerInstantTime) {
     if (isLockRequired) {
       LOG.info("Transaction starting for " + newTxnOwnerInstantTime + " and " + filePath);
       lockManager.lock();
 
-      reset(currentTxnOwnerInstant, Option.of(getInstant(newTxnOwnerInstantTime, instantGenerator)), Option.empty());
+      reset(currentTxnOwnerInstant, Option.of(getInstant(newTxnOwnerInstantTime)), Option.empty());
       LOG.info("Transaction started for " + newTxnOwnerInstantTime + " and " + filePath);
     }
   }
 
-  public void endTransaction(String currentTxnOwnerInstantTime, InstantGenerator instantGenerator) {
+  public void endTransaction(String currentTxnOwnerInstantTime) {
     if (isLockRequired) {
       LOG.info("Transaction ending with transaction owner " + currentTxnOwnerInstantTime
           + " for " + filePath);
-      if (reset(Option.of(getInstant(currentTxnOwnerInstantTime, instantGenerator)), Option.empty(), Option.empty())) {
+      if (reset(Option.of(getInstant(currentTxnOwnerInstantTime)), Option.empty(), Option.empty())) {
         lockManager.unlock();
         LOG.info("Transaction ended with transaction owner " + currentTxnOwnerInstantTime
             + " for " + filePath);
@@ -86,7 +85,7 @@ public class DirectMarkerTransactionManager extends TransactionManager {
     return props;
   }
 
-  private HoodieInstant getInstant(String instantTime, InstantGenerator instantGenerator) {
-    return instantGenerator.createNewInstant(HoodieInstant.State.INFLIGHT, EMPTY_STRING, instantTime);
+  private HoodieInstant getInstant(String instantTime) {
+    return new HoodieInstant(HoodieInstant.State.INFLIGHT, EMPTY_STRING, instantTime);
   }
 }

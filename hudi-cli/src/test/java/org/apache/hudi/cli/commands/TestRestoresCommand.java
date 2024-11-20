@@ -177,7 +177,7 @@ public class TestRestoresCommand extends CLIFunctionalTestHarness {
     HoodieInstant instant = restores.findFirst().orElse(null);
     assertNotNull(instant, "The instant can not be null.");
 
-    Object result = shell.evaluate(() -> "show restore --instant " + instant.requestedTime());
+    Object result = shell.evaluate(() -> "show restore --instant " + instant.getTimestamp());
     assertTrue(ShellEvaluationResultUtil.isSuccess(result));
 
     // get metadata of instant

@@ -66,8 +66,6 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import static org.apache.hudi.common.testutils.HoodieTestUtils.INSTANT_GENERATOR;
-import static org.apache.hudi.common.testutils.HoodieTestUtils.INSTANT_FILE_NAME_GENERATOR;
 import static org.apache.hudi.common.util.StringUtils.EMPTY_STRING;
 import static org.apache.hudi.table.action.restore.RestoreUtils.getRestorePlan;
 import static org.apache.hudi.table.action.restore.RestoreUtils.getSavepointToRestoreTimestampV1Schema;
@@ -178,7 +176,7 @@ public class TestClientRollback extends HoodieClientTestBase {
 
       // rollback to savepoint 002
       HoodieInstant savepoint = table.getCompletedSavepointTimeline().getInstantsAsStream().findFirst().get();
-      client.restoreToSavepoint(savepoint.requestedTime());
+      client.restoreToSavepoint(savepoint.getTimestamp());
 
       metaClient = HoodieTableMetaClient.reload(metaClient);
       table = HoodieSparkTable.create(getConfig(), context, metaClient);
@@ -195,19 +193,19 @@ public class TestClientRollback extends HoodieClientTestBase {
       if (testFailedRestore) {
         //test to make sure that restore commit is reused when the restore fails and is re-ran
         HoodieInstant inst =  table.getActiveTimeline().getRestoreTimeline().getInstants().get(0);
-        String restoreFileName = table.getMetaClient().getBasePath() + "/.hoodie/" + INSTANT_FILE_NAME_GENERATOR.getFileName(inst);
+        String restoreFileName = table.getMetaClient().getBasePath() + "/.hoodie/" + inst.getFileName();
 
         //delete restore commit file
         assertTrue((new File(restoreFileName)).delete());
 
         if (!failedRestoreInflight) {
           //delete restore inflight file
-          HoodieInstant inflightInst = INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, inst.getAction(), inst.requestedTime());
-          assertTrue((new File(table.getMetaClient().getBasePath() + "/.hoodie/" + INSTANT_FILE_NAME_GENERATOR.getFileName(inflightInst))).delete());
+          HoodieInstant inflightInst = new HoodieInstant(true, inst.getAction(), inst.getTimestamp());
+          assertTrue((new File(table.getMetaClient().getBasePath() + "/.hoodie/" + inflightInst.getFileName())).delete());
         }
         try (SparkRDDWriteClient newClient = getHoodieWriteClient(cfg)) {
           //restore again
-          newClient.restoreToSavepoint(savepoint.requestedTime());
+          newClient.restoreToSavepoint(savepoint.getTimestamp());
 
           //verify that we reuse the existing restore commit
           metaClient = HoodieTableMetaClient.reload(metaClient);
@@ -215,7 +213,7 @@ public class TestClientRollback extends HoodieClientTestBase {
           List<HoodieInstant> restoreInstants = table.getActiveTimeline().getRestoreTimeline().getInstants();
           assertEquals(1, restoreInstants.size());
           assertEquals(HoodieInstant.State.COMPLETED, restoreInstants.get(0).getState());
-          assertEquals(inst.requestedTime(), restoreInstants.get(0).requestedTime());
+          assertEquals(inst.getTimestamp(), restoreInstants.get(0).getTimestamp());
         }
       }
     }
@@ -262,7 +260,7 @@ public class TestClientRollback extends HoodieClientTestBase {
       metaClient = HoodieTableMetaClient.reload(metaClient);
       HoodieSparkTable table = HoodieSparkTable.create(getConfig(), context, metaClient);
       HoodieInstant savepoint = table.getCompletedSavepointTimeline().lastInstant().get();
-      client.restoreToSavepoint(savepoint.requestedTime());
+      client.restoreToSavepoint(savepoint.getTimestamp());
 
       //verify that getSavepointToRestoreTimestampV1Schema is correct
       metaClient = HoodieTableMetaClient.reload(metaClient);
@@ -355,7 +353,7 @@ public class TestClientRollback extends HoodieClientTestBase {
 
       // rollback to savepoint 002
       HoodieInstant savepoint = table.getCompletedSavepointTimeline().getInstantsAsStream().findFirst().get();
-      client.restoreToSavepoint(savepoint.requestedTime());
+      client.restoreToSavepoint(savepoint.getTimestamp());
 
       metaClient = HoodieTableMetaClient.reload(metaClient);
       table = HoodieSparkTable.create(getConfig(), context, metaClient);
@@ -554,7 +552,7 @@ public class TestClientRollback extends HoodieClientTestBase {
       HoodieInstant rollbackInstant = rollbackInstants.get(0);
 
       // delete rollback completed meta file and retry rollback.
-      FileCreateUtils.deleteRollbackCommit(basePath, rollbackInstant.requestedTime());
+      FileCreateUtils.deleteRollbackCommit(basePath, rollbackInstant.getTimestamp());
 
       if (instantToRollbackExists) {
         // recreate actual commit files if needed
@@ -779,10 +777,10 @@ public class TestClientRollback extends HoodieClientTestBase {
 
       if (isRollbackPlanCorrupted) {
         // Should create a new rollback instant
-        assertNotEquals(rollbackInstantTime, rollbackInstant.requestedTime());
+        assertNotEquals(rollbackInstantTime, rollbackInstant.getTimestamp());
       } else {
         // Should reuse the rollback instant
-        assertEquals(rollbackInstantTime, rollbackInstant.requestedTime());
+        assertEquals(rollbackInstantTime, rollbackInstant.getTimestamp());
       }
     }
     if (metadataWriter != null) {

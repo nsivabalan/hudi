@@ -59,7 +59,7 @@ class CreateSavepointProcedure extends BaseProcedure with ProcedureBuilder with 
 
     val completedTimeline: HoodieTimeline = metaClient.getCommitsTimeline.filterCompletedInstants
     if (StringUtils.isNullOrEmpty(commitTime)) {
-      commitTime = completedTimeline.lastInstant.get.requestedTime
+      commitTime = completedTimeline.lastInstant.get.getTimestamp
     } else if (!completedTimeline.containsInstant(commitTime)) {
       throw new HoodieException("Commit " + commitTime + " not found in Commits " + completedTimeline)
     }

@@ -681,11 +681,11 @@ class TestSecondaryIndexPruning extends SparkClientFunctionalTestHarness {
         val compactionTimeline = metadataTableFSView.getVisibleCommitsAndCompactionTimeline.filterCompletedAndCompactionInstants()
         val lastCompactionInstant = compactionTimeline
           .filter(JavaConversions.getPredicate((instant: HoodieInstant) =>
-            metaClient.getTimelineLayout.getCommitMetadataSerDe.deserialize(instant, compactionTimeline.getInstantDetails(instant).get, classOf[HoodieCommitMetadata])
+            HoodieCommitMetadata.fromBytes(compactionTimeline.getInstantDetails(instant).get, classOf[HoodieCommitMetadata])
               .getOperationType == WriteOperationType.COMPACT))
           .lastInstant()
         val compactionBaseFile = metadataTableFSView.getAllBaseFiles("secondary_index_idx_not_record_key_col")
-          .filter(JavaConversions.getPredicate((f: HoodieBaseFile) => f.getCommitTime.equals(lastCompactionInstant.get().requestedTime)))
+          .filter(JavaConversions.getPredicate((f: HoodieBaseFile) => f.getCommitTime.equals(lastCompactionInstant.get().getTimestamp)))
           .findAny()
         assertTrue(compactionBaseFile.isPresent)
       } finally {
@@ -1175,9 +1175,9 @@ class TestSecondaryIndexPruning extends SparkClientFunctionalTestHarness {
       // Do a savepoint
       val firstCompletedInstant = metaClient.getActiveTimeline.getCommitsTimeline.filterCompletedInstants().lastInstant()
       val writeClient = new SparkRDDWriteClient(new HoodieSparkEngineContext(jsc), getWriteConfig(hudiOpts))
-      writeClient.savepoint(firstCompletedInstant.get().requestedTime, "testUser", "savepoint to first commit")
-      val savepointTimestamp = metaClient.reloadActiveTimeline().getSavePointTimeline.filterCompletedInstants().lastInstant().get().requestedTime
-      assertEquals(firstCompletedInstant.get().requestedTime, savepointTimestamp)
+      writeClient.savepoint(firstCompletedInstant.get().getTimestamp, "testUser", "savepoint to first commit")
+      val savepointTimestamp = metaClient.reloadActiveTimeline().getSavePointTimeline.filterCompletedInstants().lastInstant().get().getTimestamp
+      assertEquals(firstCompletedInstant.get().getTimestamp, savepointTimestamp)
       // Restore to savepoint
       writeClient.restoreToSavepoint(savepointTimestamp)
       // verify restore completed
@@ -1234,7 +1234,7 @@ class TestSecondaryIndexPruning extends SparkClientFunctionalTestHarness {
     var totalLatestDataFiles = 0L
     val fsView: HoodieMetadataFileSystemView = getTableFileSystemView(opts)
     try {
-      fsView.getAllLatestFileSlicesBeforeOrOn(metaClient.getActiveTimeline.lastInstant().get().requestedTime)
+      fsView.getAllLatestFileSlicesBeforeOrOn(metaClient.getActiveTimeline.lastInstant().get().getTimestamp)
         .values()
         .forEach(JFunction.toJavaConsumer[java.util.stream.Stream[FileSlice]]
           (slices => slices.forEach(JFunction.toJavaConsumer[FileSlice](

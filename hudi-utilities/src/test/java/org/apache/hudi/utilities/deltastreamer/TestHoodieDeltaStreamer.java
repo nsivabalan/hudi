@@ -51,9 +51,7 @@ import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.TableSchemaResolver;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
-import org.apache.hudi.common.table.timeline.InstantComparison;
 import org.apache.hudi.common.table.timeline.TimelineUtils;
-import org.apache.hudi.common.table.timeline.versioning.DefaultCommitMetadataSerDe;
 import org.apache.hudi.common.table.view.FileSystemViewManager;
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
 import org.apache.hudi.common.testutils.HoodieTestDataGenerator;
@@ -167,8 +165,6 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import static org.apache.hudi.common.table.timeline.InstantComparison.GREATER_THAN;
-import static org.apache.hudi.common.testutils.HoodieTestUtils.INSTANT_FILE_NAME_GENERATOR;
 import static org.apache.hudi.testutils.HoodieClientTestUtils.createMetaClient;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -814,8 +810,8 @@ public class TestHoodieDeltaStreamer extends HoodieDeltaStreamerTestBase {
     cfg.retryLastPendingInlineClusteringJob = true;
     HoodieDeltaStreamer ds2 = new HoodieDeltaStreamer(cfg, jsc);
     ds2.sync();
-    String completeClusteringTimeStamp = meta.reloadActiveTimeline().getCompletedReplaceTimeline().lastInstant().get().requestedTime();
-    assertEquals(clusteringRequest.requestedTime(), completeClusteringTimeStamp);
+    String completeClusteringTimeStamp = meta.reloadActiveTimeline().getCompletedReplaceTimeline().lastInstant().get().getTimestamp();
+    assertEquals(clusteringRequest.getTimestamp(), completeClusteringTimeStamp);
     TestHelpers.assertAtLeastNCommits(2, tableBasePath);
     TestHelpers.assertAtLeastNReplaceCommits(1, tableBasePath);
   }
@@ -851,7 +847,7 @@ public class TestHoodieDeltaStreamer extends HoodieDeltaStreamerTestBase {
     HoodieTableMetaClient meta = HoodieTestUtils.createMetaClient(storage, tableBasePath);
     HoodieTimeline timeline = meta.getActiveTimeline().getCommitAndReplaceTimeline().filterCompletedInstants();
     HoodieInstant commitInstant = timeline.lastInstant().get();
-    String commitFileName = tableBasePath + "/.hoodie/" + INSTANT_FILE_NAME_GENERATOR.getFileName(commitInstant);
+    String commitFileName = tableBasePath + "/.hoodie/" + commitInstant.getFileName();
     fs.delete(new Path(commitFileName), false);
 
     // sync again
@@ -1238,12 +1234,12 @@ public class TestHoodieDeltaStreamer extends HoodieDeltaStreamerTestBase {
     HoodieClusteringJob scheduleAndExecute = initialHoodieClusteringJob(tableBasePath, null, false, "scheduleAndExecute", retryLastFailedClusteringJob, HoodieRecordType.AVRO);
     scheduleAndExecute.cluster(0);
 
-    String completeClusteringTimeStamp = meta.getActiveTimeline().reload().getCompletedReplaceTimeline().lastInstant().get().requestedTime();
+    String completeClusteringTimeStamp = meta.getActiveTimeline().reload().getCompletedReplaceTimeline().lastInstant().get().getTimestamp();
 
     if (retryLastFailedClusteringJob) {
-      assertEquals(clusteringRequest.requestedTime(), completeClusteringTimeStamp);
+      assertEquals(clusteringRequest.getTimestamp(), completeClusteringTimeStamp);
     } else {
-      assertFalse(clusteringRequest.requestedTime().equalsIgnoreCase(completeClusteringTimeStamp));
+      assertFalse(clusteringRequest.getTimestamp().equalsIgnoreCase(completeClusteringTimeStamp));
     }
     UtilitiesTestBase.Helpers.deleteFileFromDfs(fs, tableBasePath);
   }
@@ -1562,7 +1558,7 @@ public class TestHoodieDeltaStreamer extends HoodieDeltaStreamerTestBase {
     assertTrue(hiveClient.tableExists(tableName), "Table " + tableName + " should exist");
     assertEquals(3, hiveClient.getAllPartitions(tableName).size(),
         "Table partitions should match the number of partitions we wrote");
-    assertEquals(lastInstantForUpstreamTable.requestedTime(),
+    assertEquals(lastInstantForUpstreamTable.getTimestamp(),
         hiveClient.getLastCommitTimeSynced(tableName).get(),
         "The last commit that was synced should be updated in the TBLPROPERTIES");
     UtilitiesTestBase.Helpers.deleteFileFromDfs(fs, tableBasePath);
@@ -1687,12 +1683,12 @@ public class TestHoodieDeltaStreamer extends HoodieDeltaStreamerTestBase {
     ds2.sync();
     mClient = createMetaClient(jsc, tableBasePath);
     HoodieInstant newLastFinished = mClient.getCommitsTimeline().filterCompletedInstants().lastInstant().get();
-    assertTrue(InstantComparison.compareTimestamps(newLastFinished.requestedTime(), GREATER_THAN, lastFinished.requestedTime()
+    assertTrue(HoodieTimeline.compareTimestamps(newLastFinished.getTimestamp(), HoodieTimeline.GREATER_THAN, lastFinished.getTimestamp()
     ));
 
     // Ensure it is empty
-    HoodieCommitMetadata commitMetadata = new DefaultCommitMetadataSerDe()
-        .deserialize(newLastFinished, mClient.getActiveTimeline().getInstantDetails(newLastFinished).get(), HoodieCommitMetadata.class);
+    HoodieCommitMetadata commitMetadata = HoodieCommitMetadata
+        .fromBytes(mClient.getActiveTimeline().getInstantDetails(newLastFinished).get(), HoodieCommitMetadata.class);
     System.out.println("New Commit Metadata=" + commitMetadata);
     assertTrue(commitMetadata.getPartitionToWriteStats().isEmpty());
 
@@ -1798,8 +1794,8 @@ public class TestHoodieDeltaStreamer extends HoodieDeltaStreamerTestBase {
                                                                  HoodieTableMetaClient metaClient,
                                                                  WriteOperationType operationType) {
     try {
-      HoodieCommitMetadata commitMetadata = metaClient.getCommitMetadataSerDe()
-          .deserialize(instant, metaClient.getActiveTimeline().getInstantDetails(instant).get(), HoodieCommitMetadata.class);
+      HoodieCommitMetadata commitMetadata = HoodieCommitMetadata
+          .fromBytes(metaClient.getActiveTimeline().getInstantDetails(instant).get(), HoodieCommitMetadata.class);
       assertFalse(StringUtils.isNullOrEmpty(commitMetadata.getMetadata(HoodieCommitMetadata.SCHEMA_KEY)));
       assertEquals(operationType, commitMetadata.getOperationType());
     } catch (IOException ioException) {
@@ -2051,21 +2047,21 @@ public class TestHoodieDeltaStreamer extends HoodieDeltaStreamerTestBase {
     List<HoodieInstant> instants = metaClient.getCommitsTimeline().getInstants();
 
     ObjectMapper objectMapper = new ObjectMapper();
-    HoodieCommitMetadata commitMetadata = metaClient.getCommitMetadataSerDe()
-        .deserialize(instants.get(0), metaClient.getCommitsTimeline().getInstantDetails(instants.get(0)).get(), HoodieCommitMetadata.class);
+    HoodieCommitMetadata commitMetadata = HoodieCommitMetadata
+        .fromBytes(metaClient.getCommitsTimeline().getInstantDetails(instants.get(0)).get(), HoodieCommitMetadata.class);
     Map<String, String> checkpointVals = objectMapper.readValue(commitMetadata.getExtraMetadata().get(HoodieDeltaStreamer.CHECKPOINT_KEY), Map.class);
 
     String parquetFirstcheckpoint = checkpointVals.get("parquet");
     assertNotNull(parquetFirstcheckpoint);
-    commitMetadata = metaClient.getCommitMetadataSerDe()
-        .deserialize(instants.get(1), metaClient.getCommitsTimeline().getInstantDetails(instants.get(1)).get(), HoodieCommitMetadata.class);
+    commitMetadata = HoodieCommitMetadata
+        .fromBytes(metaClient.getCommitsTimeline().getInstantDetails(instants.get(1)).get(), HoodieCommitMetadata.class);
     checkpointVals = objectMapper.readValue(commitMetadata.getExtraMetadata().get(HoodieDeltaStreamer.CHECKPOINT_KEY), Map.class);
     String kafkaCheckpoint = checkpointVals.get("kafka");
     assertNotNull(kafkaCheckpoint);
     assertEquals(parquetFirstcheckpoint, checkpointVals.get("parquet"));
 
-    commitMetadata = metaClient.getCommitMetadataSerDe()
-        .deserialize(instants.get(2), metaClient.getCommitsTimeline().getInstantDetails(instants.get(2)).get(), HoodieCommitMetadata.class);
+    commitMetadata = HoodieCommitMetadata
+        .fromBytes(metaClient.getCommitsTimeline().getInstantDetails(instants.get(2)).get(), HoodieCommitMetadata.class);
     checkpointVals = objectMapper.readValue(commitMetadata.getExtraMetadata().get(HoodieDeltaStreamer.CHECKPOINT_KEY), Map.class);
     String parquetSecondCheckpoint = checkpointVals.get("parquet");
     assertNotNull(parquetSecondCheckpoint);

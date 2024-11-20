@@ -40,7 +40,6 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.apache.hudi.common.testutils.HoodieTestUtils.INSTANT_GENERATOR;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.any;
@@ -70,7 +69,7 @@ public class TestIndexingCatchupTask {
    */
   @Test
   public void testTaskSuccessful() {
-    List<HoodieInstant> instants = Collections.singletonList(INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.REQUESTED, "commit", "001"));
+    List<HoodieInstant> instants = Collections.singletonList(new HoodieInstant(HoodieInstant.State.REQUESTED, "commit", "001"));
     Set<String> metadataCompletedInstants = new HashSet<>();
     AbstractIndexingCatchupTask task = new DummyIndexingCatchupTask(
         metadataWriter,
@@ -91,7 +90,7 @@ public class TestIndexingCatchupTask {
    */
   @Test
   public void testTaskInterrupted() {
-    HoodieInstant neverCompletedInstant = INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.REQUESTED, "commit", "001");
+    HoodieInstant neverCompletedInstant = new HoodieInstant(HoodieInstant.State.REQUESTED, "commit", "001");
     HoodieActiveTimeline activeTimeline = mock(HoodieActiveTimeline.class);
     HoodieActiveTimeline filteredTimeline = mock(HoodieActiveTimeline.class);
     HoodieActiveTimeline furtherFilteredTimeline = mock(HoodieActiveTimeline.class);

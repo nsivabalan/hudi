@@ -20,7 +20,6 @@ package org.apache.hudi.common.table.timeline.dto;
 
 import org.apache.hudi.common.model.HoodieFileGroupId;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
-import org.apache.hudi.common.table.timeline.InstantGenerator;
 import org.apache.hudi.common.util.collection.Pair;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
@@ -53,12 +52,12 @@ public class ClusteringOpDTO {
     dto.partitionPath = fileGroupId.getPartitionPath();
     dto.instantAction = instant.getAction();
     dto.instantState = instant.getState().name();
-    dto.instantTime = instant.requestedTime();
+    dto.instantTime = instant.getTimestamp();
     return dto;
   }
 
-  public static Pair<HoodieFileGroupId, HoodieInstant> toClusteringOperation(ClusteringOpDTO dto, InstantGenerator factory) {
+  public static Pair<HoodieFileGroupId, HoodieInstant> toClusteringOperation(ClusteringOpDTO dto) {
     return Pair.of(new HoodieFileGroupId(dto.partitionPath, dto.fileId),
-        factory.createNewInstant(HoodieInstant.State.valueOf(dto.instantState), dto.instantAction, dto.instantTime));
+        new HoodieInstant(HoodieInstant.State.valueOf(dto.instantState), dto.instantAction, dto.instantTime));
   }
 }

@@ -22,6 +22,7 @@ package org.apache.hudi.table.action.restore;
 import org.apache.hudi.avro.model.HoodieRestorePlan;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
+import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.timeline.TimelineMetadataUtils;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.table.HoodieTable;
@@ -41,7 +42,7 @@ public class RestoreUtils {
    */
   public static HoodieRestorePlan getRestorePlan(HoodieTableMetaClient metaClient, HoodieInstant restoreInstant)
       throws IOException {
-    final HoodieInstant requested = metaClient.getInstantGenerator().getRollbackRequestedInstant(restoreInstant);
+    final HoodieInstant requested = HoodieTimeline.getRollbackRequestedInstant(restoreInstant);
     return TimelineMetadataUtils.deserializeAvroMetadata(
         metaClient.getActiveTimeline().readRestoreInfoAsBytes(requested).get(), HoodieRestorePlan.class);
   }
@@ -51,7 +52,7 @@ public class RestoreUtils {
     String firstRollback = plan.getInstantsToRollback().get(plan.getInstantsToRollback().size() - 1).getCommitTime();
     //find last instant before first rollback
     Option<HoodieInstant> savepointInstance = table.getActiveTimeline().getSavePointTimeline().findInstantsBefore(firstRollback).lastInstant();
-    return savepointInstance.isPresent() ? savepointInstance.get().requestedTime() : null;
+    return savepointInstance.isPresent() ? savepointInstance.get().getTimestamp() : null;
   }
 
   /**

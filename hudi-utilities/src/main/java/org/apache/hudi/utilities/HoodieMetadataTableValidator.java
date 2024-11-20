@@ -126,9 +126,7 @@ import scala.collection.JavaConverters;
 import static org.apache.hudi.common.model.HoodieRecord.FILENAME_METADATA_FIELD;
 import static org.apache.hudi.common.model.HoodieRecord.PARTITION_PATH_METADATA_FIELD;
 import static org.apache.hudi.common.model.HoodieRecord.RECORD_KEY_METADATA_FIELD;
-import static org.apache.hudi.common.table.timeline.InstantComparison.GREATER_THAN;
-import static org.apache.hudi.common.table.timeline.InstantComparison.LESSER_THAN_OR_EQUALS;
-import static org.apache.hudi.common.table.timeline.InstantComparison.compareTimestamps;
+import static org.apache.hudi.common.table.timeline.HoodieTimeline.GREATER_THAN;
 import static org.apache.hudi.common.util.StringUtils.getUTF8Bytes;
 import static org.apache.hudi.io.storage.HoodieSparkIOFactory.getHoodieSparkIOFactory;
 import static org.apache.hudi.metadata.HoodieTableMetadata.getMetadataTableBasePath;
@@ -558,8 +556,7 @@ public class HoodieMetadataTableValidator implements Serializable {
       baseFilesForCleaning = inflightCleaningTimeline.getInstantsAsStream().flatMap(instant -> {
         try {
           // convert inflight instant to requested and get clean plan
-          instant = metaClient.createNewInstant(HoodieInstant.State.REQUESTED, instant.getAction(),
-              instant.requestedTime());
+          instant = new HoodieInstant(HoodieInstant.State.REQUESTED, instant.getAction(), instant.getTimestamp());
           HoodieCleanerPlan cleanerPlan = CleanerUtils.getCleanerPlan(metaClient, instant);
 
           return cleanerPlan.getFilePathsToBeDeletedPerPartition().values().stream().flatMap(cleanerFileInfoList ->
@@ -730,7 +727,7 @@ public class HoodieMetadataTableValidator implements Serializable {
           if (partitionCreationTimeOpt.isPresent() && !completedTimeline.containsInstant(partitionCreationTimeOpt.get())) {
             Option<HoodieInstant> lastInstant = completedTimeline.lastInstant();
             if (lastInstant.isPresent()
-                && compareTimestamps(partitionCreationTimeOpt.get(), GREATER_THAN, lastInstant.get().requestedTime())) {
+                && HoodieTimeline.compareTimestamps(partitionCreationTimeOpt.get(), GREATER_THAN, lastInstant.get().getTimestamp())) {
               LOG.warn("Ignoring additional partition {}, as it was deduced to be part of a "
                   + "latest completed commit which was inflight when FS based listing was polled.", partitionFromDMT);
               actualAdditionalPartitionsInMDT.remove(partitionFromDMT);
@@ -788,8 +785,8 @@ public class HoodieMetadataTableValidator implements Serializable {
         if (!completedTimeline.containsOrBeforeTimelineStarts(instantTime)) {
           Option<HoodieInstant> lastInstant = completedTimeline.lastInstant();
           return lastInstant.isPresent()
-              && compareTimestamps(
-              instantTime, LESSER_THAN_OR_EQUALS, lastInstant.get().requestedTime());
+              && HoodieTimeline.compareTimestamps(
+              instantTime, HoodieTimeline.LESSER_THAN_OR_EQUALS, lastInstant.get().getTimestamp());
         }
         return true;
       } else {
@@ -1092,7 +1089,7 @@ public class HoodieMetadataTableValidator implements Serializable {
                                       HoodieTableMetaClient metaClient, HoodieIndexDefinition indexDefinition) {
     String basePath = metaClient.getBasePath().toString();
     String latestCompletedCommit = metaClient.getActiveTimeline().getCommitsAndCompactionTimeline()
-        .filterCompletedInstants().lastInstant().get().requestedTime();
+        .filterCompletedInstants().lastInstant().get().getTimestamp();
 
     JavaRDD<String> secondaryKeys = readSecondaryKeys(engineContext, indexDefinition.getSourceFields(), basePath, latestCompletedCommit);
     secondaryKeys.persist(StorageLevel.MEMORY_AND_DISK());
@@ -1157,7 +1154,7 @@ public class HoodieMetadataTableValidator implements Serializable {
                                         HoodieTableMetaClient metaClient) {
     String basePath = metaClient.getBasePath().toString();
     String latestCompletedCommit = metaClient.getActiveTimeline().getCommitsAndCompactionTimeline()
-        .filterCompletedInstants().lastInstant().get().requestedTime();
+        .filterCompletedInstants().lastInstant().get().getTimestamp();
     long countKeyFromTable = sparkEngineContext.getSqlContext().read().format("hudi")
         .option(DataSourceReadOptions.TIME_TRAVEL_AS_OF_INSTANT().key(),latestCompletedCommit)
         .load(basePath)
@@ -1184,7 +1181,7 @@ public class HoodieMetadataTableValidator implements Serializable {
                                           HoodieTableMetaClient metaClient) {
     String basePath = metaClient.getBasePath().toString();
     String latestCompletedCommit = metaClient.getActiveTimeline().getCommitsAndCompactionTimeline()
-        .filterCompletedInstants().lastInstant().get().requestedTime();
+        .filterCompletedInstants().lastInstant().get().getTimestamp();
     JavaPairRDD<String, Pair<String, String>> keyToLocationOnFsRdd =
         getRecordLocationsFromFSBasedListing(sparkEngineContext, basePath, latestCompletedCommit);
 
@@ -1483,10 +1480,11 @@ public class HoodieMetadataTableValidator implements Serializable {
             // The instant is completed, in active timeline
             // Checking commit metadata only as log files can only be written by COMMIT or DELTA_COMMIT
             if (!committedFilesMap.containsKey(instantTime)) {
-              HoodieInstant instant =  completedInstantsTimeline.filter(i -> i.requestedTime().equals(instantTime))
-                  .firstInstant().get();
-              HoodieCommitMetadata commitMetadata = metaClient.getCommitMetadataSerDe().deserialize(
-                  instant, completedInstantsTimeline.getInstantDetails(instant).get(),
+              HoodieCommitMetadata commitMetadata = HoodieCommitMetadata.fromBytes(
+                  completedInstantsTimeline.getInstantDetails(
+                      completedInstantsTimeline.filter(i -> i.getTimestamp().equals(instantTime))
+                          .firstInstant().get()
+                  ).get(),
                   HoodieCommitMetadata.class
               );
               committedFilesMap.put(

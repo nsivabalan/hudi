@@ -40,8 +40,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.apache.hudi.common.testutils.HoodieTestUtils.COMMIT_METADATA_SER_DE;
-
 public class TestConflictResolutionStrategyUtil {
 
   public static void createCommit(String instantTime, HoodieTableMetaClient metaClient) throws Exception {
@@ -252,7 +250,7 @@ public class TestConflictResolutionStrategyUtil {
     writeStat.setFileId("file-2");
     replaceMetadata.addWriteStat(HoodieTestDataGenerator.DEFAULT_FIRST_PARTITION_PATH, writeStat);
     replaceMetadata.setOperationType(writeOperationType);
-    FileCreateUtils.createReplaceCommit(COMMIT_METADATA_SER_DE, metaClient.getBasePath().toString(), instantTime, replaceMetadata);
+    FileCreateUtils.createReplaceCommit(metaClient.getBasePath().toString(), instantTime, replaceMetadata);
   }
 
   public static void createPendingCompaction(String instantTime, HoodieTableMetaClient metaClient) throws Exception {

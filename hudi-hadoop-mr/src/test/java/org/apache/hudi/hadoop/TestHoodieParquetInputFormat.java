@@ -80,10 +80,6 @@ import java.util.Date;
 import java.util.List;
 
 import static org.apache.hudi.common.table.timeline.TimelineMetadataUtils.serializeCommitMetadata;
-import static org.apache.hudi.common.testutils.HoodieTestUtils.COMMIT_METADATA_SER_DE;
-import static org.apache.hudi.common.testutils.HoodieTestUtils.INSTANT_GENERATOR;
-import static org.apache.hudi.common.testutils.HoodieTestUtils.INSTANT_FILE_NAME_GENERATOR;
-import static org.apache.hudi.common.testutils.HoodieTestUtils.TIMELINE_FACTORY;
 import static org.apache.hudi.common.testutils.SchemaTestUtil.getSchemaFromResource;
 import static org.apache.hudi.hadoop.HoodieColumnProjectionUtils.READ_COLUMN_NAMES_CONF_STR;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -125,12 +121,12 @@ public class TestHoodieParquetInputFormat {
   public void testPendingCompactionWithActiveCommits() throws IOException {
     // setup 4 sample instants in timeline
     List<HoodieInstant> instants = new ArrayList<>();
-    HoodieInstant t1 = INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.COMMIT_ACTION, "1");
-    HoodieInstant t2 = INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.DELTA_COMMIT_ACTION, "2");
-    HoodieInstant t3 = INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.REQUESTED, HoodieTimeline.COMPACTION_ACTION, "3");
-    HoodieInstant t4 = INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "4");
-    HoodieInstant t5 = INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.REQUESTED, HoodieTimeline.COMPACTION_ACTION, "5");
-    HoodieInstant t6 = INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "6");
+    HoodieInstant t1 = new HoodieInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.COMMIT_ACTION, "1");
+    HoodieInstant t2 = new HoodieInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.DELTA_COMMIT_ACTION, "2");
+    HoodieInstant t3 = new HoodieInstant(HoodieInstant.State.REQUESTED, HoodieTimeline.COMPACTION_ACTION, "3");
+    HoodieInstant t4 = new HoodieInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "4");
+    HoodieInstant t5 = new HoodieInstant(HoodieInstant.State.REQUESTED, HoodieTimeline.COMPACTION_ACTION, "5");
+    HoodieInstant t6 = new HoodieInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "6");
 
     instants.add(t1);
     instants.add(t2);
@@ -139,7 +135,7 @@ public class TestHoodieParquetInputFormat {
     instants.add(t5);
     instants.add(t6);
     HoodieTableMetaClient metaClient = HoodieTestUtils.init(basePath.toString());
-    HoodieActiveTimeline timeline = TIMELINE_FACTORY.createActiveTimeline(metaClient);
+    HoodieActiveTimeline timeline = new HoodieActiveTimeline(metaClient);
     timeline.setInstants(instants);
 
     // Verify getCommitsTimelineBeforePendingCompaction does not return instants after first compaction instant
@@ -152,7 +148,7 @@ public class TestHoodieParquetInputFormat {
     assertFalse(filteredTimeline.containsInstant(t6));
     // remove compaction instant and setup timeline again
     instants.remove(t3);
-    timeline = TIMELINE_FACTORY.createActiveTimeline(metaClient);
+    timeline = new HoodieActiveTimeline(metaClient);
     timeline.setInstants(instants);
     filteredTimeline = HoodieInputFormatUtils.filterInstantsTimeline(timeline);
 
@@ -166,7 +162,7 @@ public class TestHoodieParquetInputFormat {
 
     // remove remaining compaction instant and setup timeline again
     instants.remove(t5);
-    timeline = TIMELINE_FACTORY.createActiveTimeline(metaClient);
+    timeline = new HoodieActiveTimeline(metaClient);
     timeline.setInstants(instants);
     filteredTimeline = HoodieInputFormatUtils.filterInstantsTimeline(timeline);
 
@@ -203,7 +199,7 @@ public class TestHoodieParquetInputFormat {
         true, schema);
     HoodieCommitMetadata commitMetadata = CommitUtils.buildMetadata(Collections.emptyList(), Collections.emptyMap(), Option.empty(), WriteOperationType.UPSERT,
         schema.toString(), HoodieTimeline.COMMIT_ACTION);
-    FileCreateUtils.createCommit(COMMIT_METADATA_SER_DE, basePath.toString(), "100", Option.of(commitMetadata));
+    FileCreateUtils.createCommit(basePath.toString(), "100", Option.of(commitMetadata));
 
     // Add the paths
     FileInputFormat.setInputPaths(jobConf, partitionDir.getPath());
@@ -504,7 +500,7 @@ public class TestHoodieParquetInputFormat {
         .resolve(commitNumber + "_" + InProcessTimeGenerator.createNewInstantTime() + ".commit").toFile();
     file.createNewFile();
     FileOutputStream fileOutputStream = new FileOutputStream(file);
-    fileOutputStream.write(serializeCommitMetadata(COMMIT_METADATA_SER_DE, commitMetadata).get());
+    fileOutputStream.write(serializeCommitMetadata(commitMetadata).get());
     fileOutputStream.flush();
     fileOutputStream.close();
   }
@@ -512,7 +508,7 @@ public class TestHoodieParquetInputFormat {
   private File createCompactionFile(java.nio.file.Path basePath, String commitTime)
       throws IOException {
     File file = basePath.resolve(".hoodie")
-        .resolve(INSTANT_FILE_NAME_GENERATOR.makeRequestedCompactionFileName(commitTime)).toFile();
+        .resolve(HoodieTimeline.makeRequestedCompactionFileName(commitTime)).toFile();
     assertTrue(file.createNewFile());
     FileOutputStream os = new FileOutputStream(file);
     try {

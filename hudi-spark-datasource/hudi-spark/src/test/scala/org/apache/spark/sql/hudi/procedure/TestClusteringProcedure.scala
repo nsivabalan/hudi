@@ -22,12 +22,13 @@ package org.apache.spark.sql.hudi.procedure
 import org.apache.hudi.DataSourceWriteOptions.{OPERATION, RECORDKEY_FIELD}
 import org.apache.hudi.common.config.HoodieMetadataConfig
 import org.apache.hudi.common.model.{HoodieCommitMetadata, WriteOperationType}
-import org.apache.hudi.common.table.timeline.{HoodieInstant, HoodieTimeline, TimelineLayout}
+import org.apache.hudi.common.table.timeline.{HoodieInstant, HoodieTimeline}
 import org.apache.hudi.common.testutils.HoodieTestUtils
 import org.apache.hudi.common.util.collection.Pair
 import org.apache.hudi.common.util.{Option => HOption}
 import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration
 import org.apache.hudi.{DataSourceReadOptions, HoodieCLIUtils, HoodieDataSourceHelpers, HoodieFileIndex}
+
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
 import org.apache.spark.sql.catalyst.expressions.{AttributeReference, EqualTo, Literal}
@@ -35,6 +36,7 @@ import org.apache.spark.sql.types.{DataTypes, Metadata, StringType, StructField,
 import org.apache.spark.sql.{Dataset, Row}
 
 import java.util
+
 import scala.collection.JavaConverters.asScalaIteratorConverter
 
 class TestClusteringProcedure extends HoodieSparkProcedureTestBase {
@@ -281,7 +283,7 @@ class TestClusteringProcedure extends HoodieSparkProcedureTestBase {
 
           // The latest clustering should contain 2 file groups
           val clusteringInstant = clusteringInstants.last
-          val clusteringPlan = HoodieDataSourceHelpers.getClusteringPlan(fs, basePath, clusteringInstant.requestedTime)
+          val clusteringPlan = HoodieDataSourceHelpers.getClusteringPlan(fs, basePath, clusteringInstant.getTimestamp)
           assertResult(true)(clusteringPlan.isPresent)
           assertResult(2)(clusteringPlan.get().getInputGroups.size())
           assertResult(resultA(0)(1))(clusteringPlan.get().getInputGroups.size())
@@ -327,7 +329,7 @@ class TestClusteringProcedure extends HoodieSparkProcedureTestBase {
 
           // The latest clustering should contain 4 file groups(1002,1003,1004,1005)
           val clusteringInstant = clusteringInstants.last
-          val clusteringPlan = HoodieDataSourceHelpers.getClusteringPlan(fs, basePath, clusteringInstant.requestedTime)
+          val clusteringPlan = HoodieDataSourceHelpers.getClusteringPlan(fs, basePath, clusteringInstant.getTimestamp)
           assertResult(true)(clusteringPlan.isPresent)
           assertResult(4)(clusteringPlan.get().getInputGroups.size())
 
@@ -377,7 +379,7 @@ class TestClusteringProcedure extends HoodieSparkProcedureTestBase {
 
           // The latest clustering should contain 3 file groups(1006,1007,1009)
           val clusteringInstant = clusteringInstants.last
-          val clusteringPlan = HoodieDataSourceHelpers.getClusteringPlan(fs, basePath, clusteringInstant.requestedTime)
+          val clusteringPlan = HoodieDataSourceHelpers.getClusteringPlan(fs, basePath, clusteringInstant.getTimestamp)
           assertResult(true)(clusteringPlan.isPresent)
           assertResult(3)(clusteringPlan.get().getInputGroups.size())
 
@@ -444,7 +446,7 @@ class TestClusteringProcedure extends HoodieSparkProcedureTestBase {
 
       val conf = new Configuration
       val metaClient = HoodieTestUtils.createMetaClient(new HadoopStorageConfiguration(conf), basePath)
-      val instants = metaClient.getActiveTimeline.filterPendingClusteringTimeline().getInstants.iterator().asScala.map(_.requestedTime).toSeq
+      val instants = metaClient.getActiveTimeline.filterPendingClusteringTimeline().getInstants.iterator().asScala.map(_.getTimestamp).toSeq
       assert(2 == instants.size)
 
       checkExceptionContain(
@@ -474,7 +476,7 @@ class TestClusteringProcedure extends HoodieSparkProcedureTestBase {
       // test with operator execute
       spark.sql(s"call run_clustering(table => '$tableName', op => 'schedule')")
       metaClient.reloadActiveTimeline()
-      val instants2 = metaClient.getActiveTimeline.filterPendingClusteringTimeline().getInstants.iterator().asScala.map(_.requestedTime).toSeq
+      val instants2 = metaClient.getActiveTimeline.filterPendingClusteringTimeline().getInstants.iterator().asScala.map(_.getTimestamp).toSeq
       spark.sql(s"call run_clustering(table => '$tableName', instants => '${instants2.mkString(",")}', op => 'execute')")
       metaClient.reloadActiveTimeline()
       assert(3 == metaClient.getActiveTimeline.getCompletedReplaceTimeline.getInstants.size())
@@ -777,10 +779,8 @@ class TestClusteringProcedure extends HoodieSparkProcedureTestBase {
   def avgRecord(commitTimeline: HoodieTimeline): Long = {
     var totalByteSize = 0L
     var totalRecordsCount = 0L
-    val layout = TimelineLayout.fromVersion(commitTimeline.getTimelineLayoutVersion)
     commitTimeline.getReverseOrderedInstants.toArray.foreach(instant => {
-      val commitMetadata = layout.getCommitMetadataSerDe.deserialize(instant.asInstanceOf[HoodieInstant],
-        commitTimeline.getInstantDetails(instant.asInstanceOf[HoodieInstant]).get, classOf[HoodieCommitMetadata])
+      val commitMetadata = HoodieCommitMetadata.fromBytes(commitTimeline.getInstantDetails(instant.asInstanceOf[HoodieInstant]).get, classOf[HoodieCommitMetadata])
       totalByteSize = totalByteSize + commitMetadata.fetchTotalBytesWritten()
       totalRecordsCount = totalRecordsCount + commitMetadata.fetchTotalRecordsWritten()
     })

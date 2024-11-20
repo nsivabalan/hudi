@@ -50,8 +50,7 @@ public class DatasetBulkInsertOverwriteCommitActionExecutor extends BaseDatasetB
 
   @Override
   protected Option<HoodieData<WriteStatus>> doExecute(Dataset<Row> records, boolean arePartitionRecordsSorted) {
-    table.getActiveTimeline().transitionRequestedToInflight(table.getMetaClient().createNewInstant(HoodieInstant.State.REQUESTED,
-        getCommitActionType(), instantTime), Option.empty());
+    table.getActiveTimeline().transitionRequestedToInflight(new HoodieInstant(HoodieInstant.State.REQUESTED, getCommitActionType(), instantTime), Option.empty());
     return Option.of(HoodieDatasetBulkInsertHelper
         .bulkInsert(records, instantTime, table, writeConfig, arePartitionRecordsSorted, false));
   }

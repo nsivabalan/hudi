@@ -31,8 +31,6 @@ import org.apache.hudi.common.model.HoodieCommitMetadata;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieRecordPayload;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
-import org.apache.hudi.common.table.timeline.InstantGenerator;
-import org.apache.hudi.common.table.timeline.TimelineFactory;
 import org.apache.hudi.common.testutils.HoodieMetadataTestTable;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.collection.Pair;
@@ -45,7 +43,6 @@ import org.apache.hudi.io.HoodieMergeHandle;
 import org.apache.hudi.keygen.BaseKeyGenerator;
 import org.apache.hudi.keygen.factory.HoodieAvroKeyGeneratorFactory;
 import org.apache.hudi.table.HoodieTable;
-import org.apache.hudi.table.upgrade.JavaUpgradeDowngradeHelper;
 import org.apache.hudi.testutils.HoodieJavaClientTestHarness;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -63,7 +60,6 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
-import static org.apache.hudi.common.testutils.HoodieTestUtils.INSTANT_GENERATOR;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -94,11 +90,10 @@ public class TestHoodieJavaClientOnCopyOnWriteStorage extends HoodieJavaClientTe
   protected Object castInsertFirstBatch(HoodieWriteConfig writeConfig, BaseHoodieWriteClient client, String newCommitTime,
                                         String initCommitTime, int numRecordsInThisCommit,
                                         Function3<Object, BaseHoodieWriteClient, Object, String> writeFn, boolean isPreppedAPI,
-                                        boolean assertForCommit, int expRecordsInThisCommit,
-                                        boolean filterForCommitTimeWithAssert, InstantGenerator instantGenerator) throws Exception {
+                                        boolean assertForCommit, int expRecordsInThisCommit, boolean filterForCommitTimeWithAssert) throws Exception {
     return insertFirstBatch(writeConfig, (HoodieJavaWriteClient) client, newCommitTime, initCommitTime, numRecordsInThisCommit,
         (writeClient, records, commitTime) -> (List<WriteStatus>) writeFn.apply(writeClient, records, commitTime),
-        isPreppedAPI, assertForCommit, expRecordsInThisCommit, filterForCommitTimeWithAssert, instantGenerator);
+        isPreppedAPI, assertForCommit, expRecordsInThisCommit, filterForCommitTimeWithAssert);
   }
 
   @Override
@@ -107,10 +102,10 @@ public class TestHoodieJavaClientOnCopyOnWriteStorage extends HoodieJavaClientTe
                                   Function2<List<HoodieRecord>, String, Integer> recordGenFunction,
                                   Function3<Object, BaseHoodieWriteClient, Object, String> writeFn,
                                   boolean assertForCommit, int expRecordsInThisCommit, int expTotalRecords, int expTotalCommits, boolean doCommit,
-                                  boolean filterForCommitTimeWithAssert, InstantGenerator instantGenerator) throws Exception {
+                                  boolean filterForCommitTimeWithAssert) throws Exception {
     return writeBatch((HoodieJavaWriteClient) client, newCommitTime, prevCommitTime, commitTimesBetweenPrevAndNew, initCommitTime, numRecordsInThisCommit, recordGenFunction,
         (writeClient, records, commitTime) -> (List<WriteStatus>) writeFn.apply(writeClient, records, commitTime),
-        assertForCommit, expRecordsInThisCommit, expTotalRecords, expTotalCommits, doCommit, filterForCommitTimeWithAssert, instantGenerator);
+        assertForCommit, expRecordsInThisCommit, expTotalRecords, expTotalCommits, doCommit, filterForCommitTimeWithAssert);
   }
 
   @Override
@@ -118,22 +113,21 @@ public class TestHoodieJavaClientOnCopyOnWriteStorage extends HoodieJavaClientTe
                                    Option<List<String>> commitTimesBetweenPrevAndNew, String initCommitTime, int numRecordsInThisCommit,
                                    Function3<Object, BaseHoodieWriteClient, Object, String> writeFn, boolean isPreppedAPI,
                                    boolean assertForCommit, int expRecordsInThisCommit, int expTotalRecords, int expTotalCommits,
-                                   boolean filterForCommitTimeWithAssert, InstantGenerator instantGenerator) throws Exception {
+                                   boolean filterForCommitTimeWithAssert) throws Exception {
     final Function2<List<HoodieRecord>, String, Integer> recordGenFunction =
         generateWrapRecordsFn(isPreppedAPI, writeConfig, dataGen::generateUniqueUpdates);
 
     return writeBatch((HoodieJavaWriteClient) client, newCommitTime, prevCommitTime, commitTimesBetweenPrevAndNew, initCommitTime, numRecordsInThisCommit, recordGenFunction,
         (writeClient, records, commitTime) -> (List<WriteStatus>) writeFn.apply(writeClient, records, commitTime), assertForCommit, expRecordsInThisCommit, expTotalRecords,
-        expTotalCommits, false, filterForCommitTimeWithAssert, instantGenerator);
+        expTotalCommits, false, filterForCommitTimeWithAssert);
   }
 
   @Override
   protected Object castDeleteBatch(HoodieWriteConfig writeConfig, BaseHoodieWriteClient client, String newCommitTime,
                                    String prevCommitTime, String initCommitTime, int numRecordsInThisCommit, boolean isPreppedAPI,
-                                   boolean assertForCommit, int expRecordsInThisCommit, int expTotalRecords,
-                                   boolean filterForCommitTimeWithAssert, TimelineFactory timelineFactory, InstantGenerator instantGenerator) throws Exception {
+                                   boolean assertForCommit, int expRecordsInThisCommit, int expTotalRecords, boolean filterForCommitTimeWithAssert) throws Exception {
     return deleteBatch(writeConfig, (HoodieJavaWriteClient) client, newCommitTime, prevCommitTime, initCommitTime, numRecordsInThisCommit,
-        isPreppedAPI, assertForCommit, expRecordsInThisCommit, expTotalRecords, filterForCommitTimeWithAssert, timelineFactory, instantGenerator);
+        isPreppedAPI, assertForCommit, expRecordsInThisCommit, expTotalRecords, filterForCommitTimeWithAssert);
   }
 
   @Override
@@ -151,7 +145,7 @@ public class TestHoodieJavaClientOnCopyOnWriteStorage extends HoodieJavaClientTe
    */
   @Test
   public void testAutoCommitOnInsert() throws Exception {
-    testAutoCommit((writeClient, recordRDD, instantTime) -> writeClient.insert(recordRDD, instantTime), false, true, INSTANT_GENERATOR);
+    testAutoCommit((writeClient, recordRDD, instantTime) -> writeClient.insert(recordRDD, instantTime), false, true);
   }
 
   /**
@@ -159,7 +153,7 @@ public class TestHoodieJavaClientOnCopyOnWriteStorage extends HoodieJavaClientTe
    */
   @Test
   public void testAutoCommitOnInsertPrepped() throws Exception {
-    testAutoCommit((writeClient, recordRDD, instantTime) -> writeClient.insertPreppedRecords(recordRDD, instantTime), true, true, INSTANT_GENERATOR);
+    testAutoCommit((writeClient, recordRDD, instantTime) -> writeClient.insertPreppedRecords(recordRDD, instantTime), true, true);
   }
 
   /**
@@ -167,7 +161,7 @@ public class TestHoodieJavaClientOnCopyOnWriteStorage extends HoodieJavaClientTe
    */
   @Test
   public void testAutoCommitOnUpsert() throws Exception {
-    testAutoCommit((writeClient, recordRDD, instantTime) -> writeClient.upsert(recordRDD, instantTime), false, true, INSTANT_GENERATOR);
+    testAutoCommit((writeClient, recordRDD, instantTime) -> writeClient.upsert(recordRDD, instantTime), false, true);
   }
 
   /**
@@ -175,7 +169,7 @@ public class TestHoodieJavaClientOnCopyOnWriteStorage extends HoodieJavaClientTe
    */
   @Test
   public void testAutoCommitOnUpsertPrepped() throws Exception {
-    testAutoCommit((writeClient, recordRDD, instantTime) -> writeClient.upsertPreppedRecords(recordRDD, instantTime), true, true, INSTANT_GENERATOR);
+    testAutoCommit((writeClient, recordRDD, instantTime) -> writeClient.upsertPreppedRecords(recordRDD, instantTime), true, true);
   }
 
   /**
@@ -183,7 +177,7 @@ public class TestHoodieJavaClientOnCopyOnWriteStorage extends HoodieJavaClientTe
    */
   @Test
   public void testAutoCommitOnBulkInsert() throws Exception {
-    testAutoCommit((writeClient, recordRDD, instantTime) -> writeClient.bulkInsert(recordRDD, instantTime), false, true, INSTANT_GENERATOR);
+    testAutoCommit((writeClient, recordRDD, instantTime) -> writeClient.bulkInsert(recordRDD, instantTime), false, true);
   }
 
   /**
@@ -192,7 +186,7 @@ public class TestHoodieJavaClientOnCopyOnWriteStorage extends HoodieJavaClientTe
   @Test
   public void testAutoCommitOnBulkInsertPrepped() throws Exception {
     testAutoCommit((writeClient, recordRDD, instantTime) -> writeClient.bulkInsertPreppedRecords(recordRDD, instantTime,
-        Option.empty()), true, true, INSTANT_GENERATOR);
+        Option.empty()), true, true);
   }
 
   /**
@@ -232,7 +226,7 @@ public class TestHoodieJavaClientOnCopyOnWriteStorage extends HoodieJavaClientTe
    */
   @Test
   public void testUpserts() throws Exception {
-    testUpsertsInternal((writeClient, recordRDD, instantTime) -> writeClient.upsert(recordRDD, instantTime), true, false, JavaUpgradeDowngradeHelper.getInstance());
+    testUpsertsInternal((writeClient, recordRDD, instantTime) -> writeClient.upsert(recordRDD, instantTime), true, false);
   }
 
   /**
@@ -240,7 +234,7 @@ public class TestHoodieJavaClientOnCopyOnWriteStorage extends HoodieJavaClientTe
    */
   @Test
   public void testUpsertsPrepped() throws Exception {
-    testUpsertsInternal((writeClient, recordRDD, instantTime) -> writeClient.upsertPreppedRecords(recordRDD, instantTime), true, true, JavaUpgradeDowngradeHelper.getInstance());
+    testUpsertsInternal((writeClient, recordRDD, instantTime) -> writeClient.upsertPreppedRecords(recordRDD, instantTime), true, true);
   }
 
   @Override
@@ -290,7 +284,7 @@ public class TestHoodieJavaClientOnCopyOnWriteStorage extends HoodieJavaClientTe
    */
   @Test
   public void testInsertsWithHoodieConcatHandle() throws Exception {
-    testHoodieConcatHandle(true, false, INSTANT_GENERATOR);
+    testHoodieConcatHandle(true, false);
   }
 
   /**
@@ -298,7 +292,7 @@ public class TestHoodieJavaClientOnCopyOnWriteStorage extends HoodieJavaClientTe
    */
   @Test
   public void testInsertsPreppedWithHoodieConcatHandle() throws Exception {
-    testHoodieConcatHandle(true, true, INSTANT_GENERATOR);
+    testHoodieConcatHandle(true, true);
   }
 
   /**
@@ -306,7 +300,7 @@ public class TestHoodieJavaClientOnCopyOnWriteStorage extends HoodieJavaClientTe
    */
   @Test
   public void testInsertsWithHoodieConcatHandleOnDuplicateIncomingKeys() throws Exception {
-    testHoodieConcatHandleOnDupInserts(false, INSTANT_GENERATOR);
+    testHoodieConcatHandleOnDupInserts(false);
   }
 
   /**
@@ -314,7 +308,7 @@ public class TestHoodieJavaClientOnCopyOnWriteStorage extends HoodieJavaClientTe
    */
   @Test
   public void testInsertsPreppedWithHoodieConcatHandleOnDuplicateIncomingKeys() throws Exception {
-    testHoodieConcatHandleOnDupInserts(true, INSTANT_GENERATOR);
+    testHoodieConcatHandleOnDupInserts(true);
   }
 
   /**
@@ -343,7 +337,7 @@ public class TestHoodieJavaClientOnCopyOnWriteStorage extends HoodieJavaClientTe
    */
   @Test
   public void testDeletesForInsertsInSameBatch() throws Exception {
-    super.testDeletesForInsertsInSameBatch(INSTANT_GENERATOR);
+    super.testDeletesForInsertsInSameBatch();
   }
 
   @Test

@@ -233,7 +233,7 @@ public class HoodieLogFileCommand {
               .withReaderSchema(readerSchema)
               .withLatestInstantTime(
                   client.getActiveTimeline()
-                      .getCommitAndReplaceTimeline().lastInstant().get().requestedTime())
+                      .getCommitAndReplaceTimeline().lastInstant().get().getTimestamp())
               .withReverseReader(
                   Boolean.parseBoolean(
                       HoodieReaderConfig.COMPACTION_REVERSE_LOG_READ_ENABLE.defaultValue()))

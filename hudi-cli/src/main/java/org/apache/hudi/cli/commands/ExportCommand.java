@@ -34,7 +34,6 @@ import org.apache.hudi.common.table.log.block.HoodieAvroDataBlock;
 import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
-import org.apache.hudi.common.table.timeline.InstantFileNameGenerator;
 import org.apache.hudi.common.table.timeline.TimelineMetadataUtils;
 import org.apache.hudi.common.util.collection.ClosableIterator;
 import org.apache.hudi.exception.HoodieException;
@@ -195,10 +194,9 @@ public class ExportCommand {
     }
 
     final HoodieTableMetaClient metaClient = HoodieCLI.getTableMetaClient();
-    final InstantFileNameGenerator instantFileNameGenerator = metaClient.getInstantFileNameGenerator();
     final HoodieActiveTimeline timeline = metaClient.getActiveTimeline();
     for (HoodieInstant instant : instants) {
-      String localPath = localFolder + StoragePath.SEPARATOR + instantFileNameGenerator.getFileName(instant);
+      String localPath = localFolder + StoragePath.SEPARATOR + instant.getFileName();
 
       byte[] data = null;
       switch (instant.getAction()) {

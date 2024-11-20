@@ -22,6 +22,7 @@ import org.apache.hudi.common.model.HoodieAvroPayload;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.testutils.HoodieTestDataGenerator;
 import org.apache.hudi.common.testutils.HoodieTestUtils;
@@ -52,8 +53,6 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.util.List;
 
-import static org.apache.hudi.common.testutils.HoodieTestUtils.INSTANT_GENERATOR;
-import static org.apache.hudi.common.testutils.HoodieTestUtils.TIMELINE_FACTORY;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class TestMultiFS extends HoodieSparkClientTestHarness {
@@ -136,8 +135,8 @@ public class TestMultiFS extends HoodieSparkClientTestHarness {
       // Read from hdfs
       FileSystem fs = HadoopFSUtils.getFs(dfsBasePath, HoodieTestUtils.getDefaultStorageConf());
       HoodieTableMetaClient metaClient = HoodieTestUtils.createMetaClient(HadoopFSUtils.getStorageConf(fs.getConf()), dfsBasePath);
-      HoodieTimeline timeline = TIMELINE_FACTORY.createActiveTimeline(metaClient).getCommitAndReplaceTimeline();
-      Dataset<Row> readRecords = HoodieClientTestUtils.readCommit(dfsBasePath, sqlContext, timeline, readCommitTime, true, INSTANT_GENERATOR);
+      HoodieTimeline timeline = new HoodieActiveTimeline(metaClient).getCommitAndReplaceTimeline();
+      Dataset<Row> readRecords = HoodieClientTestUtils.readCommit(dfsBasePath, sqlContext, timeline, readCommitTime);
       assertEquals(readRecords.count(), records.size());
 
       // Write to local
@@ -157,9 +156,9 @@ public class TestMultiFS extends HoodieSparkClientTestHarness {
       LOG.info("Reading from path: " + tablePath);
       fs = HadoopFSUtils.getFs(tablePath, HoodieTestUtils.getDefaultStorageConf());
       metaClient = HoodieTestUtils.createMetaClient(new HadoopStorageConfiguration(fs.getConf()), tablePath);
-      timeline = TIMELINE_FACTORY.createActiveTimeline(metaClient).getCommitAndReplaceTimeline();
+      timeline = new HoodieActiveTimeline(metaClient).getCommitAndReplaceTimeline();
       Dataset<Row> localReadRecords =
-          HoodieClientTestUtils.readCommit(tablePath, sqlContext, timeline, writeCommitTime, true, INSTANT_GENERATOR);
+          HoodieClientTestUtils.readCommit(tablePath, sqlContext, timeline, writeCommitTime);
       assertEquals(localReadRecords.count(), localRecords.size());
     }
   }

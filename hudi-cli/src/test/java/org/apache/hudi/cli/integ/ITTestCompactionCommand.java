@@ -34,6 +34,7 @@ import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.table.HoodieTableVersion;
 import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
+import org.apache.hudi.common.table.timeline.versioning.TimelineLayoutVersion;
 import org.apache.hudi.common.testutils.CompactionTestUtils;
 import org.apache.hudi.common.testutils.HoodieTestDataGenerator;
 import org.apache.hudi.common.util.CompactionUtils;
@@ -83,7 +84,7 @@ public class ITTestCompactionCommand extends HoodieCLIIntegrationTestBase {
     // Create table and connect
     new TableCommand().createTable(
         basePath, tableName, HoodieTableType.MERGE_ON_READ.name(),
-        "", HoodieTableVersion.current().versionCode(),
+        "", TimelineLayoutVersion.VERSION_1, HoodieTableVersion.current().versionCode(),
         "org.apache.hudi.common.model.HoodieAvroPayload");
 
     initMetaClient();
@@ -135,7 +136,7 @@ public class ITTestCompactionCommand extends HoodieCLIIntegrationTestBase {
     // assert compaction complete
     assertTrue(HoodieCLI.getTableMetaClient().getActiveTimeline().reload()
         .filterCompletedInstants().getInstantsAsStream()
-        .map(HoodieInstant::requestedTime).collect(Collectors.toList()).contains(instance),
+        .map(HoodieInstant::getTimestamp).collect(Collectors.toList()).contains(instance),
         "Pending compaction must be completed");
   }
 
@@ -163,7 +164,7 @@ public class ITTestCompactionCommand extends HoodieCLIIntegrationTestBase {
     // assert compaction complete
     assertTrue(HoodieCLI.getTableMetaClient().getActiveTimeline().reload()
             .filterCompletedInstants().getInstantsAsStream()
-            .map(HoodieInstant::requestedTime).count() > 0,
+            .map(HoodieInstant::getTimestamp).count() > 0,
         "Completed compaction couldn't be 0");
   }
 
@@ -268,7 +269,7 @@ public class ITTestCompactionCommand extends HoodieCLIIntegrationTestBase {
     // get compaction instance
     HoodieActiveTimeline timeline = HoodieCLI.getTableMetaClient().getActiveTimeline();
     Option<String> instance =
-        timeline.filterPendingCompactionTimeline().firstInstant().map(HoodieInstant::requestedTime);
+        timeline.filterPendingCompactionTimeline().firstInstant().map(HoodieInstant::getTimestamp);
     assertTrue(instance.isPresent(), "Must have pending compaction.");
     return instance.get();
   }

@@ -29,16 +29,14 @@ import org.apache.hudi.common.model.HoodieCommitMetadata;
 import org.apache.hudi.common.model.HoodieReplaceCommitMetadata;
 import org.apache.hudi.common.model.HoodieWriteStat;
 import org.apache.hudi.common.model.WriteOperationType;
-import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
 import org.apache.hudi.common.table.timeline.HoodieArchivedTimeline;
+import org.apache.hudi.common.table.timeline.HoodieDefaultTimeline;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
+import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.timeline.TimelineMetadataUtils;
 import org.apache.hudi.common.table.timeline.TimelineUtils;
 import org.apache.hudi.common.table.timeline.TimelineUtils.HollowCommitHandling;
-import org.apache.hudi.common.table.timeline.versioning.v2.ActiveTimelineV2;
-import org.apache.hudi.common.table.timeline.versioning.v2.BaseTimelineV2;
-import org.apache.hudi.common.table.timeline.versioning.v2.InstantComparatorV2;
 import org.apache.hudi.common.testutils.HoodieCommonTestHarness;
 import org.apache.hudi.common.testutils.HoodieTestTable;
 import org.apache.hudi.common.testutils.MockHoodieTimeline;
@@ -79,7 +77,6 @@ import static org.apache.hudi.common.table.timeline.HoodieTimeline.ROLLBACK_ACTI
 import static org.apache.hudi.common.table.timeline.HoodieTimeline.SAVEPOINT_ACTION;
 import static org.apache.hudi.common.table.timeline.TimelineMetadataUtils.serializeCommitMetadata;
 import static org.apache.hudi.common.table.timeline.TimelineUtils.handleHollowCommitIfNeeded;
-import static org.apache.hudi.common.testutils.HoodieTestUtils.INSTANT_GENERATOR;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -119,8 +116,7 @@ public class TestTimelineUtils extends HoodieCommonTestHarness {
     String ts1 = "1";
     String replacePartition = "2021/01/01";
     String newFilePartition = "2021/01/02";
-    HoodieInstant instant1 = new HoodieInstant(INFLIGHT, withReplace ? HoodieTimeline.REPLACE_COMMIT_ACTION : HoodieTimeline.CLUSTERING_ACTION, ts1,
-        InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR);
+    HoodieInstant instant1 = new HoodieInstant(true, withReplace ? HoodieTimeline.REPLACE_COMMIT_ACTION : HoodieTimeline.CLUSTERING_ACTION, ts1);
     activeTimeline.createNewInstant(instant1);
     // create replace metadata only with replaced file Ids (no new files created)
     if (withReplace) {
@@ -139,8 +135,7 @@ public class TestTimelineUtils extends HoodieCommonTestHarness {
     assertEquals(replacePartition, partitions.get(0));
 
     String ts2 = "2";
-    HoodieInstant instant2 = new HoodieInstant(INFLIGHT, withReplace ? HoodieTimeline.REPLACE_COMMIT_ACTION : HoodieTimeline.CLUSTERING_ACTION, ts2,
-        InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR);
+    HoodieInstant instant2 = new HoodieInstant(true, withReplace ? HoodieTimeline.REPLACE_COMMIT_ACTION : HoodieTimeline.CLUSTERING_ACTION, ts2);
     activeTimeline.createNewInstant(instant2);
     // create replace metadata only with replaced file Ids (no new files created)
     if (withReplace) {
@@ -172,11 +167,11 @@ public class TestTimelineUtils extends HoodieCommonTestHarness {
     String olderPartition = "0"; // older partitions that is modified by all cleans
     for (int i = 1; i <= 5; i++) {
       String ts = i + "";
-      HoodieInstant instant = new HoodieInstant(INFLIGHT, COMMIT_ACTION, ts, InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR);
+      HoodieInstant instant = new HoodieInstant(true, COMMIT_ACTION, ts);
       activeTimeline.createNewInstant(instant);
       activeTimeline.saveAsComplete(instant, Option.of(getCommitMetadata(basePath, ts, ts, 2, Collections.emptyMap())));
 
-      HoodieInstant cleanInstant = INSTANT_GENERATOR.createNewInstant(INFLIGHT, CLEAN_ACTION, ts);
+      HoodieInstant cleanInstant = new HoodieInstant(true, CLEAN_ACTION, ts);
       activeTimeline.createNewInstant(cleanInstant);
       activeTimeline.saveAsComplete(cleanInstant, getCleanMetadata(olderPartition, ts, false));
     }
@@ -211,11 +206,11 @@ public class TestTimelineUtils extends HoodieCommonTestHarness {
     String partitionPath = "";
     for (int i = 1; i <= 5; i++) {
       String ts = i + "";
-      HoodieInstant instant = new HoodieInstant(INFLIGHT, COMMIT_ACTION, ts, InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR);
+      HoodieInstant instant = new HoodieInstant(true, COMMIT_ACTION, ts);
       activeTimeline.createNewInstant(instant);
       activeTimeline.saveAsComplete(instant, Option.of(getCommitMetadata(basePath, partitionPath, ts, 2, Collections.emptyMap())));
 
-      HoodieInstant cleanInstant = new HoodieInstant(INFLIGHT, CLEAN_ACTION, ts, InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR);
+      HoodieInstant cleanInstant = new HoodieInstant(true, CLEAN_ACTION, ts);
       activeTimeline.createNewInstant(cleanInstant);
       activeTimeline.saveAsComplete(cleanInstant, getCleanMetadata(partitionPath, ts, false));
     }
@@ -238,7 +233,7 @@ public class TestTimelineUtils extends HoodieCommonTestHarness {
 
     for (int i = 1; i <= 5; i++) {
       String ts = i + "";
-      HoodieInstant instant = new HoodieInstant(INFLIGHT, HoodieTimeline.RESTORE_ACTION, ts, InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR);
+      HoodieInstant instant = new HoodieInstant(true, HoodieTimeline.RESTORE_ACTION, ts);
       activeTimeline.createNewInstant(instant);
       activeTimeline.saveAsComplete(instant, Option.of(getRestoreMetadata(basePath, ts, ts, 2, COMMIT_ACTION)));
     }
@@ -263,12 +258,12 @@ public class TestTimelineUtils extends HoodieCommonTestHarness {
     assertFalse(TimelineUtils.getExtraMetadataFromLatest(metaClient, extraMetadataKey).isPresent());
 
     String ts = "0";
-    HoodieInstant instant = new HoodieInstant(INFLIGHT, COMMIT_ACTION, ts, InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR);
+    HoodieInstant instant = new HoodieInstant(true, COMMIT_ACTION, ts);
     activeTimeline.createNewInstant(instant);
     activeTimeline.saveAsComplete(instant, Option.of(getCommitMetadata(basePath, ts, ts, 2, Collections.emptyMap())));
 
     ts = "1";
-    instant = new HoodieInstant(INFLIGHT, COMMIT_ACTION, ts, InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR);
+    instant = new HoodieInstant(true, COMMIT_ACTION, ts);
     activeTimeline.createNewInstant(instant);
     Map<String, String> extraMetadata = new HashMap<>();
     extraMetadata.put(extraMetadataKey, extraMetadataValue1);
@@ -282,7 +277,7 @@ public class TestTimelineUtils extends HoodieCommonTestHarness {
 
     // verify adding clustering commit doesn't change behavior of getExtraMetadataFromLatest
     String ts2 = "2";
-    HoodieInstant instant2 = new HoodieInstant(INFLIGHT, HoodieTimeline.CLUSTERING_ACTION, ts2, InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR);
+    HoodieInstant instant2 = new HoodieInstant(true, HoodieTimeline.CLUSTERING_ACTION, ts2);
     activeTimeline.createNewInstant(instant2);
     String newValueForMetadata = "newValue2";
     extraMetadata.put(extraMetadataKey, newValueForMetadata);
@@ -310,21 +305,21 @@ public class TestTimelineUtils extends HoodieCommonTestHarness {
     String startTs = "010";
     HoodieTableMetaClient mockMetaClient = prepareMetaClient(
         Arrays.asList(
-            new HoodieInstant(COMPLETED, COMMIT_ACTION, "009", "013", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-            new HoodieInstant(COMPLETED, COMMIT_ACTION, "010", "010", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-            new HoodieInstant(COMPLETED, COMMIT_ACTION, "011", "011", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-            new HoodieInstant(COMPLETED, COMMIT_ACTION, "012", "012", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR)),
-        Arrays.asList(new HoodieInstant(COMPLETED, COMMIT_ACTION, "001", "001", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-            new HoodieInstant(COMPLETED, COMMIT_ACTION, "002", "002", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR)),
+            new HoodieInstant(COMPLETED, COMMIT_ACTION, "009", "013"),
+            new HoodieInstant(COMPLETED, COMMIT_ACTION, "010", "010"),
+            new HoodieInstant(COMPLETED, COMMIT_ACTION, "011", "011"),
+            new HoodieInstant(COMPLETED, COMMIT_ACTION, "012", "012")),
+        Arrays.asList(new HoodieInstant(COMPLETED, COMMIT_ACTION, "001", "001"),
+            new HoodieInstant(COMPLETED, COMMIT_ACTION, "002", "002")),
         startTs
     );
 
     // Commit 009 will be included in result because it has greater commit completion than 010
     verifyTimeline(
         Arrays.asList(
-            new HoodieInstant(COMPLETED, COMMIT_ACTION, "009", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-            new HoodieInstant(COMPLETED, COMMIT_ACTION, "011", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-            new HoodieInstant(COMPLETED, COMMIT_ACTION, "012", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR)),
+            new HoodieInstant(COMPLETED, COMMIT_ACTION, "009"),
+            new HoodieInstant(COMPLETED, COMMIT_ACTION, "011"),
+            new HoodieInstant(COMPLETED, COMMIT_ACTION, "012")),
         TimelineUtils.getCommitsTimelineAfter(mockMetaClient, startTs, Option.of(startTs)));
     verify(mockMetaClient, never()).getArchivedTimeline(any());
 
@@ -332,20 +327,20 @@ public class TestTimelineUtils extends HoodieCommonTestHarness {
     startTs = "001";
     mockMetaClient = prepareMetaClient(
         Arrays.asList(
-            new HoodieInstant(COMPLETED, ROLLBACK_ACTION, "009", "009", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-            new HoodieInstant(COMPLETED, COMMIT_ACTION, "010", "010", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-            new HoodieInstant(COMPLETED, COMMIT_ACTION, "011", "011", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-            new HoodieInstant(COMPLETED, COMMIT_ACTION, "012", "012", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR)),
-        Arrays.asList(new HoodieInstant(COMPLETED, COMMIT_ACTION, "001", "001", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-            new HoodieInstant(COMPLETED, COMMIT_ACTION, "002", "002", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR)),
+            new HoodieInstant(COMPLETED, ROLLBACK_ACTION, "009", "009"),
+            new HoodieInstant(COMPLETED, COMMIT_ACTION, "010", "010"),
+            new HoodieInstant(COMPLETED, COMMIT_ACTION, "011", "011"),
+            new HoodieInstant(COMPLETED, COMMIT_ACTION, "012", "012")),
+        Arrays.asList(new HoodieInstant(COMPLETED, COMMIT_ACTION, "001", "001"),
+            new HoodieInstant(COMPLETED, COMMIT_ACTION, "002", "002")),
         startTs
     );
     verifyTimeline(
         Arrays.asList(
-            new HoodieInstant(COMPLETED, COMMIT_ACTION, "002", "002", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-            new HoodieInstant(COMPLETED, COMMIT_ACTION, "010", "010", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-            new HoodieInstant(COMPLETED, COMMIT_ACTION, "011", "011", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-            new HoodieInstant(COMPLETED, COMMIT_ACTION, "012", "012", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR)),
+            new HoodieInstant(COMPLETED, COMMIT_ACTION, "002", "002"),
+            new HoodieInstant(COMPLETED, COMMIT_ACTION, "010", "010"),
+            new HoodieInstant(COMPLETED, COMMIT_ACTION, "011", "011"),
+            new HoodieInstant(COMPLETED, COMMIT_ACTION, "012", "012")),
         TimelineUtils.getCommitsTimelineAfter(mockMetaClient, startTs, Option.of(startTs)));
     verify(mockMetaClient, times(1)).getArchivedTimeline(any());
 
@@ -353,26 +348,26 @@ public class TestTimelineUtils extends HoodieCommonTestHarness {
     startTs = "005";
     mockMetaClient = prepareMetaClient(
         Arrays.asList(
-            new HoodieInstant(COMPLETED, ROLLBACK_ACTION, "003", "003", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-            new HoodieInstant(COMPLETED, ROLLBACK_ACTION, "007", "007", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-            new HoodieInstant(COMPLETED, ROLLBACK_ACTION, "009", "009", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-            new HoodieInstant(COMPLETED, COMMIT_ACTION, "010", "010", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-            new HoodieInstant(COMPLETED, COMMIT_ACTION, "011", "011", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-            new HoodieInstant(COMPLETED, COMMIT_ACTION, "012", "012", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR)),
-        Arrays.asList(new HoodieInstant(COMPLETED, COMMIT_ACTION, "001", "001", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-            new HoodieInstant(COMPLETED, COMMIT_ACTION, "002", "002", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-            new HoodieInstant(COMPLETED, COMMIT_ACTION, "005", "005", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-            new HoodieInstant(COMPLETED, COMMIT_ACTION, "006", "006", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-            new HoodieInstant(COMPLETED, COMMIT_ACTION, "008", "008", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR)),
+            new HoodieInstant(COMPLETED, ROLLBACK_ACTION, "003", "003"),
+            new HoodieInstant(COMPLETED, ROLLBACK_ACTION, "007", "007"),
+            new HoodieInstant(COMPLETED, ROLLBACK_ACTION, "009", "009"),
+            new HoodieInstant(COMPLETED, COMMIT_ACTION, "010", "010"),
+            new HoodieInstant(COMPLETED, COMMIT_ACTION, "011", "011"),
+            new HoodieInstant(COMPLETED, COMMIT_ACTION, "012", "012")),
+        Arrays.asList(new HoodieInstant(COMPLETED, COMMIT_ACTION, "001", "001"),
+            new HoodieInstant(COMPLETED, COMMIT_ACTION, "002", "002"),
+            new HoodieInstant(COMPLETED, COMMIT_ACTION, "005", "005"),
+            new HoodieInstant(COMPLETED, COMMIT_ACTION, "006", "006"),
+            new HoodieInstant(COMPLETED, COMMIT_ACTION, "008", "008")),
         startTs
     );
     verifyTimeline(
         Arrays.asList(
-            new HoodieInstant(COMPLETED, COMMIT_ACTION, "006", "006", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-            new HoodieInstant(COMPLETED, COMMIT_ACTION, "008", "008", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-            new HoodieInstant(COMPLETED, COMMIT_ACTION, "010", "010", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-            new HoodieInstant(COMPLETED, COMMIT_ACTION, "011", "011", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-            new HoodieInstant(COMPLETED, COMMIT_ACTION, "012", "012", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR)),
+            new HoodieInstant(COMPLETED, COMMIT_ACTION, "006", "006"),
+            new HoodieInstant(COMPLETED, COMMIT_ACTION, "008", "008"),
+            new HoodieInstant(COMPLETED, COMMIT_ACTION, "010", "010"),
+            new HoodieInstant(COMPLETED, COMMIT_ACTION, "011", "011"),
+            new HoodieInstant(COMPLETED, COMMIT_ACTION, "012", "012")),
         TimelineUtils.getCommitsTimelineAfter(mockMetaClient, startTs, Option.of(startTs)));
     verify(mockMetaClient, times(1)).getArchivedTimeline(any());
   }
@@ -386,23 +381,23 @@ public class TestTimelineUtils extends HoodieCommonTestHarness {
     HoodieArchivedTimeline mockArchivedTimeline = mock(HoodieArchivedTimeline.class);
     when(mockMetaClient.scanHoodieInstantsFromFileSystem(any(), eq(true)))
         .thenReturn(activeInstants);
-    HoodieActiveTimeline activeTimeline = new ActiveTimelineV2(mockMetaClient);
+    HoodieActiveTimeline activeTimeline = new HoodieActiveTimeline(mockMetaClient);
     when(mockMetaClient.getActiveTimeline())
         .thenReturn(activeTimeline);
     Set<String> validWriteActions = CollectionUtils.createSet(
         COMMIT_ACTION, DELTA_COMMIT_ACTION, COMPACTION_ACTION, LOG_COMPACTION_ACTION, REPLACE_COMMIT_ACTION);
     when(mockMetaClient.getArchivedTimeline(any()))
         .thenReturn(mockArchivedTimeline);
-    HoodieTimeline mergedTimeline = new BaseTimelineV2(
+    HoodieDefaultTimeline mergedTimeline = new HoodieDefaultTimeline(
         archivedInstants.stream()
-            .filter(instant -> instant.requestedTime().compareTo(startTs) >= 0),
+            .filter(instant -> instant.getTimestamp().compareTo(startTs) >= 0),
         i -> Option.empty())
         .mergeTimeline(activeTimeline);
     when(mockArchivedTimeline.mergeTimeline(eq(activeTimeline)))
         .thenReturn(mergedTimeline);
-    HoodieTimeline mergedWriteTimeline = new BaseTimelineV2(
+    HoodieDefaultTimeline mergedWriteTimeline = new HoodieDefaultTimeline(
         archivedInstants.stream()
-            .filter(instant -> instant.requestedTime().compareTo(startTs) >= 0),
+            .filter(instant -> instant.getTimestamp().compareTo(startTs) >= 0),
         i -> Option.empty())
         .mergeTimeline(activeTimeline.getWriteTimeline());
     when(mockArchivedTimeline.mergeTimeline(argThat(timeline -> timeline.filter(
@@ -429,62 +424,62 @@ public class TestTimelineUtils extends HoodieCommonTestHarness {
 
     // Earlier request clean action before commits
     assertEquals(
-        Option.of(new HoodieInstant(REQUESTED, CLEAN_ACTION, "003", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR)),
+        Option.of(new HoodieInstant(REQUESTED, CLEAN_ACTION, "003")),
         TimelineUtils.getEarliestInstantForMetadataArchival(
             prepareActiveTimeline(
                 Arrays.asList(
-                    new HoodieInstant(COMPLETED, ROLLBACK_ACTION, "001", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-                    new HoodieInstant(COMPLETED, CLEAN_ACTION, "002", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-                    new HoodieInstant(REQUESTED, CLEAN_ACTION, "003", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-                    new HoodieInstant(COMPLETED, COMMIT_ACTION, "010", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-                    new HoodieInstant(COMPLETED, REPLACE_COMMIT_ACTION, "011", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-                    new HoodieInstant(REQUESTED, CLUSTERING_ACTION, "012", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR))), false));
+                    new HoodieInstant(COMPLETED, ROLLBACK_ACTION, "001"),
+                    new HoodieInstant(COMPLETED, CLEAN_ACTION, "002"),
+                    new HoodieInstant(REQUESTED, CLEAN_ACTION, "003"),
+                    new HoodieInstant(COMPLETED, COMMIT_ACTION, "010"),
+                    new HoodieInstant(COMPLETED, REPLACE_COMMIT_ACTION, "011"),
+                    new HoodieInstant(REQUESTED, CLUSTERING_ACTION, "012"))), false));
 
     // No inflight instants
     assertEquals(
-        Option.of(new HoodieInstant(COMPLETED, COMMIT_ACTION, "010", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR)),
+        Option.of(new HoodieInstant(COMPLETED, COMMIT_ACTION, "010")),
         TimelineUtils.getEarliestInstantForMetadataArchival(
             prepareActiveTimeline(
                 Arrays.asList(
-                    new HoodieInstant(COMPLETED, ROLLBACK_ACTION, "001", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-                    new HoodieInstant(COMPLETED, CLEAN_ACTION, "002", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-                    new HoodieInstant(COMPLETED, CLEAN_ACTION, "003", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-                    new HoodieInstant(COMPLETED, COMMIT_ACTION, "010", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-                    new HoodieInstant(COMPLETED, REPLACE_COMMIT_ACTION, "011", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-                    new HoodieInstant(REQUESTED, CLUSTERING_ACTION, "012", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR))), false));
+                    new HoodieInstant(COMPLETED, ROLLBACK_ACTION, "001"),
+                    new HoodieInstant(COMPLETED, CLEAN_ACTION, "002"),
+                    new HoodieInstant(COMPLETED, CLEAN_ACTION, "003"),
+                    new HoodieInstant(COMPLETED, COMMIT_ACTION, "010"),
+                    new HoodieInstant(COMPLETED, REPLACE_COMMIT_ACTION, "011"),
+                    new HoodieInstant(REQUESTED, CLUSTERING_ACTION, "012"))), false));
 
     // Rollbacks only
     assertEquals(
-        Option.of(new HoodieInstant(INFLIGHT, ROLLBACK_ACTION, "003", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR)),
+        Option.of(new HoodieInstant(INFLIGHT, ROLLBACK_ACTION, "003")),
         TimelineUtils.getEarliestInstantForMetadataArchival(
             prepareActiveTimeline(
                 Arrays.asList(
-                    new HoodieInstant(COMPLETED, ROLLBACK_ACTION, "001", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-                    new HoodieInstant(COMPLETED, ROLLBACK_ACTION, "002", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-                    new HoodieInstant(INFLIGHT, ROLLBACK_ACTION, "003", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR))), false));
+                    new HoodieInstant(COMPLETED, ROLLBACK_ACTION, "001"),
+                    new HoodieInstant(COMPLETED, ROLLBACK_ACTION, "002"),
+                    new HoodieInstant(INFLIGHT, ROLLBACK_ACTION, "003"))), false));
 
     assertEquals(
         Option.empty(),
         TimelineUtils.getEarliestInstantForMetadataArchival(
             prepareActiveTimeline(
                 Arrays.asList(
-                    new HoodieInstant(COMPLETED, ROLLBACK_ACTION, "001", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-                    new HoodieInstant(COMPLETED, ROLLBACK_ACTION, "002", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-                    new HoodieInstant(COMPLETED, ROLLBACK_ACTION, "003", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR))), false));
+                    new HoodieInstant(COMPLETED, ROLLBACK_ACTION, "001"),
+                    new HoodieInstant(COMPLETED, ROLLBACK_ACTION, "002"),
+                    new HoodieInstant(COMPLETED, ROLLBACK_ACTION, "003"))), false));
 
     // With savepoints
     HoodieActiveTimeline timeline = prepareActiveTimeline(
         Arrays.asList(
-            new HoodieInstant(COMPLETED, ROLLBACK_ACTION, "001", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-            new HoodieInstant(COMPLETED, COMMIT_ACTION, "003", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-            new HoodieInstant(COMPLETED, SAVEPOINT_ACTION, "003", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-            new HoodieInstant(COMPLETED, COMMIT_ACTION, "010", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR),
-            new HoodieInstant(COMPLETED, COMMIT_ACTION, "011", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR)));
+            new HoodieInstant(COMPLETED, ROLLBACK_ACTION, "001"),
+            new HoodieInstant(COMPLETED, COMMIT_ACTION, "003"),
+            new HoodieInstant(COMPLETED, SAVEPOINT_ACTION, "003"),
+            new HoodieInstant(COMPLETED, COMMIT_ACTION, "010"),
+            new HoodieInstant(COMPLETED, COMMIT_ACTION, "011")));
     assertEquals(
-        Option.of(new HoodieInstant(COMPLETED, COMMIT_ACTION, "003", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR)),
+        Option.of(new HoodieInstant(COMPLETED, COMMIT_ACTION, "003")),
         TimelineUtils.getEarliestInstantForMetadataArchival(timeline, false));
     assertEquals(
-        Option.of(new HoodieInstant(COMPLETED, COMMIT_ACTION, "010", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR)),
+        Option.of(new HoodieInstant(COMPLETED, COMMIT_ACTION, "010")),
         TimelineUtils.getEarliestInstantForMetadataArchival(timeline, true));
   }
 
@@ -493,7 +488,7 @@ public class TestTimelineUtils extends HoodieCommonTestHarness {
     HoodieTableMetaClient mockMetaClient = mock(HoodieTableMetaClient.class);
     when(mockMetaClient.scanHoodieInstantsFromFileSystem(any(), eq(true)))
         .thenReturn(activeInstants);
-    return new ActiveTimelineV2(mockMetaClient);
+    return new HoodieActiveTimeline(mockMetaClient);
   }
 
   private void verifyExtraMetadataLatestValue(String extraMetadataKey, String expected, boolean includeClustering) {
@@ -511,7 +506,7 @@ public class TestTimelineUtils extends HoodieCommonTestHarness {
     List<HoodieRollbackMetadata> rollbackM = new ArrayList<>();
     rollbackM.add(getRollbackMetadataInstance(basePath, partition, commitTs, count, actionType));
     List<HoodieInstant> rollbackInstants = new ArrayList<>();
-    rollbackInstants.add(new HoodieInstant(COMPLETED, commitTs, actionType, InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR));
+    rollbackInstants.add(new HoodieInstant(false, commitTs, actionType));
     HoodieRestoreMetadata metadata = TimelineMetadataUtils.convertRestoreMetadata(commitTs, 200, rollbackInstants,
         Collections.singletonMap(commitTs, rollbackM));
     return TimelineMetadataUtils.serializeRestoreMetadata(metadata).get();
@@ -523,7 +518,7 @@ public class TestTimelineUtils extends HoodieCommonTestHarness {
       deletedFiles.add("file-" + i);
     }
     List<HoodieInstant> rollbacks = new ArrayList<>();
-    rollbacks.add(new HoodieInstant(COMPLETED, actionType, commitTs, InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR));
+    rollbacks.add(new HoodieInstant(false, actionType, commitTs));
 
     HoodieRollbackStat rollbackStat = new HoodieRollbackStat(partition, deletedFiles, Collections.emptyList(),
         Collections.emptyMap(), Collections.emptyMap());
@@ -545,7 +540,7 @@ public class TestTimelineUtils extends HoodieCommonTestHarness {
     for (Map.Entry<String, String> extraEntries : extraMetadata.entrySet()) {
       commit.addMetadata(extraEntries.getKey(), extraEntries.getValue());
     }
-    return serializeCommitMetadata(metaClient.getCommitMetadataSerDe(), commit).get();
+    return serializeCommitMetadata(commit).get();
   }
 
   private byte[] getReplaceCommitMetadata(String basePath, String commitTs, String replacePartition, int replaceCount,
@@ -572,7 +567,7 @@ public class TestTimelineUtils extends HoodieCommonTestHarness {
     for (Map.Entry<String, String> extraEntries : extraMetadata.entrySet()) {
       commit.addMetadata(extraEntries.getKey(), extraEntries.getValue());
     }
-    return serializeCommitMetadata(metaClient.getCommitMetadataSerDe(), commit).get();
+    return serializeCommitMetadata(commit).get();
   }
 
   private Option<byte[]> getCleanMetadata(String partition, String time, boolean isPartitionDeleted) throws IOException {
@@ -643,7 +638,7 @@ public class TestTimelineUtils extends HoodieCommonTestHarness {
 
     String olderPartition = "p1"; // older partitions that will be deleted by clean commit
     // first insert to the older partition
-    HoodieInstant instant1 = new HoodieInstant(INFLIGHT, COMMIT_ACTION, "00001", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR);
+    HoodieInstant instant1 = new HoodieInstant(true, COMMIT_ACTION, "00001");
     activeTimeline.createNewInstant(instant1);
     activeTimeline.saveAsComplete(instant1, Option.of(getCommitMetadata(basePath, olderPartition, "00001", 2, Collections.emptyMap())));
 
@@ -653,7 +648,7 @@ public class TestTimelineUtils extends HoodieCommonTestHarness {
     assertEquals(0, droppedPartitions.size());
 
     // another commit inserts to new partition
-    HoodieInstant instant2 = new HoodieInstant(INFLIGHT, COMMIT_ACTION, "00002", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR);
+    HoodieInstant instant2 = new HoodieInstant(true, COMMIT_ACTION, "00002");
     activeTimeline.createNewInstant(instant2);
     activeTimeline.saveAsComplete(instant2, Option.of(getCommitMetadata(basePath, "p2", "00002", 2, Collections.emptyMap())));
 
@@ -663,7 +658,7 @@ public class TestTimelineUtils extends HoodieCommonTestHarness {
     assertEquals(0, droppedPartitions.size());
 
     // clean commit deletes older partition
-    HoodieInstant cleanInstant = new HoodieInstant(INFLIGHT, CLEAN_ACTION, "00003", InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR);
+    HoodieInstant cleanInstant = new HoodieInstant(true, CLEAN_ACTION, "00003");
     activeTimeline.createNewInstant(cleanInstant);
     activeTimeline.saveAsComplete(cleanInstant, getCleanMetadata(olderPartition, "00003", true));
 

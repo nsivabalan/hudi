@@ -17,9 +17,10 @@
 
 package org.apache.spark.sql.hudi.command.procedures
 
-import org.apache.hudi.common.table.timeline.{HoodieInstant, TimelineUtils}
+import org.apache.hudi.common.table.timeline.{HoodieActiveTimeline, HoodieInstant}
 import org.apache.hudi.common.util.CleanerUtils
 import org.apache.hudi.exception.HoodieIOException
+
 import org.apache.avro.AvroRuntimeException
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.Row
@@ -27,6 +28,7 @@ import org.apache.spark.sql.types.{DataTypes, Metadata, StructField, StructType}
 
 import java.io.IOException
 import java.util.function.Supplier
+
 import scala.collection.JavaConverters.asScalaIteratorConverter
 
 class RepairCorruptedCleanFilesProcedure extends BaseProcedure with ProcedureBuilder with Logging {
@@ -49,7 +51,7 @@ class RepairCorruptedCleanFilesProcedure extends BaseProcedure with ProcedureBui
     val tablePath = getBasePath(tableName)
 
     val metaClient = createMetaClient(jsc, tablePath)
-    val instantFileNameGenerator = metaClient.getTimelineLayout.getInstantFileNameGenerator
+
     val cleanerTimeline = metaClient.getActiveTimeline.getCleanerTimeline
     logInfo("Inspecting pending clean metadata in timeline for corrupted files")
     var result = true
@@ -59,11 +61,11 @@ class RepairCorruptedCleanFilesProcedure extends BaseProcedure with ProcedureBui
       } catch {
         case e: AvroRuntimeException =>
           logWarning("Corruption found. Trying to remove corrupted clean instant file: " + instant)
-          TimelineUtils.deleteInstantFile(metaClient.getStorage, metaClient.getMetaPath, instant, instantFileNameGenerator)
+          HoodieActiveTimeline.deleteInstantFile(metaClient.getStorage, metaClient.getMetaPath, instant)
         case ioe: IOException =>
           if (ioe.getMessage.contains("Not an Avro data file")) {
             logWarning("Corruption found. Trying to remove corrupted clean instant file: " + instant)
-            TimelineUtils.deleteInstantFile(metaClient.getStorage, metaClient.getMetaPath, instant, instantFileNameGenerator)
+            HoodieActiveTimeline.deleteInstantFile(metaClient.getStorage, metaClient.getMetaPath, instant)
           } else {
             result = false
             throw new HoodieIOException(ioe.getMessage, ioe)

@@ -364,7 +364,7 @@ public class TestOrcBootstrap extends HoodieSparkClientTestBase {
     metaClient.reloadActiveTimeline();
     assertEquals(expNumInstants, metaClient.getCommitsTimeline().filterCompletedInstants().countInstants());
     assertEquals(instant, metaClient.getActiveTimeline()
-        .getCommitsTimeline().filterCompletedInstants().lastInstant().get().requestedTime());
+        .getCommitsTimeline().filterCompletedInstants().lastInstant().get().getTimestamp());
 
     Dataset<Row> bootstrapped = sqlContext.read().format("orc").load(basePath);
     Dataset<Row> original = sqlContext.read().format("orc").load(bootstrapBasePath);

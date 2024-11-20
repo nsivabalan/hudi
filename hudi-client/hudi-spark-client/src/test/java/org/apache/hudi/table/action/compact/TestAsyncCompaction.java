@@ -45,8 +45,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import static org.apache.hudi.common.testutils.HoodieTestUtils.INSTANT_GENERATOR;
-import static org.apache.hudi.common.testutils.HoodieTestUtils.INSTANT_FILE_NAME_GENERATOR;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -84,7 +82,7 @@ public class TestAsyncCompaction extends CompactionTestBase {
 
       HoodieInstant pendingCompactionInstant =
           metaClient.getActiveTimeline().filterPendingCompactionTimeline().firstInstant().get();
-      assertEquals(compactionInstantTime, pendingCompactionInstant.requestedTime(),
+      assertEquals(compactionInstantTime, pendingCompactionInstant.getTimestamp(),
           "Pending Compaction instant has expected instant time");
       assertEquals(State.REQUESTED, pendingCompactionInstant.getState(), "Pending Compaction instant has expected state");
 
@@ -95,14 +93,14 @@ public class TestAsyncCompaction extends CompactionTestBase {
       HoodieTable hoodieTable = HoodieSparkTable.create(cfg, context, metaClient);
 
       hoodieTable.rollbackInflightCompaction(
-          INSTANT_GENERATOR.createNewInstant(State.INFLIGHT, HoodieTimeline.COMPACTION_ACTION, compactionInstantTime));
+          new HoodieInstant(State.INFLIGHT, HoodieTimeline.COMPACTION_ACTION, compactionInstantTime));
       metaClient.reloadActiveTimeline();
       pendingCompactionInstant =
           metaClient.getCommitsAndCompactionTimeline().filterPendingCompactionTimeline()
               .getInstantsAsStream().findFirst().get();
       assertEquals("compaction", pendingCompactionInstant.getAction());
       assertEquals(State.REQUESTED, pendingCompactionInstant.getState());
-      assertEquals(compactionInstantTime, pendingCompactionInstant.requestedTime());
+      assertEquals(compactionInstantTime, pendingCompactionInstant.getTimestamp());
 
       // We indirectly test for the race condition where a inflight instant was first deleted then created new. Every
       // time this happens, the pending compaction instant file in Hoodie Meta path becomes an empty file (Note: Hoodie
@@ -110,7 +108,7 @@ public class TestAsyncCompaction extends CompactionTestBase {
       // and look at the file size
       StoragePathInfo pathInfo = metaClient.getStorage()
           .getPathInfo(new StoragePath(metaClient.getMetaPath(),
-              INSTANT_FILE_NAME_GENERATOR.getFileName(pendingCompactionInstant)));
+              pendingCompactionInstant.getFileName()));
       assertTrue(pathInfo.getLength() > 0);
     }
   }
@@ -142,11 +140,11 @@ public class TestAsyncCompaction extends CompactionTestBase {
       metaClient = HoodieTestUtils.createMetaClient(storageConf.newInstance(), cfg.getBasePath());
       HoodieInstant pendingCompactionInstant =
           metaClient.getActiveTimeline().filterPendingCompactionTimeline().firstInstant().get();
-      assertEquals(compactionInstantTime, pendingCompactionInstant.requestedTime(),
+      assertEquals(compactionInstantTime, pendingCompactionInstant.getTimestamp(),
           "Pending Compaction instant has expected instant time");
       HoodieInstant inflightInstant =
           metaClient.getActiveTimeline().filterPendingExcludingCompaction().firstInstant().get();
-      assertEquals(inflightInstantTime, inflightInstant.requestedTime(), "inflight instant has expected instant time");
+      assertEquals(inflightInstantTime, inflightInstant.getTimestamp(), "inflight instant has expected instant time");
 
       // This should rollback
       client.startCommitWithTime(nextInflightInstantTime);
@@ -154,13 +152,13 @@ public class TestAsyncCompaction extends CompactionTestBase {
       // Validate
       metaClient = HoodieTestUtils.createMetaClient(storageConf.newInstance(), cfg.getBasePath());
       inflightInstant = metaClient.getActiveTimeline().filterPendingExcludingCompaction().firstInstant().get();
-      assertEquals(inflightInstant.requestedTime(), nextInflightInstantTime, "inflight instant has expected instant time");
+      assertEquals(inflightInstant.getTimestamp(), nextInflightInstantTime, "inflight instant has expected instant time");
       assertEquals(1, metaClient.getActiveTimeline()
               .filterPendingExcludingCompaction().countInstants(),
           "Expect only one inflight instant");
       // Expect pending Compaction to be present
       pendingCompactionInstant = metaClient.getActiveTimeline().filterPendingCompactionTimeline().firstInstant().get();
-      assertEquals(compactionInstantTime, pendingCompactionInstant.requestedTime(),
+      assertEquals(compactionInstantTime, pendingCompactionInstant.getTimestamp(),
           "Pending Compaction instant has expected instant time");
     }
   }
@@ -237,7 +235,7 @@ public class TestAsyncCompaction extends CompactionTestBase {
 
       // validate the compaction plan does not include pending log files.
       HoodieCompactionPlan compactionPlan = TimelineMetadataUtils.deserializeCompactionPlan(
-          metaClient.reloadActiveTimeline().readCompactionPlanAsBytes(INSTANT_GENERATOR.getCompactionRequestedInstant(compactionInstantTime)).get());
+          metaClient.reloadActiveTimeline().readCompactionPlanAsBytes(HoodieTimeline.getCompactionRequestedInstant(compactionInstantTime)).get());
       assertTrue(compactionPlan.getOperations().stream().noneMatch(op -> op.getDeltaFilePaths().stream().anyMatch(deltaFile -> deltaFile.contains(pendingInstantTime))),
           "compaction plan should not include pending log files");
 
@@ -268,7 +266,7 @@ public class TestAsyncCompaction extends CompactionTestBase {
     HoodieTableMetaClient metaClient = HoodieTestUtils.createMetaClient(storageConf.newInstance(), cfg.getBasePath());
     HoodieInstant pendingCompactionInstant =
         metaClient.getActiveTimeline().filterPendingCompactionTimeline().firstInstant().get();
-    assertEquals(compactionInstantTime, pendingCompactionInstant.requestedTime(), "Pending Compaction instant has expected instant time");
+    assertEquals(compactionInstantTime, pendingCompactionInstant.getTimestamp(), "Pending Compaction instant has expected instant time");
 
     assertDoesNotThrow(() -> {
       runNextDeltaCommits(client, readClient, Collections.singletonList(failedInstantTime), records, cfg, false,
@@ -300,7 +298,7 @@ public class TestAsyncCompaction extends CompactionTestBase {
     metaClient = HoodieTestUtils.createMetaClient(storageConf.newInstance(), cfg.getBasePath());
     HoodieInstant inflightInstant =
         metaClient.getActiveTimeline().filterPendingExcludingCompaction().firstInstant().get();
-    assertEquals(inflightInstantTime, inflightInstant.requestedTime(), "inflight instant has expected instant time");
+    assertEquals(inflightInstantTime, inflightInstant.getTimestamp(), "inflight instant has expected instant time");
 
     assertDoesNotThrow(() -> {
       // Schedule compaction but do not run them
@@ -407,7 +405,7 @@ public class TestAsyncCompaction extends CompactionTestBase {
       metaClient.reloadActiveTimeline();
       HoodieInstant pendingCompactionInstant =
           metaClient.getActiveTimeline().filterPendingCompactionTimeline().firstInstant().get();
-      assertEquals(compactionInstantTime, pendingCompactionInstant.requestedTime(), "Pending Compaction instant has expected instant time");
+      assertEquals(compactionInstantTime, pendingCompactionInstant.getTimestamp(), "Pending Compaction instant has expected instant time");
 
       Set<HoodieFileGroupId> fileGroupsBeforeReplace = getAllFileGroups(hoodieTable, dataGen.getPartitionPaths());
       // replace by using insertOverwrite

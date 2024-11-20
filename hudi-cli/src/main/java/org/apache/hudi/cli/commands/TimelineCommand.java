@@ -26,11 +26,9 @@ import org.apache.hudi.cli.HoodiePrintHelper;
 import org.apache.hudi.cli.HoodieTableHeaderFields;
 import org.apache.hudi.cli.TableHeader;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
-import org.apache.hudi.common.table.timeline.InstantComparator;
-import org.apache.hudi.common.table.timeline.InstantGenerator;
-import org.apache.hudi.common.table.timeline.InstantFileNameParser;
 import org.apache.hudi.common.table.timeline.TimelineMetadataUtils;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.metadata.HoodieTableMetadata;
@@ -86,13 +84,13 @@ public class TimelineCommand {
         HoodieTableMetaClient mtMetaClient = getMetadataTableMetaClient(metaClient);
         return printTimelineInfoWithMetadataTable(
             metaClient.getActiveTimeline(), mtMetaClient.getActiveTimeline(),
-            getInstantInfoFromTimeline(metaClient, metaClient.getStorage(), metaClient.getMetaPath()),
-            getInstantInfoFromTimeline(mtMetaClient, mtMetaClient.getStorage(), mtMetaClient.getMetaPath()),
+            getInstantInfoFromTimeline(metaClient.getStorage(), metaClient.getMetaPath()),
+            getInstantInfoFromTimeline(mtMetaClient.getStorage(), mtMetaClient.getMetaPath()),
             limit, sortByField, descending, headerOnly, true, showTimeSeconds, showRollbackInfo);
       }
       return printTimelineInfo(
           metaClient.getActiveTimeline(),
-          getInstantInfoFromTimeline(metaClient, metaClient.getStorage(), metaClient.getMetaPath()),
+          getInstantInfoFromTimeline(metaClient.getStorage(), metaClient.getMetaPath()),
           limit, sortByField, descending, headerOnly, true, showTimeSeconds, showRollbackInfo);
     } catch (IOException e) {
       e.printStackTrace();
@@ -115,7 +113,7 @@ public class TimelineCommand {
     try {
       return printTimelineInfo(
           metaClient.getActiveTimeline().filterInflightsAndRequested(),
-          getInstantInfoFromTimeline(metaClient, metaClient.getStorage(), metaClient.getMetaPath()),
+          getInstantInfoFromTimeline(metaClient.getStorage(), metaClient.getMetaPath()),
           limit, sortByField, descending, headerOnly, true, showTimeSeconds, showRollbackInfo);
     } catch (IOException e) {
       e.printStackTrace();
@@ -137,7 +135,7 @@ public class TimelineCommand {
     try {
       return printTimelineInfo(
           metaClient.getActiveTimeline(),
-          getInstantInfoFromTimeline(metaClient, metaClient.getStorage(), metaClient.getMetaPath()),
+          getInstantInfoFromTimeline(metaClient.getStorage(), metaClient.getMetaPath()),
           limit, sortByField, descending, headerOnly, true, showTimeSeconds, false);
     } catch (IOException e) {
       e.printStackTrace();
@@ -159,7 +157,7 @@ public class TimelineCommand {
     try {
       return printTimelineInfo(
           metaClient.getActiveTimeline().filterInflightsAndRequested(),
-          getInstantInfoFromTimeline(metaClient, metaClient.getStorage(), metaClient.getMetaPath()),
+          getInstantInfoFromTimeline(metaClient.getStorage(), metaClient.getMetaPath()),
           limit, sortByField, descending, headerOnly, true, showTimeSeconds, false);
     } catch (IOException e) {
       e.printStackTrace();
@@ -176,21 +174,16 @@ public class TimelineCommand {
   }
 
   private Map<String, Map<HoodieInstant.State, HoodieInstantWithModTime>> getInstantInfoFromTimeline(
-      HoodieTableMetaClient metaClient, HoodieStorage storage, StoragePath metaPath) throws IOException {
+      HoodieStorage storage, StoragePath metaPath) throws IOException {
     Map<String, Map<HoodieInstant.State, HoodieInstantWithModTime>> instantMap = new HashMap<>();
-
-    final InstantFileNameParser instantFileNameParser = metaClient.getInstantFileNameParser();
-    final InstantComparator instantComparator = metaClient.getTimelineLayout().getInstantComparator();
-    final InstantGenerator instantGenerator = metaClient.getInstantGenerator();
-
     Stream<HoodieInstantWithModTime> instantStream =
         HoodieTableMetaClient.scanFiles(storage, metaPath, path -> {
           // Include only the meta files with extensions that needs to be included
-          String extension = instantFileNameParser.getTimelineFileExtension(path.getName());
-          return metaClient.getActiveTimeline().getValidExtensionsInActiveTimeline().contains(extension);
-        }).stream().map(storagePathInfo -> new HoodieInstantWithModTime(storagePathInfo, instantGenerator, instantComparator));
+          String extension = HoodieInstant.getTimelineFileExtension(path.getName());
+          return HoodieActiveTimeline.VALID_EXTENSIONS_IN_ACTIVE_TIMELINE.contains(extension);
+        }).stream().map(HoodieInstantWithModTime::new);
     instantStream.forEach(instant -> {
-      instantMap.computeIfAbsent(instant.requestedTime(), t -> new HashMap<>())
+      instantMap.computeIfAbsent(instant.getTimestamp(), t -> new HashMap<>())
           .put(instant.getState(), instant);
     });
     return instantMap;
@@ -217,7 +210,7 @@ public class TimelineCommand {
     Map<String, List<String>> rollbackInfoMap = getRolledBackInstantInfo(timeline);
     final List<Comparable[]> rows = timeline.getInstantsAsStream().map(instant -> {
       Comparable[] row = new Comparable[6];
-      String instantTimestamp = instant.requestedTime();
+      String instantTimestamp = instant.getTimestamp();
       String rollbackInfoString = showRollbackInfo
           ? getRollbackInfoString(Option.of(instant), timeline, rollbackInfoMap) : "";
 
@@ -301,14 +294,14 @@ public class TimelineCommand {
   }
 
   private Option<HoodieInstant> getInstant(HoodieTimeline timeline, String instantTimestamp) {
-    return timeline.filter(instant -> instant.requestedTime().equals(instantTimestamp)).firstInstant();
+    return timeline.filter(instant -> instant.getTimestamp().equals(instantTimestamp)).firstInstant();
   }
 
   private String getInstantToRollback(HoodieTimeline timeline, HoodieInstant instant) {
     try {
       if (instant.isInflight()) {
-        HoodieInstant instantToUse = HoodieCLI.getTableMetaClient().createNewInstant(
-            HoodieInstant.State.REQUESTED, instant.getAction(), instant.requestedTime());
+        HoodieInstant instantToUse = new HoodieInstant(
+            HoodieInstant.State.REQUESTED, instant.getAction(), instant.getTimestamp());
         HoodieRollbackPlan metadata = TimelineMetadataUtils
             .deserializeAvroMetadata(timeline.getInstantDetails(instantToUse).get(), HoodieRollbackPlan.class);
         return metadata.getInstantToRollback().getCommitTime();
@@ -332,18 +325,18 @@ public class TimelineCommand {
     rollbackInstants.forEach(rollbackInstant -> {
       try {
         if (rollbackInstant.isInflight()) {
-          HoodieInstant instantToUse = HoodieCLI.getTableMetaClient().createNewInstant(
-              HoodieInstant.State.REQUESTED, rollbackInstant.getAction(), rollbackInstant.requestedTime());
+          HoodieInstant instantToUse = new HoodieInstant(
+              HoodieInstant.State.REQUESTED, rollbackInstant.getAction(), rollbackInstant.getTimestamp());
           HoodieRollbackPlan metadata = TimelineMetadataUtils
               .deserializeAvroMetadata(timeline.getInstantDetails(instantToUse).get(), HoodieRollbackPlan.class);
           rollbackInfoMap.computeIfAbsent(metadata.getInstantToRollback().getCommitTime(), k -> new ArrayList<>())
-              .add(rollbackInstant.requestedTime());
+              .add(rollbackInstant.getTimestamp());
         } else {
           HoodieRollbackMetadata metadata = TimelineMetadataUtils
               .deserializeAvroMetadata(timeline.getInstantDetails(rollbackInstant).get(), HoodieRollbackMetadata.class);
           metadata.getCommitsRollback().forEach(instant -> {
             rollbackInfoMap.computeIfAbsent(instant, k -> new ArrayList<>())
-                .add(rollbackInstant.requestedTime());
+                .add(rollbackInstant.getTimestamp());
           });
         }
       } catch (IOException e) {
@@ -362,7 +355,7 @@ public class TimelineCommand {
       if (HoodieTimeline.ROLLBACK_ACTION.equalsIgnoreCase(instant.get().getAction())) {
         rollbackInfoString = "\nRolls back\n" + getInstantToRollback(timeline, instant.get());
       } else {
-        String instantTimestamp = instant.get().requestedTime();
+        String instantTimestamp = instant.get().getTimestamp();
         if (rollbackInfoMap.containsKey(instantTimestamp)) {
           rollbackInfoString = "\nRolled back by\n" + String.join(",\n", rollbackInfoMap.get(instantTimestamp));
         }
@@ -375,12 +368,8 @@ public class TimelineCommand {
 
     private final long modificationTimeMs;
 
-    public HoodieInstantWithModTime(StoragePathInfo pathInfo, InstantGenerator instantGenerator, InstantComparator instantComparator) {
-      this(instantGenerator.createNewInstant(pathInfo), pathInfo, instantComparator.requestedTimeOrderedComparator());
-    }
-
-    public HoodieInstantWithModTime(HoodieInstant instant, StoragePathInfo pathInfo, Comparator<HoodieInstant> comparator) {
-      super(instant.getState(), instant.getAction(), instant.requestedTime(), instant.getCompletionTime(), comparator);
+    public HoodieInstantWithModTime(StoragePathInfo pathInfo) {
+      super(pathInfo);
       this.modificationTimeMs = pathInfo.getModificationTime();
     }
 

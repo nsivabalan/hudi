@@ -21,7 +21,6 @@ package org.apache.hudi.table.action.commit;
 
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.HoodieCommitMetadata;
-import org.apache.hudi.common.table.timeline.CommitMetadataSerDe;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.config.HoodieWriteConfig;
@@ -47,7 +46,7 @@ public class AverageRecordSizeUtils {
    * Obtains the average record size based on records written during previous commits. Used for estimating how many
    * records pack into one file.
    */
-  static long averageBytesPerRecord(HoodieTimeline commitTimeline, HoodieWriteConfig hoodieWriteConfig, CommitMetadataSerDe commitMetadataSerDe) {
+  static long averageBytesPerRecord(HoodieTimeline commitTimeline, HoodieWriteConfig hoodieWriteConfig) {
     long avgSize = hoodieWriteConfig.getCopyOnWriteRecordSizeEstimate();
     long fileSizeThreshold = (long) (hoodieWriteConfig.getRecordSizeEstimationThreshold() * hoodieWriteConfig.getParquetSmallFileLimit());
     if (!commitTimeline.empty()) {
@@ -56,8 +55,8 @@ public class AverageRecordSizeUtils {
       while (instants.hasNext()) {
         HoodieInstant instant = instants.next();
         try {
-          HoodieCommitMetadata commitMetadata = commitMetadataSerDe
-              .deserialize(instant, commitTimeline.getInstantDetails(instant).get(), HoodieCommitMetadata.class);
+          HoodieCommitMetadata commitMetadata = HoodieCommitMetadata
+              .fromBytes(commitTimeline.getInstantDetails(instant).get(), HoodieCommitMetadata.class);
           if (instant.getAction().equals(COMMIT_ACTION) || instant.getAction().equals(REPLACE_COMMIT_ACTION)) {
             long totalBytesWritten = commitMetadata.fetchTotalBytesWritten();
             long totalRecordsWritten = commitMetadata.fetchTotalRecordsWritten();

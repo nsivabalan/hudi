@@ -44,7 +44,6 @@ import static org.apache.hudi.client.transaction.TestConflictResolutionStrategyU
 import static org.apache.hudi.client.transaction.TestConflictResolutionStrategyUtil.createReplace;
 import static org.apache.hudi.client.transaction.TestConflictResolutionStrategyUtil.createClusterInflight;
 import static org.apache.hudi.client.transaction.TestConflictResolutionStrategyUtil.createClusterRequested;
-import static org.apache.hudi.common.testutils.HoodieTestUtils.INSTANT_GENERATOR;
 
 public class TestPreferWriterConflictResolutionStrategy extends HoodieCommonTestHarness {
 
@@ -66,7 +65,7 @@ public class TestPreferWriterConflictResolutionStrategy extends HoodieCommonTest
     String newInstantTime = metaClient.createNewInstantTime();
     createCompactionRequested(newInstantTime, metaClient);
 
-    Option<HoodieInstant> currentInstant = Option.of(INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.COMMIT_ACTION, currentWriterInstant));
+    Option<HoodieInstant> currentInstant = Option.of(new HoodieInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.COMMIT_ACTION, currentWriterInstant));
     PreferWriterConflictResolutionStrategy strategy = new PreferWriterConflictResolutionStrategy();
     List<HoodieInstant> candidateInstants = strategy.getCandidateInstants(metaClient, currentInstant.get(), lastSuccessfulInstant).collect(
         Collectors.toList());
@@ -91,14 +90,14 @@ public class TestPreferWriterConflictResolutionStrategy extends HoodieCommonTest
     Thread.sleep(1000);
     createCompaction(newInstantTime, metaClient);
 
-    Option<HoodieInstant> currentInstant = Option.of(INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.COMMIT_ACTION, currentWriterInstant));
+    Option<HoodieInstant> currentInstant = Option.of(new HoodieInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.COMMIT_ACTION, currentWriterInstant));
     PreferWriterConflictResolutionStrategy strategy = new PreferWriterConflictResolutionStrategy();
     HoodieCommitMetadata currentMetadata = createCommitMetadata(currentWriterInstant);
     List<HoodieInstant> candidateInstants = strategy.getCandidateInstants(metaClient, currentInstant.get(), lastSuccessfulInstant).collect(
         Collectors.toList());
     // writer 1 conflicts with compaction 1
     Assertions.assertEquals(1, candidateInstants.size());
-    Assertions.assertEquals(newInstantTime, candidateInstants.get(0).requestedTime());
+    Assertions.assertEquals(newInstantTime, candidateInstants.get(0).getTimestamp());
     ConcurrentOperation thatCommitOperation = new ConcurrentOperation(candidateInstants.get(0), metaClient);
     ConcurrentOperation thisCommitOperation = new ConcurrentOperation(currentInstant.get(), currentMetadata);
     Assertions.assertTrue(strategy.hasConflict(thisCommitOperation, thatCommitOperation));
@@ -123,7 +122,7 @@ public class TestPreferWriterConflictResolutionStrategy extends HoodieCommonTest
     String newInstantTime = metaClient.createNewInstantTime();
     createCompactionRequested(newInstantTime, metaClient);
 
-    Option<HoodieInstant> currentInstant = Option.of(INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.COMPACTION_ACTION, newInstantTime));
+    Option<HoodieInstant> currentInstant = Option.of(new HoodieInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.COMPACTION_ACTION, newInstantTime));
     PreferWriterConflictResolutionStrategy strategy = new PreferWriterConflictResolutionStrategy();
     // TODO Create method to create compactCommitMetadata
     //    HoodieCommitMetadata currentMetadata = createCommitMetadata(newInstantTime);
@@ -131,7 +130,7 @@ public class TestPreferWriterConflictResolutionStrategy extends HoodieCommonTest
         Collectors.toList());
     // writer 1 conflicts with compaction 1
     Assertions.assertEquals(1, candidateInstants.size());
-    Assertions.assertEquals(currentWriterInstant, candidateInstants.get(0).requestedTime());
+    Assertions.assertEquals(currentWriterInstant, candidateInstants.get(0).getTimestamp());
     // TODO: Once compactCommitMetadata is created use that to verify resolveConflict method.
   }
 
@@ -151,7 +150,7 @@ public class TestPreferWriterConflictResolutionStrategy extends HoodieCommonTest
     String currentWriterInstant = metaClient.createNewInstantTime();
     createInflightCommit(currentWriterInstant, metaClient);
 
-    Option<HoodieInstant> currentInstant = Option.of(INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.COMMIT_ACTION, currentWriterInstant));
+    Option<HoodieInstant> currentInstant = Option.of(new HoodieInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.COMMIT_ACTION, currentWriterInstant));
     PreferWriterConflictResolutionStrategy strategy = new PreferWriterConflictResolutionStrategy();
     List<HoodieInstant> candidateInstants = strategy.getCandidateInstants(metaClient, currentInstant.get(), lastSuccessfulInstant).collect(
         Collectors.toList());
@@ -176,7 +175,7 @@ public class TestPreferWriterConflictResolutionStrategy extends HoodieCommonTest
     createClusterRequested(newInstantTime, metaClient);
     createClusterInflight(newInstantTime, WriteOperationType.CLUSTER, metaClient);
 
-    Option<HoodieInstant> currentInstant = Option.of(INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.COMMIT_ACTION, currentWriterInstant));
+    Option<HoodieInstant> currentInstant = Option.of(new HoodieInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.COMMIT_ACTION, currentWriterInstant));
     PreferWriterConflictResolutionStrategy strategy = new PreferWriterConflictResolutionStrategy();
     List<HoodieInstant> candidateInstants = strategy.getCandidateInstants(metaClient, currentInstant.get(), lastSuccessfulInstant).collect(
         Collectors.toList());
@@ -206,14 +205,14 @@ public class TestPreferWriterConflictResolutionStrategy extends HoodieCommonTest
     String replaceWriterInstant = metaClient.createNewInstantTime();
     createCluster(replaceWriterInstant, WriteOperationType.CLUSTER, metaClient);
 
-    Option<HoodieInstant> currentInstant = Option.of(INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.COMMIT_ACTION, currentWriterInstant));
+    Option<HoodieInstant> currentInstant = Option.of(new HoodieInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.COMMIT_ACTION, currentWriterInstant));
     PreferWriterConflictResolutionStrategy strategy = new PreferWriterConflictResolutionStrategy();
     metaClient.reloadActiveTimeline();
     List<HoodieInstant> candidateInstants = strategy
         .getCandidateInstants(metaClient, currentInstant.get(), lastSuccessfulInstant)
         .collect(Collectors.toList());
     Assertions.assertEquals(1, candidateInstants.size());
-    Assertions.assertEquals(replaceWriterInstant, candidateInstants.get(0).requestedTime());
+    Assertions.assertEquals(replaceWriterInstant, candidateInstants.get(0).getTimestamp());
     HoodieCommitMetadata currentMetadata = createCommitMetadata(currentWriterInstant);
     ConcurrentOperation thatCommitOperation = new ConcurrentOperation(candidateInstants.get(0), metaClient);
     ConcurrentOperation thisCommitOperation = new ConcurrentOperation(currentInstant.get(), currentMetadata);
@@ -242,7 +241,7 @@ public class TestPreferWriterConflictResolutionStrategy extends HoodieCommonTest
     String newInstantTime = metaClient.createNewInstantTime();
     createReplace(newInstantTime, WriteOperationType.INSERT_OVERWRITE, metaClient);
 
-    Option<HoodieInstant> currentInstant = Option.of(INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.COMMIT_ACTION, currentWriterInstant));
+    Option<HoodieInstant> currentInstant = Option.of(new HoodieInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.COMMIT_ACTION, currentWriterInstant));
     PreferWriterConflictResolutionStrategy strategy = new PreferWriterConflictResolutionStrategy();
     HoodieCommitMetadata currentMetadata = createCommitMetadata(currentWriterInstant);
     List<HoodieInstant> candidateInstants = strategy.getCandidateInstants(metaClient, currentInstant.get(), lastSuccessfulInstant).collect(

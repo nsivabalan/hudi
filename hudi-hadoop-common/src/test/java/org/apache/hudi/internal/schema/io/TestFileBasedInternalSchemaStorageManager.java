@@ -35,8 +35,6 @@ import java.io.File;
 import java.io.IOException;
 import java.util.Arrays;
 
-import static org.apache.hudi.common.testutils.HoodieTestUtils.INSTANT_GENERATOR;
-import static org.apache.hudi.common.testutils.HoodieTestUtils.TIMELINE_FACTORY;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -58,7 +56,7 @@ public class TestFileBasedInternalSchemaStorageManager extends HoodieCommonTestH
 
   @Test
   public void testPersistAndReadHistorySchemaStr() throws IOException {
-    timeline = TIMELINE_FACTORY.createActiveTimeline(metaClient);
+    timeline = new HoodieActiveTimeline(metaClient);
     FileBasedInternalSchemaStorageManager fm = new FileBasedInternalSchemaStorageManager(metaClient);
     InternalSchema currentSchema = getSimpleSchema();
     currentSchema.setSchemaId(0L);
@@ -99,12 +97,12 @@ public class TestFileBasedInternalSchemaStorageManager extends HoodieCommonTestH
 
   private void simulateCommit(String commitTime) {
     if (timeline == null) {
-      timeline = TIMELINE_FACTORY.createActiveTimeline(metaClient);
+      timeline = new HoodieActiveTimeline(metaClient);
     }
-    HoodieInstant instant = INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.REQUESTED, HoodieTimeline.COMMIT_ACTION, commitTime);
+    HoodieInstant instant = new HoodieInstant(HoodieInstant.State.REQUESTED, HoodieTimeline.COMMIT_ACTION, commitTime);
     timeline.createNewInstant(instant);
     timeline.transitionRequestedToInflight(instant, Option.empty());
-    timeline.saveAsComplete(INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, instant.getAction(), instant.requestedTime()),
+    timeline.saveAsComplete(new HoodieInstant(true, instant.getAction(), instant.getTimestamp()),
         Option.empty());
   }
 

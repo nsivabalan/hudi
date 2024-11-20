@@ -177,7 +177,7 @@ public class TestRollbacksCommand extends CLIFunctionalTestHarness {
     HoodieInstant instant = rollback.findFirst().orElse(null);
     assertNotNull(instant, "The instant can not be null.");
 
-    Object result = shell.evaluate(() -> "show rollback --instant " + instant.requestedTime());
+    Object result = shell.evaluate(() -> "show rollback --instant " + instant.getTimestamp());
     assertTrue(ShellEvaluationResultUtil.isSuccess(result));
 
     List<Comparable[]> rows = new ArrayList<>();

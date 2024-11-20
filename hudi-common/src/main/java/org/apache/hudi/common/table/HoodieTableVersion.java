@@ -18,7 +18,6 @@
 
 package org.apache.hudi.common.table;
 
-import org.apache.hudi.common.table.timeline.versioning.TimelineLayoutVersion;
 import org.apache.hudi.common.util.CollectionUtils;
 import org.apache.hudi.exception.HoodieException;
 
@@ -31,38 +30,31 @@ import java.util.List;
  */
 public enum HoodieTableVersion {
   // < 0.6.0 versions
-  ZERO(0, CollectionUtils.createImmutableList("0.3.0"), TimelineLayoutVersion.LAYOUT_VERSION_0),
+  ZERO(0, CollectionUtils.createImmutableList("0.3.0")),
   // 0.6.0 onwards
-  ONE(1, CollectionUtils.createImmutableList("0.6.0"), TimelineLayoutVersion.LAYOUT_VERSION_1),
+  ONE(1, CollectionUtils.createImmutableList("0.6.0")),
   // 0.9.0 onwards
-  TWO(2, CollectionUtils.createImmutableList("0.9.0"), TimelineLayoutVersion.LAYOUT_VERSION_1),
+  TWO(2, CollectionUtils.createImmutableList("0.9.0")),
   // 0.10.0 onwards
-  THREE(3, CollectionUtils.createImmutableList("0.10.0"), TimelineLayoutVersion.LAYOUT_VERSION_1),
+  THREE(3, CollectionUtils.createImmutableList("0.10.0")),
   // 0.11.0 onwards
-  FOUR(4, CollectionUtils.createImmutableList("0.11.0"), TimelineLayoutVersion.LAYOUT_VERSION_1),
+  FOUR(4, CollectionUtils.createImmutableList("0.11.0")),
   // 0.12.0 onwards
-  FIVE(5, CollectionUtils.createImmutableList("0.12.0", "0.13.0"), TimelineLayoutVersion.LAYOUT_VERSION_1),
+  FIVE(5, CollectionUtils.createImmutableList("0.12.0", "0.13.0")),
   // 0.14.0 onwards
-  SIX(6, CollectionUtils.createImmutableList("0.14.0"), TimelineLayoutVersion.LAYOUT_VERSION_1),
+  SIX(6, CollectionUtils.createImmutableList("0.14.0")),
   // 0.16.0
-  SEVEN(7, CollectionUtils.createImmutableList("0.16.0"), TimelineLayoutVersion.LAYOUT_VERSION_1),
+  SEVEN(7, CollectionUtils.createImmutableList("0.16.0")),
   // 1.0
-  EIGHT(8, CollectionUtils.createImmutableList("1.0.0"), TimelineLayoutVersion.LAYOUT_VERSION_2);
+  EIGHT(8, CollectionUtils.createImmutableList("1.0.0"));
   
   private final int versionCode;
 
   private final List<String> releaseVersions;
 
-  private final TimelineLayoutVersion timelineLayoutVersion;
-
-  HoodieTableVersion(int versionCode, List<String> releaseVersions, TimelineLayoutVersion timelineLayoutVersion) {
+  HoodieTableVersion(int versionCode, List<String> releaseVersions) {
     this.versionCode = versionCode;
     this.releaseVersions = releaseVersions;
-    this.timelineLayoutVersion = timelineLayoutVersion;
-  }
-
-  public TimelineLayoutVersion getTimelineLayoutVersion() {
-    return timelineLayoutVersion;
   }
 
   public int versionCode() {

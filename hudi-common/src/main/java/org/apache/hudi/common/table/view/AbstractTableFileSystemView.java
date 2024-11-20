@@ -70,13 +70,10 @@ import java.util.regex.Matcher;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import static org.apache.hudi.common.table.timeline.HoodieTimeline.GREATER_THAN;
+import static org.apache.hudi.common.table.timeline.HoodieTimeline.GREATER_THAN_OR_EQUALS;
+import static org.apache.hudi.common.table.timeline.HoodieTimeline.LESSER_THAN_OR_EQUALS;
 import static org.apache.hudi.common.table.timeline.HoodieTimeline.METADATA_BOOTSTRAP_INSTANT_TS;
-import static org.apache.hudi.common.table.timeline.InstantComparison.EQUALS;
-import static org.apache.hudi.common.table.timeline.InstantComparison.GREATER_THAN;
-import static org.apache.hudi.common.table.timeline.InstantComparison.GREATER_THAN_OR_EQUALS;
-import static org.apache.hudi.common.table.timeline.InstantComparison.LESSER_THAN;
-import static org.apache.hudi.common.table.timeline.InstantComparison.LESSER_THAN_OR_EQUALS;
-import static org.apache.hudi.common.table.timeline.InstantComparison.compareTimestamps;
 
 /**
  * Common thread-safe implementation for multiple TableFileSystemView Implementations.
@@ -117,7 +114,7 @@ public abstract class AbstractTableFileSystemView implements SyncableFileSystemV
    */
   protected void init(HoodieTableMetaClient metaClient, HoodieTimeline visibleActiveTimeline) {
     this.metaClient = metaClient;
-    this.completionTimeQueryView = metaClient.getTimelineLayout().getTimelineFactory().createCompletionTimeQueryView(metaClient);
+    this.completionTimeQueryView = new CompletionTimeQueryView(metaClient);
     refreshTimeline(visibleActiveTimeline);
     resetFileGroupsReplaced(visibleCommitsAndCompactionTimeline);
     this.bootstrapIndex =  BootstrapIndex.getBootstrapIndex(metaClient);
@@ -145,7 +142,7 @@ public abstract class AbstractTableFileSystemView implements SyncableFileSystemV
    * Refresh the completion time query view.
    */
   protected void refreshCompletionTimeQueryView() {
-    this.completionTimeQueryView = metaClient.getTimelineLayout().getTimelineFactory().createCompletionTimeQueryView(metaClient);
+    this.completionTimeQueryView = new CompletionTimeQueryView(metaClient);
   }
 
   /**
@@ -278,7 +275,7 @@ public abstract class AbstractTableFileSystemView implements SyncableFileSystemV
 
     // Duplicate key error when insert_overwrite same partition in multi writer, keep the instant with greater timestamp when the file group id conflicts
     Map<HoodieFileGroupId, HoodieInstant> replacedFileGroups = resultStream.collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue,
-        (instance1, instance2) -> compareTimestamps(instance1.requestedTime(), LESSER_THAN, instance2.requestedTime()) ? instance2 : instance1));
+        (instance1, instance2) -> HoodieTimeline.compareTimestamps(instance1.getTimestamp(), HoodieTimeline.LESSER_THAN, instance2.getTimestamp()) ? instance2 : instance1));
     resetReplacedFileGroups(replacedFileGroups);
     LOG.info("Took " + hoodieTimer.endTimer() + " ms to read  " + replacedTimeline.countInstants() + " instants, "
         + replacedFileGroups.size() + " replaced file groups");
@@ -752,7 +749,7 @@ public abstract class AbstractTableFileSystemView implements SyncableFileSystemV
     return fetchAllStoredFileGroups(partitionPath)
         .filter(fileGroup -> !isFileGroupReplacedBeforeOrOn(fileGroup.getFileGroupId(), maxCommitTime))
         .map(fileGroup -> Option.fromJavaOptional(fileGroup.getAllBaseFiles()
-            .filter(baseFile -> compareTimestamps(baseFile.getCommitTime(), LESSER_THAN_OR_EQUALS, maxCommitTime
+            .filter(baseFile -> HoodieTimeline.compareTimestamps(baseFile.getCommitTime(), HoodieTimeline.LESSER_THAN_OR_EQUALS, maxCommitTime
             ))
             .filter(df -> !isBaseFileDueToPendingCompaction(partitionPath, df) && !isBaseFileDueToPendingClustering(df)).findFirst()))
         .filter(Option::isPresent).map(Option::get)
@@ -769,7 +766,7 @@ public abstract class AbstractTableFileSystemView implements SyncableFileSystemV
         return Option.empty();
       } else {
         return fetchHoodieFileGroup(partitionPath, fileId).map(fileGroup -> fileGroup.getAllBaseFiles()
-                .filter(baseFile -> compareTimestamps(baseFile.getCommitTime(), EQUALS,
+                .filter(baseFile -> HoodieTimeline.compareTimestamps(baseFile.getCommitTime(), HoodieTimeline.EQUALS,
                     instantTime)).filter(df -> !isBaseFileDueToPendingCompaction(partitionPath, df) && !isBaseFileDueToPendingClustering(df)).findFirst().orElse(null))
             .map(df -> addBootstrapBaseFileIfPresent(new HoodieFileGroupId(partitionPath, fileId), df));
       }
@@ -1589,7 +1586,7 @@ public abstract class AbstractTableFileSystemView implements SyncableFileSystemV
       return false;
     }
 
-    return compareTimestamps(instant, GREATER_THAN, hoodieInstantOption.get().requestedTime());
+    return HoodieTimeline.compareTimestamps(instant, GREATER_THAN, hoodieInstantOption.get().getTimestamp());
   }
 
   private boolean isFileGroupReplacedBeforeOrOn(HoodieFileGroupId fileGroupId, String instant) {
@@ -1598,7 +1595,7 @@ public abstract class AbstractTableFileSystemView implements SyncableFileSystemV
       return false;
     }
 
-    return compareTimestamps(instant, GREATER_THAN_OR_EQUALS, hoodieInstantOption.get().requestedTime());
+    return HoodieTimeline.compareTimestamps(instant, GREATER_THAN_OR_EQUALS, hoodieInstantOption.get().getTimestamp());
   }
 
   private boolean isFileGroupReplacedAfterOrOn(HoodieFileGroupId fileGroupId, String instant) {
@@ -1607,7 +1604,7 @@ public abstract class AbstractTableFileSystemView implements SyncableFileSystemV
       return false;
     }
 
-    return compareTimestamps(instant, LESSER_THAN_OR_EQUALS, hoodieInstantOption.get().requestedTime());
+    return HoodieTimeline.compareTimestamps(instant, LESSER_THAN_OR_EQUALS, hoodieInstantOption.get().getTimestamp());
   }
 
   @Override

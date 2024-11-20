@@ -51,8 +51,6 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import static org.apache.hudi.common.table.timeline.InstantComparison.LESSER_THAN_OR_EQUALS;
-import static org.apache.hudi.common.table.timeline.InstantComparison.compareTimestamps;
 import static org.apache.hudi.common.table.timeline.MetadataConversionUtils.getHoodieCommitMetadata;
 import static org.apache.hudi.table.action.rollback.BaseRollbackHelper.EMPTY_STRING;
 
@@ -149,11 +147,11 @@ public class ListingBasedRollbackStrategy implements BaseRollbackPlanActionExecu
                 // and not corresponding base commit log files created with this as baseCommit since updates would
                 // have been written to the log files.
                 hoodieRollbackRequests.addAll(getHoodieRollbackRequests(partitionPath,
-                    listBaseFilesToBeDeleted(instantToRollback.requestedTime(), baseFileExtension, partitionPath, metaClient.getStorage())));
+                    listBaseFilesToBeDeleted(instantToRollback.getTimestamp(), baseFileExtension, partitionPath, metaClient.getStorage())));
               } else {
                 // if this is part of a restore operation, we should rollback/delete entire file slice.
                 hoodieRollbackRequests.addAll(getHoodieRollbackRequests(partitionPath,
-                    listAllFilesSinceCommit(instantToRollback.requestedTime(), baseFileExtension, partitionPath,
+                    listAllFilesSinceCommit(instantToRollback.getTimestamp(), baseFileExtension, partitionPath,
                         metaClient)));
               }
               break;
@@ -176,8 +174,8 @@ public class ListingBasedRollbackStrategy implements BaseRollbackPlanActionExecu
         return hoodieRollbackRequests.stream();
       }, numPartitions);
     } catch (Exception e) {
-      LOG.error("Generating rollback requests failed for " + instantToRollback.requestedTime(), e);
-      throw new HoodieRollbackException("Generating rollback requests failed for " + instantToRollback.requestedTime(), e);
+      LOG.error("Generating rollback requests failed for " + instantToRollback.getTimestamp(), e);
+      throw new HoodieRollbackException("Generating rollback requests failed for " + instantToRollback.getTimestamp(), e);
     }
   }
 
@@ -186,11 +184,11 @@ public class ListingBasedRollbackStrategy implements BaseRollbackPlanActionExecu
                                                         String partitionPath,
                                                         HoodieTableMetaClient metaClient) throws IOException {
     LOG.info("Collecting files to be cleaned/rolledback up for path " + partitionPath + " and commit " + commit);
-    CompletionTimeQueryView completionTimeQueryView = metaClient.getTimelineLayout().getTimelineFactory().createCompletionTimeQueryView(metaClient);
+    CompletionTimeQueryView completionTimeQueryView = new CompletionTimeQueryView(metaClient);
     StoragePathFilter filter = (path) -> {
       if (path.toString().contains(baseFileExtension)) {
         String fileCommitTime = FSUtils.getCommitTime(path.getName());
-        return compareTimestamps(commit, LESSER_THAN_OR_EQUALS,
+        return HoodieTimeline.compareTimestamps(commit, HoodieTimeline.LESSER_THAN_OR_EQUALS,
             fileCommitTime);
       } else if (FSUtils.isLogFile(path)) {
         String fileCommitTime = FSUtils.getDeltaCommitTimeFromLogPath(path);
@@ -255,7 +253,7 @@ public class ListingBasedRollbackStrategy implements BaseRollbackPlanActionExecu
                                                              String baseFileExtension,
                                                              HoodieStorage storage) throws IOException {
     StoragePathFilter pathFilter = getPathFilter(baseFileExtension,
-        instantToRollback.requestedTime());
+        instantToRollback.getTimestamp());
     List<StoragePath> filePaths = getFilesFromCommitMetadata(basePath, commitMetadata, partitionPath)
         .filter(entry -> {
           try {
@@ -285,7 +283,7 @@ public class ListingBasedRollbackStrategy implements BaseRollbackPlanActionExecu
                                                         String basePath,
                                                         String baseFileExtension,
                                                         HoodieStorage storage) throws IOException {
-    StoragePathFilter pathFilter = getPathFilter(baseFileExtension, instantToRollback.requestedTime());
+    StoragePathFilter pathFilter = getPathFilter(baseFileExtension, instantToRollback.getTimestamp());
     List<StoragePath> filePaths = listFilesToBeDeleted(basePath, partitionPath);
 
     return storage.listDirectEntries(filePaths, pathFilter);

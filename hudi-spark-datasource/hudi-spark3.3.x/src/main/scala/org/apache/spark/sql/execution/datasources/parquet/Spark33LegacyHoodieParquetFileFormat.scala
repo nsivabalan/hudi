@@ -28,13 +28,12 @@ import org.apache.hudi.internal.schema.InternalSchema
 import org.apache.hudi.internal.schema.action.InternalSchemaMerger
 import org.apache.hudi.internal.schema.utils.{InternalSchemaUtils, SerDeHelper}
 import org.apache.hudi.storage.hadoop.HoodieHadoopStorage
+
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
 import org.apache.hadoop.mapred.FileSplit
 import org.apache.hadoop.mapreduce.task.TaskAttemptContextImpl
 import org.apache.hadoop.mapreduce.{JobID, TaskAttemptID, TaskID, TaskType}
-import org.apache.hudi.common.table.timeline.TimelineLayout
-import org.apache.hudi.common.table.timeline.versioning.TimelineLayoutVersion
 import org.apache.parquet.filter2.compat.FilterCompat
 import org.apache.parquet.filter2.predicate.FilterApi
 import org.apache.parquet.format.converter.ParquetMetadataConverter.SKIP_ROW_GROUPS
@@ -53,6 +52,7 @@ import org.apache.spark.sql.types.{AtomicType, DataType, StructField, StructType
 import org.apache.spark.util.SerializableConfiguration
 
 import java.net.URI
+
 import scala.collection.convert.ImplicitConversions.`collection AsScalaIterable`
 
 /**
@@ -161,12 +161,9 @@ class Spark33LegacyHoodieParquetFileFormat(private val shouldAppendPartitionValu
       val fileSchema = if (shouldUseInternalSchema) {
         val commitInstantTime = FSUtils.getCommitTime(filePath.getName).toLong;
         val validCommits = sharedConf.get(SparkInternalSchemaConverter.HOODIE_VALID_COMMITS_LIST)
-        //TODO: HARDCODED TIMELINE OBJECT
-        val layout = TimelineLayout.fromVersion(TimelineLayoutVersion.CURR_LAYOUT_VERSION)
         val storage = new HoodieHadoopStorage(tablePath, sharedConf)
         InternalSchemaCache.getInternalSchemaByVersionId(
-          commitInstantTime, tablePath, storage, if (validCommits == null) "" else validCommits,
-          layout.getInstantFileNameParser, layout.getCommitMetadataSerDe, layout.getInstantGenerator)
+          commitInstantTime, tablePath, storage, if (validCommits == null) "" else validCommits)
       } else {
         null
       }

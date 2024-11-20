@@ -51,7 +51,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
-import static org.apache.hudi.common.testutils.HoodieTestUtils.INSTANT_GENERATOR;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -103,7 +102,7 @@ public class TestCompactionUtil {
         .allMatch(instant -> instant.getState() == HoodieInstant.State.REQUESTED);
     assertTrue(allRolledBack, "all the instants should be rolled back");
     List<String> actualInstants = metaClient.getActiveTimeline()
-        .filterPendingCompactionTimeline().getInstantsAsStream().map(HoodieInstant::requestedTime).collect(Collectors.toList());
+        .filterPendingCompactionTimeline().getInstantsAsStream().map(HoodieInstant::getTimestamp).collect(Collectors.toList());
     assertThat(actualInstants, is(oriInstants));
   }
 
@@ -125,7 +124,7 @@ public class TestCompactionUtil {
 
     String instantTime = metaClient.getActiveTimeline()
         .filterPendingCompactionTimeline().filter(instant -> instant.getState() == HoodieInstant.State.REQUESTED)
-        .firstInstant().get().requestedTime();
+        .firstInstant().get().getTimestamp();
     assertThat(instantTime, is(oriInstants.get(0)));
   }
 
@@ -177,7 +176,7 @@ public class TestCompactionUtil {
     HoodieCompactionPlan plan = new HoodieCompactionPlan(Collections.singletonList(operation), Collections.emptyMap(), 1, null, null);
     String instantTime = table.getMetaClient().createNewInstantTime();
     HoodieInstant compactionInstant =
-        INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.REQUESTED, HoodieTimeline.COMPACTION_ACTION, instantTime);
+        new HoodieInstant(HoodieInstant.State.REQUESTED, HoodieTimeline.COMPACTION_ACTION, instantTime);
     try {
       metaClient.getActiveTimeline().saveToCompactionRequested(compactionInstant,
           TimelineMetadataUtils.serializeCompactionPlan(plan));

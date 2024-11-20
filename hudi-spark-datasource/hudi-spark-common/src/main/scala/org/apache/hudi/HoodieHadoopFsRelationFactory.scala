@@ -138,8 +138,7 @@ abstract class HoodieBaseHadoopFsRelationFactory(val sqlContext: SQLContext,
   }
 
   protected lazy val validCommits: String = if (internalSchemaOpt.nonEmpty) {
-    val instantFileNameGenerator = metaClient.getTimelineLayout.getInstantFileNameGenerator
-    timeline.getInstants.iterator.asScala.map(instant => instantFileNameGenerator.getFileName(instant)).mkString(",")
+    timeline.getInstants.iterator.asScala.map(_.getFileName).mkString(",")
   } else {
     ""
   }
@@ -201,7 +200,7 @@ abstract class HoodieBaseHadoopFsRelationFactory(val sqlContext: SQLContext,
   protected lazy val shouldUseRecordPosition: Boolean = checkIfAConfigurationEnabled(HoodieReaderConfig.MERGE_USE_RECORD_POSITIONS)
 
   protected def queryTimestamp: Option[String] =
-    specifiedQueryTimestamp.orElse(toScalaOption(timeline.lastInstant()).map(_.requestedTime))
+    specifiedQueryTimestamp.orElse(toScalaOption(timeline.lastInstant()).map(_.getTimestamp))
 
   protected def hasSchemaOnRead: Boolean = internalSchemaOpt.isDefined
 

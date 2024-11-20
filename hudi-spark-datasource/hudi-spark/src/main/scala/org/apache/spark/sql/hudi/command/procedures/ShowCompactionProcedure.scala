@@ -66,14 +66,14 @@ class ShowCompactionProcedure extends BaseProcedure with ProcedureBuilder with S
     val compactionInstants = metaClient.getActiveTimeline.getInstants.iterator().asScala
       .filter(p => p.getAction == HoodieTimeline.COMPACTION_ACTION || p.getAction == HoodieTimeline.COMMIT_ACTION)
       .toSeq
-      .sortBy(f => f.requestedTime)
+      .sortBy(f => f.getTimestamp)
       .reverse
       .take(limit)
 
     compactionInstants.map(instant =>
-      (instant, CompactionUtils.getCompactionPlan(metaClient, instant.requestedTime))
+      (instant, CompactionUtils.getCompactionPlan(metaClient, instant.getTimestamp))
     ).map { case (instant, plan) =>
-      Row(instant.requestedTime, plan.getOperations.size(), instant.getState.name())
+      Row(instant.getTimestamp, plan.getOperations.size(), instant.getState.name())
     }
   }
 

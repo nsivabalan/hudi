@@ -33,7 +33,7 @@ import org.apache.hudi.client.SparkRDDReadClient;
 import org.apache.hudi.client.SparkRDDWriteClient;
 import org.apache.hudi.client.WriteStatus;
 import org.apache.hudi.client.common.HoodieSparkEngineContext;
-import org.apache.hudi.client.timeline.versioning.v2.TimelineArchiverV2;
+import org.apache.hudi.client.timeline.HoodieTimelineArchiver;
 import org.apache.hudi.common.HoodieCleanStat;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.fs.ConsistencyGuardConfig;
@@ -105,11 +105,6 @@ import java.util.stream.Stream;
 
 import scala.Tuple3;
 
-import static org.apache.hudi.common.table.timeline.InstantComparison.GREATER_THAN;
-import static org.apache.hudi.common.table.timeline.InstantComparison.compareTimestamps;
-import static org.apache.hudi.common.testutils.HoodieTestUtils.INSTANT_GENERATOR;
-import static org.apache.hudi.common.testutils.HoodieTestUtils.INSTANT_FILE_NAME_GENERATOR;
-import static org.apache.hudi.common.testutils.HoodieTestUtils.TIMELINE_FACTORY;
 import static org.apache.hudi.testutils.Assertions.assertNoWriteErrors;
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -157,7 +152,7 @@ public class TestCleaner extends HoodieCleanerTestBase {
     assertNoWriteErrors(statuses.collect());
     // verify that there is a commit
     metaClient = HoodieTableMetaClient.reload(metaClient);
-    HoodieTimeline timeline = TIMELINE_FACTORY.createActiveTimeline(metaClient).getCommitAndReplaceTimeline();
+    HoodieTimeline timeline = new HoodieActiveTimeline(metaClient).getCommitAndReplaceTimeline();
     assertEquals(1, timeline.findInstantsAfter("000", Integer.MAX_VALUE).countInstants(), "Expecting a single commit.");
     // Should have 100 records in table (check using Index), all in locations marked at commit
     HoodieTable table = HoodieSparkTable.create(client.getConfig(), context, metaClient);
@@ -923,9 +918,9 @@ public class TestCleaner extends HoodieCleanerTestBase {
     metaClient = HoodieTableMetaClient.reload(metaClient);
     HoodieTable table = HoodieSparkTable.create(config, context, metaClient);
     table.getActiveTimeline().transitionRequestedToInflight(
-        INSTANT_GENERATOR.createNewInstant(State.REQUESTED, HoodieTimeline.COMMIT_ACTION, "001"), Option.empty());
+        new HoodieInstant(State.REQUESTED, HoodieTimeline.COMMIT_ACTION, "001"), Option.empty());
     metaClient.reloadActiveTimeline();
-    HoodieInstant rollbackInstant = INSTANT_GENERATOR.createNewInstant(State.INFLIGHT, HoodieTimeline.COMMIT_ACTION, "001");
+    HoodieInstant rollbackInstant = new HoodieInstant(State.INFLIGHT, HoodieTimeline.COMMIT_ACTION, "001");
     table.scheduleRollback(context, "002", rollbackInstant, false, config.shouldRollbackUsingMarkers(), false);
     table.rollback(context, "002", rollbackInstant, true, false);
     final int numTempFilesAfter = testTable.listAllFilesInTempFolder().length;
@@ -1021,8 +1016,8 @@ public class TestCleaner extends HoodieCleanerTestBase {
 
     String commitTime = HoodieTestTable.makeNewCommitTime(1, "%09d");
     List<String> cleanerFileNames = Arrays.asList(
-        INSTANT_FILE_NAME_GENERATOR.makeRequestedCleanerFileName(commitTime),
-        INSTANT_FILE_NAME_GENERATOR.makeInflightCleanerFileName(commitTime));
+        HoodieTimeline.makeRequestedCleanerFileName(commitTime),
+        HoodieTimeline.makeInflightCleanerFileName(commitTime));
     for (String f : cleanerFileNames) {
       StoragePath commitFile = new StoragePath(Paths
           .get(metaClient.getBasePath().toString(), HoodieTableMetaClient.METAFOLDER_NAME, f).toString());
@@ -1175,7 +1170,7 @@ public class TestCleaner extends HoodieCleanerTestBase {
       testTable = tearDownTestTableAndReinit(testTable, config);
 
       // archive commit 1, 2
-      new TimelineArchiverV2<>(config, HoodieSparkTable.create(config, context, metaClient))
+      new HoodieTimelineArchiver<>(config, HoodieSparkTable.create(config, context, metaClient))
           .archiveIfRequired(context, false);
       metaClient = HoodieTableMetaClient.reload(metaClient);
       assertFalse(metaClient.getActiveTimeline().containsInstant("10"));
@@ -1326,9 +1321,9 @@ public class TestCleaner extends HoodieCleanerTestBase {
           .flatMap(cleanStat -> convertPathToFileIdWithCommitTime(newMetaClient, cleanStat.getDeletePathPatterns())
               .map(fileIdWithCommitTime -> {
                 if (expFileIdToPendingCompaction.containsKey(fileIdWithCommitTime.getKey())) {
-                  assertTrue(compareTimestamps(
+                  assertTrue(HoodieTimeline.compareTimestamps(
                           fileIdToLatestInstantBeforeCompaction.get(fileIdWithCommitTime.getKey()),
-                          GREATER_THAN, fileIdWithCommitTime.getValue()),
+                          HoodieTimeline.GREATER_THAN, fileIdWithCommitTime.getValue()),
                       "Deleted instant time must be less than pending compaction");
                   return true;
                 }

@@ -51,7 +51,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import static org.apache.hudi.common.testutils.HoodieTestUtils.INSTANT_FILE_NAME_GENERATOR;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
@@ -101,11 +100,11 @@ public class ITTestBucketStreamWrite {
 
     // rollback path structure: tablePath/.hoodie/.temp/${commitInstant}/${partition}/${fileGroup}_${fileInstant}.parquet.marker.APPEND
     HoodieInstant instant = activeCompletedTimeline.getInstants().get(0);
-    String commitInstant = instant.requestedTime();
-    String filename = INSTANT_FILE_NAME_GENERATOR.getFileName(activeCompletedTimeline.getInstants().get(0));
+    String commitInstant = instant.getTimestamp();
+    String filename = activeCompletedTimeline.getInstants().get(0).getFileName();
 
-    HoodieCommitMetadata commitMetadata = metaClient.getCommitMetadataSerDe()
-        .deserialize(instant, metaClient.getActiveTimeline().getInstantDetails(instant).get(),
+    HoodieCommitMetadata commitMetadata = HoodieCommitMetadata
+        .fromBytes(metaClient.getActiveTimeline().getInstantDetails(instant).get(),
             HoodieCommitMetadata.class);
 
     // delete successful commit to simulate an unsuccessful write

@@ -19,8 +19,7 @@ package org.apache.spark.sql.hudi.command.procedures
 
 import org.apache.hudi.HoodieCLIUtils
 import org.apache.hudi.common.model.{HoodieCommitMetadata, HoodieReplaceCommitMetadata}
-import org.apache.hudi.common.table.HoodieTableMetaClient
-import org.apache.hudi.common.table.timeline.{HoodieInstant, HoodieTimeline, TimelineLayout}
+import org.apache.hudi.common.table.timeline.{HoodieInstant, HoodieTimeline}
 import org.apache.hudi.common.util.ClusteringUtils
 import org.apache.hudi.exception.HoodieException
 import org.apache.spark.sql.Row
@@ -66,7 +65,7 @@ class ShowCommitExtraMetadataProcedure() extends BaseProcedure with ProcedureBui
     val hoodieInstantOption: Option[HoodieInstant] = if (instantTime.isEmpty) {
       getCommitForLastInstant(timeline)
     } else {
-      getCommitForInstant(metaClient, timeline, instantTime.get.asInstanceOf[String])
+      getCommitForInstant(timeline, instantTime.get.asInstanceOf[String])
     }
 
     if (hoodieInstantOption.isEmpty) {
@@ -80,7 +79,7 @@ class ShowCommitExtraMetadataProcedure() extends BaseProcedure with ProcedureBui
     }
 
     val meta = commitMetadataOptional.get
-    val timestamp: String = hoodieInstantOption.get.requestedTime
+    val timestamp: String = hoodieInstantOption.get.getTimestamp
     val action: String = hoodieInstantOption.get.getAction
     val metadatas: util.Map[String, String] = if (metadataKey.isEmpty) {
       meta.getExtraMetadata
@@ -105,26 +104,24 @@ class ShowCommitExtraMetadataProcedure() extends BaseProcedure with ProcedureBui
     }
   }
 
-  private def getCommitForInstant(metaClient: HoodieTableMetaClient, timeline: HoodieTimeline, instantTime: String): Option[HoodieInstant] = {
-    val instantGenerator = metaClient.getTimelineLayout.getInstantGenerator
+  private def getCommitForInstant(timeline: HoodieTimeline, instantTime: String): Option[HoodieInstant] = {
     val instants: util.List[HoodieInstant] = util.Arrays.asList(
-      instantGenerator.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.COMMIT_ACTION, instantTime),
-      instantGenerator.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.REPLACE_COMMIT_ACTION, instantTime),
-      instantGenerator.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.CLUSTERING_ACTION, instantTime),
-      instantGenerator.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, instantTime))
+      new HoodieInstant(false, HoodieTimeline.COMMIT_ACTION, instantTime),
+      new HoodieInstant(false, HoodieTimeline.REPLACE_COMMIT_ACTION, instantTime),
+      new HoodieInstant(false, HoodieTimeline.CLUSTERING_ACTION, instantTime),
+      new HoodieInstant(false, HoodieTimeline.DELTA_COMMIT_ACTION, instantTime))
 
     val hoodieInstant: Option[HoodieInstant] = instants.asScala.find((i: HoodieInstant) => timeline.containsInstant(i))
     hoodieInstant
   }
 
   private def getHoodieCommitMetadata(timeline: HoodieTimeline, hoodieInstant: Option[HoodieInstant]): Option[HoodieCommitMetadata] = {
-    val layout = TimelineLayout.fromVersion(timeline.getTimelineLayoutVersion)
     if (hoodieInstant.isDefined) {
       if (ClusteringUtils.isClusteringOrReplaceCommitAction(hoodieInstant.get.getAction)) {
         Option(HoodieReplaceCommitMetadata.fromBytes(timeline.getInstantDetails(hoodieInstant.get).get,
           classOf[HoodieReplaceCommitMetadata]))
       } else {
-        Option(layout.getCommitMetadataSerDe.deserialize(hoodieInstant.get, timeline.getInstantDetails(hoodieInstant.get).get,
+        Option(HoodieCommitMetadata.fromBytes(timeline.getInstantDetails(hoodieInstant.get).get,
           classOf[HoodieCommitMetadata]))
       }
     } else {

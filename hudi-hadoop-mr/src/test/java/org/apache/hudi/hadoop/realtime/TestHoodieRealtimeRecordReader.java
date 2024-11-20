@@ -100,8 +100,6 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static org.apache.hudi.common.table.timeline.TimelineMetadataUtils.serializeCommitMetadata;
-import static org.apache.hudi.common.testutils.HoodieTestUtils.COMMIT_METADATA_SER_DE;
-import static org.apache.hudi.common.testutils.HoodieTestUtils.INSTANT_FILE_NAME_GENERATOR;
 import static org.apache.hudi.hadoop.realtime.HoodieRealtimeRecordReader.REALTIME_SKIP_MERGE_PROP;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -205,7 +203,7 @@ public class TestHoodieRealtimeRecordReader {
 
     HoodieCommitMetadata commitMetadata = CommitUtils.buildMetadata(Collections.emptyList(), Collections.emptyMap(), Option.empty(), WriteOperationType.UPSERT,
         schema.toString(), HoodieTimeline.DELTA_COMMIT_ACTION);
-    FileCreateUtils.createDeltaCommit(COMMIT_METADATA_SER_DE, basePath.toString(), baseInstant, commitMetadata);
+    FileCreateUtils.createDeltaCommit(basePath.toString(), baseInstant, commitMetadata);
     // Add the paths
     FileInputFormat.setInputPaths(baseJobConf, partitionDir.getPath());
 
@@ -242,7 +240,7 @@ public class TestHoodieRealtimeRecordReader {
         long size = writer.getCurrentSize();
         writer.close();
         assertTrue(size > 0, "block - size should be > 0");
-        FileCreateUtils.createDeltaCommit(COMMIT_METADATA_SER_DE, basePath.toString(), instantTime, commitMetadata);
+        FileCreateUtils.createDeltaCommit(basePath.toString(), instantTime, commitMetadata);
 
         // create a split with baseFile (parquet file written earlier) and new log file(s)
         fileSlice.addLogFile(writer.getLogFile());
@@ -317,7 +315,7 @@ public class TestHoodieRealtimeRecordReader {
         HoodieTableType.MERGE_ON_READ);
     HoodieCommitMetadata commitMetadata = CommitUtils.buildMetadata(Collections.emptyList(), Collections.emptyMap(), Option.empty(), WriteOperationType.UPSERT,
         schema.toString(), HoodieTimeline.DELTA_COMMIT_ACTION);
-    FileCreateUtils.createDeltaCommit(COMMIT_METADATA_SER_DE, basePath.toString(), instantTime, commitMetadata);
+    FileCreateUtils.createDeltaCommit(basePath.toString(), instantTime, commitMetadata);
     // Add the paths
     FileInputFormat.setInputPaths(baseJobConf, partitionDir.getPath());
 
@@ -330,7 +328,7 @@ public class TestHoodieRealtimeRecordReader {
     long size = writer.getCurrentSize();
     writer.close();
     assertTrue(size > 0, "block - size should be > 0");
-    FileCreateUtils.createDeltaCommit(COMMIT_METADATA_SER_DE, basePath.toString(), newCommitTime, commitMetadata);
+    FileCreateUtils.createDeltaCommit(basePath.toString(), newCommitTime, commitMetadata);
 
     // create a split with baseFile (parquet file written earlier) and new log file(s)
     HoodieRealtimeFileSplit split = new HoodieRealtimeFileSplit(
@@ -401,7 +399,7 @@ public class TestHoodieRealtimeRecordReader {
 
     HoodieCommitMetadata commitMetadata = CommitUtils.buildMetadata(Collections.emptyList(), Collections.emptyMap(), Option.empty(), WriteOperationType.UPSERT,
         schema.toString(), HoodieTimeline.COMMIT_ACTION);
-    FileCreateUtils.createCommit(COMMIT_METADATA_SER_DE, basePath.toString(), instantTime, Option.of(commitMetadata));
+    FileCreateUtils.createCommit(basePath.toString(), instantTime, Option.of(commitMetadata));
     // Add the paths
     FileInputFormat.setInputPaths(baseJobConf, partitionDir.getPath());
 
@@ -414,7 +412,7 @@ public class TestHoodieRealtimeRecordReader {
     assertTrue(size > 0, "block - size should be > 0");
     commitMetadata = CommitUtils.buildMetadata(Collections.emptyList(), Collections.emptyMap(), Option.empty(), WriteOperationType.UPSERT,
         schema.toString(), HoodieTimeline.DELTA_COMMIT_ACTION);
-    FileCreateUtils.createDeltaCommit(COMMIT_METADATA_SER_DE, basePath.toString(), newCommitTime, commitMetadata);
+    FileCreateUtils.createDeltaCommit(basePath.toString(), newCommitTime, commitMetadata);
 
     // create a split with baseFile (parquet file written earlier) and new log file(s)
     HoodieRealtimeFileSplit split = new HoodieRealtimeFileSplit(
@@ -542,7 +540,7 @@ public class TestHoodieRealtimeRecordReader {
             instantTime, HoodieTableType.MERGE_ON_READ);
     HoodieCommitMetadata commitMetadata = CommitUtils.buildMetadata(Collections.emptyList(), Collections.emptyMap(), Option.empty(), WriteOperationType.UPSERT,
         schema.toString(), HoodieTimeline.COMMIT_ACTION);
-    FileCreateUtils.createCommit(COMMIT_METADATA_SER_DE, basePath.toString(), instantTime, Option.of(commitMetadata));
+    FileCreateUtils.createCommit(basePath.toString(), instantTime, Option.of(commitMetadata));
     // Add the paths
     FileInputFormat.setInputPaths(baseJobConf, partitionDir.getPath());
     List<Field> firstSchemaFields = schema.getFields();
@@ -572,7 +570,7 @@ public class TestHoodieRealtimeRecordReader {
         CommitUtils.buildMetadata(Collections.emptyList(), Collections.emptyMap(), Option.empty(),
             WriteOperationType.UPSERT,
             schema.toString(), HoodieTimeline.DELTA_COMMIT_ACTION);
-    FileCreateUtils.createDeltaCommit(COMMIT_METADATA_SER_DE, basePath.toString(), instantTime, commitMetadata);
+    FileCreateUtils.createDeltaCommit(basePath.toString(), instantTime, commitMetadata);
 
     // create a split with baseFile (parquet file written earlier) and new log file(s)
     HoodieRealtimeFileSplit split = new HoodieRealtimeFileSplit(
@@ -633,7 +631,7 @@ public class TestHoodieRealtimeRecordReader {
             instantTime, HoodieTableType.MERGE_ON_READ);
     HoodieCommitMetadata commitMetadata = CommitUtils.buildMetadata(Collections.emptyList(), Collections.emptyMap(), Option.empty(), WriteOperationType.UPSERT,
         schema.toString(), HoodieTimeline.COMMIT_ACTION);
-    FileCreateUtils.createCommit(COMMIT_METADATA_SER_DE, basePath.toString(), instantTime, Option.of(commitMetadata));
+    FileCreateUtils.createCommit(basePath.toString(), instantTime, Option.of(commitMetadata));
     // Add the paths
     FileInputFormat.setInputPaths(baseJobConf, partitionDir.getPath());
     List<Field> firstSchemaFields = schema.getFields();
@@ -647,7 +645,7 @@ public class TestHoodieRealtimeRecordReader {
             instantTime, HoodieTableType.MERGE_ON_READ, "2017", "05", "01");
     HoodieCommitMetadata commitMetadata1 = CommitUtils.buildMetadata(Collections.emptyList(), Collections.emptyMap(), Option.empty(), WriteOperationType.UPSERT,
         evolvedSchema.toString(), HoodieTimeline.COMMIT_ACTION);
-    FileCreateUtils.createCommit(COMMIT_METADATA_SER_DE, basePath.toString(), newCommitTime, Option.of(commitMetadata1));
+    FileCreateUtils.createCommit(basePath.toString(), newCommitTime, Option.of(commitMetadata1));
     // Add the paths
     FileInputFormat.setInputPaths(baseJobConf, partitionDir1.getPath());
 
@@ -803,7 +801,7 @@ public class TestHoodieRealtimeRecordReader {
         .resolve(commitNumber + "_" + InProcessTimeGenerator.createNewInstantTime() + ".replacecommit").toFile();
     file.createNewFile();
     FileOutputStream fileOutputStream = new FileOutputStream(file);
-    fileOutputStream.write(serializeCommitMetadata(COMMIT_METADATA_SER_DE, replaceMetadata).get());
+    fileOutputStream.write(serializeCommitMetadata(replaceMetadata).get());
     fileOutputStream.flush();
     fileOutputStream.close();
   }
@@ -846,7 +844,7 @@ public class TestHoodieRealtimeRecordReader {
         .resolve(commitNumber + "_" + InProcessTimeGenerator.createNewInstantTime() + ".deltacommit").toFile();
     file.createNewFile();
     FileOutputStream fileOutputStream = new FileOutputStream(file);
-    fileOutputStream.write(serializeCommitMetadata(COMMIT_METADATA_SER_DE, commitMetadata).get());
+    fileOutputStream.write(serializeCommitMetadata(commitMetadata).get());
     fileOutputStream.flush();
     fileOutputStream.close();
   }
@@ -881,7 +879,7 @@ public class TestHoodieRealtimeRecordReader {
           CommitUtils.buildMetadata(Collections.emptyList(), Collections.emptyMap(), Option.empty(),
               WriteOperationType.UPSERT,
               schema.toString(), HoodieTimeline.COMMIT_ACTION);
-      FileCreateUtils.createDeltaCommit(COMMIT_METADATA_SER_DE, basePath.toString(), instantTime, commitMetadata);
+      FileCreateUtils.createDeltaCommit(basePath.toString(), instantTime, commitMetadata);
       // create a split with new log file(s)
       fileSlice.addLogFile(new HoodieLogFile(writer.getLogFile().getPath(), size));
       RealtimeFileStatus realtimeFileStatus = new RealtimeFileStatus(
@@ -978,7 +976,7 @@ public class TestHoodieRealtimeRecordReader {
   private File createCompactionFile(java.nio.file.Path basePath, String commitTime)
       throws IOException {
     File file = basePath.resolve(".hoodie")
-        .resolve(INSTANT_FILE_NAME_GENERATOR.makeRequestedCompactionFileName(commitTime)).toFile();
+        .resolve(HoodieTimeline.makeRequestedCompactionFileName(commitTime)).toFile();
     assertTrue(file.createNewFile());
     FileOutputStream os = new FileOutputStream(file);
     try {

@@ -67,7 +67,7 @@ public class ConsistentHashingUpdateStrategyUtils {
     Map<String, HoodieConsistentHashingMetadata> partitionToHashingMeta = new HashMap<>();
     Map<String, String> partitionToInstant = new HashMap<>();
     for (Pair<HoodieInstant, HoodieClusteringPlan> pair : instantPlanPairs) {
-      String instant = pair.getLeft().requestedTime();
+      String instant = pair.getLeft().getTimestamp();
       HoodieClusteringPlan plan = pair.getRight();
       extractHashingMetadataFromClusteringPlan(instant, plan, table, partitions, partitionToHashingMeta, partitionToInstant);
     }

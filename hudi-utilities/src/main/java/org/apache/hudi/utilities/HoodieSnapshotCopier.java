@@ -27,6 +27,7 @@ import org.apache.hudi.common.model.HoodiePartitionMetadata;
 import org.apache.hudi.common.table.HoodieTableConfig;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
+import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
 import org.apache.hudi.common.table.view.TableFileSystemView.BaseFileOnlyView;
 import org.apache.hudi.common.util.Option;
@@ -58,8 +59,6 @@ import java.util.stream.Stream;
 
 import scala.Tuple2;
 
-import static org.apache.hudi.common.table.timeline.InstantComparison.LESSER_THAN_OR_EQUALS;
-import static org.apache.hudi.common.table.timeline.InstantComparison.compareTimestamps;
 import static org.apache.hudi.utilities.UtilHelpers.buildSparkConf;
 
 /**
@@ -100,7 +99,7 @@ public class HoodieSnapshotCopier implements Serializable {
       LOG.warn("No commits present. Nothing to snapshot");
       return;
     }
-    final String latestCommitTimestamp = latestCommit.get().requestedTime();
+    final String latestCommitTimestamp = latestCommit.get().getTimestamp();
     LOG.info(String.format("Starting to snapshot latest version files which are also no-late-than %s.",
         latestCommitTimestamp));
 
@@ -160,8 +159,8 @@ public class HoodieSnapshotCopier implements Serializable {
                   if (fileStatus.isDirectory()) {
                     return false;
                   }
-                  String instantTime = tableMetadata.getInstantFileNameParser().extractTimestamp(path.getName());
-                  return compareTimestamps(instantTime, LESSER_THAN_OR_EQUALS, latestCommitTimestamp);
+                  String instantTime = FSUtils.getCommitFromCommitFile(path.getName());
+                  return HoodieTimeline.compareTimestamps(instantTime, HoodieTimeline.LESSER_THAN_OR_EQUALS, latestCommitTimestamp);
                 }
               }).toArray(FileStatus[]::new);
       for (FileStatus commitStatus : commitFilesToCopy) {

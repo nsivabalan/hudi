@@ -870,7 +870,7 @@ class TestFunctionalIndex extends HoodieSparkSqlTestBase {
       // rollback the operation
       val lastCompletedInstant = metaClient.reloadActiveTimeline().getCommitsTimeline.filterCompletedInstants().lastInstant()
       val writeClient = new SparkRDDWriteClient(new HoodieSparkEngineContext(new JavaSparkContext(spark.sparkContext)), getWriteConfig(Map.empty, metaClient.getBasePath.toString))
-      writeClient.rollback(lastCompletedInstant.get().requestedTime)
+      writeClient.rollback(lastCompletedInstant.get().getTimestamp)
       // validate the functional index
       checkAnswer(metadataSql)(
         // the last commit is rolledback so no records for that
@@ -1070,7 +1070,7 @@ class TestFunctionalIndex extends HoodieSparkSqlTestBase {
     var totalLatestDataFiles = 0L
     val fsView: HoodieMetadataFileSystemView = getTableFileSystemView(metaClient)
     try {
-      fsView.getAllLatestFileSlicesBeforeOrOn(metaClient.getActiveTimeline.lastInstant().get().requestedTime)
+      fsView.getAllLatestFileSlicesBeforeOrOn(metaClient.getActiveTimeline.lastInstant().get().getTimestamp)
         .values()
         .forEach(JFunction.toJavaConsumer[java.util.stream.Stream[FileSlice]]
           (slices => slices.forEach(JFunction.toJavaConsumer[FileSlice](

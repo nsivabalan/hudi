@@ -19,6 +19,8 @@
 
 package org.apache.hudi.client;
 
+import org.apache.hudi.common.table.timeline.HoodieInstant;
+
 import java.io.IOException;
 import java.io.Serializable;
 
@@ -37,10 +39,10 @@ public abstract class BaseClusterer<T, I, K, O> implements Serializable {
 
   /**
    * Run clustering for the instant.
-   * @param instantTime
+   * @param instant
    * @throws IOException
    */
-  public abstract void cluster(String instantTime) throws IOException;
+  public abstract void cluster(HoodieInstant instant) throws IOException;
 
   /**
    * Update the write client used by async clustering.

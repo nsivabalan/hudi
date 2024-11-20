@@ -185,7 +185,7 @@ public class SparkMetadataWriterUtils {
         .withBasePath(metaClient.getBasePath())
         .withLogFilePaths(logFilePaths)
         .withBufferSize(MAX_DFS_STREAM_BUFFER_SIZE.defaultValue())
-        .withLatestInstantTime(metaClient.getActiveTimeline().getCommitsTimeline().lastInstant().get().requestedTime())
+        .withLatestInstantTime(metaClient.getActiveTimeline().getCommitsTimeline().lastInstant().get().getTimestamp())
         .withReaderSchema(readerSchema)
         .withTableMetaClient(metaClient)
         .withLogRecordScannerCallback(records::add)

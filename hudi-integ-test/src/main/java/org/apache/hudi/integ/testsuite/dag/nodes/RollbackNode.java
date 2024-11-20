@@ -71,7 +71,7 @@ public class RollbackNode extends DagNode<Option<HoodieInstant>> {
                 .equalsIgnoreCase(DFSTestSuitePathSelector.class.getName()),
             "Test Suite only supports DFSTestSuitePathSelector");
         executionContext.getHoodieTestSuiteWriter().getWriteClient(this)
-            .rollback(lastInstant.get().requestedTime());
+            .rollback(lastInstant.get().getTimestamp());
         metaClient.getStorage().deleteDirectory(new StoragePath(
             executionContext.getWriterContext().getCfg().inputBasePath,
             executionContext.getWriterContext().getHoodieTestSuiteWriter().getLastCheckpoint()
