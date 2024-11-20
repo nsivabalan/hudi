@@ -791,16 +791,13 @@ public class HoodieTableMetadataUtil {
         String fileName = FSUtils.getFileName(writeStat.getPath(), writeStat.getPartitionPath());
         return FSUtils.isLogFile(fileName) && writeStat.getNumDeletes() > 0;
       });
-      Option<String> latestCommitTimestamp = Option.empty();
       Option<Schema> writerSchemaOpt = Option.empty();
       if (anyLogFilesWithDeletes) { // if we have a log file w/ deletes.
-        latestCommitTimestamp = Option.of(dataTableMetaClient.getActiveTimeline().getCommitsTimeline().lastInstant().get().requestedTime());
         writerSchemaOpt = tryResolveSchemaForTable(dataTableMetaClient);
       }
       int maxBufferSize = metadataConfig.getMaxReaderBufferSize();
       StorageConfiguration storageConfiguration = dataTableMetaClient.getStorageConf();
       Option<Schema> finalWriterSchemaOpt = writerSchemaOpt;
-      Option<String> finalLatestCommitTimestamp = latestCommitTimestamp;
       HoodieData<HoodieRecord> recordIndexRecords = engineContext.parallelize(allWriteStats, parallelism)
           .flatMap(writeStat -> {
             HoodieStorage storage = HoodieStorageUtils.getStorage(new StoragePath(writeStat.getPath()), storageConfiguration);
@@ -812,7 +809,7 @@ public class HoodieTableMetadataUtil {
               if (writeStat.getNumDeletes() > 0) {
                 StoragePath fullFilePath = new StoragePath(dataTableMetaClient.getBasePath(), writeStat.getPath());
                 Set<String> deletedRecordKeys = getDeletedRecordKeys(fullFilePath.toString(), dataTableMetaClient,
-                    finalWriterSchemaOpt, maxBufferSize, finalLatestCommitTimestamp.get());
+                    finalWriterSchemaOpt, maxBufferSize, instantTime);
                 return deletedRecordKeys.stream().map(recordKey -> HoodieMetadataPayload.createRecordIndexDelete(recordKey)).collect(toList()).iterator();
               }
               // ignore log file data blocks.
@@ -1393,7 +1390,8 @@ public class HoodieTableMetadataUtil {
     return Collections.emptyList();
   }
 
-  private static Set<String> getDeletedRecordKeys(String filePath, HoodieTableMetaClient datasetMetaClient,
+  @VisibleForTesting
+  public static Set<String> getDeletedRecordKeys(String filePath, HoodieTableMetaClient datasetMetaClient,
                                                  Option<Schema> writerSchemaOpt, int maxBufferSize,
                                                  String latestCommitTimestamp) throws IOException {
     if (writerSchemaOpt.isPresent()) {
