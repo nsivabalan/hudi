@@ -204,10 +204,10 @@ class TestPartialUpdateForMergeInto extends HoodieSparkSqlTestBase {
       spark.sql(
         s"""
            |merge into $tableName t0
-           |using ( select 1 as id, 'a1' as name, 12 as price, 1001 as ts
-           |union select 3 as id, 'a3' as name, 25 as price, 1260 as ts) s0
+           |using ( select 1 as id, 'a1' as name, 12.0 as price, 1001 as _ts
+           |union select 3 as id, 'a3' as name, 25.0 as price, 1260 as _ts) s0
            |on t0.id = s0.id
-           |when matched then update set price = s0.price, _ts = s0.ts
+           |when matched then update set price = s0.price, _ts = s0._ts
            |""".stripMargin)
 
       /*checkAnswer(s"select id, name, price, _ts, description from $tableName")(
@@ -224,10 +224,10 @@ class TestPartialUpdateForMergeInto extends HoodieSparkSqlTestBase {
       spark.sql(
         s"""
            |merge into $tableName t0
-           |using ( select 1 as id, 'a1' as name, 'a1: updated desc1' as description, 1023 as ts
-           |union select 2 as id, 'a2' as name, 'a2: updated desc2' as description, 1270 as ts) s0
+           |using ( select 1 as id, 'a1' as name, 'a1: updated desc1' as description, 1023 as _ts
+           |union select 2 as id, 'a2' as name, 'a2: updated desc2' as description, 1270 as _ts) s0
            |on t0.id = s0.id
-           |when matched then update set description = s0.description, _ts = s0.ts
+           |when matched then update set description = s0.description, _ts = s0._ts
            |""".stripMargin)
 
       /*checkAnswer(s"select id, name, price, _ts, description from $tableName")(
@@ -247,10 +247,10 @@ class TestPartialUpdateForMergeInto extends HoodieSparkSqlTestBase {
         spark.sql(
           s"""
              |merge into $tableName t0
-             |using ( select 2 as id, '_a2' as name, 18.0 as price, 1275 as ts
-             |union select 3 as id, '_a3' as name, 28.0 as price, 1280 as ts) s0
+             |using ( select 2 as id, '_a2' as name, 18.0 as price, 1275 as _ts
+             |union select 3 as id, '_a3' as name, 28.0 as price, 1280 as _ts) s0
              |on t0.id = s0.id
-             |when matched then update set price = s0.price, _ts = s0.ts
+             |when matched then update set price = s0.price, _ts = s0._ts
              |""".stripMargin)
         validateClusteringExecuted(basePath)
         checkAnswer(s"select id, name, price, _ts, description from $tableName")(
@@ -280,10 +280,16 @@ class TestPartialUpdateForMergeInto extends HoodieSparkSqlTestBase {
         """.stripMargin)
         spark.sql(s"insert into $tableName2 values(1, 'a1', 10)")
 
+        spark.sql(s"set ${HoodieWriteConfig.MERGE_SMALL_FILE_GROUP_CANDIDATES_LIMIT.key} = 0")
+        spark.sql(s"set ${DataSourceWriteOptions.ENABLE_MERGE_INTO_PARTIAL_UPDATES.key} = true")
+        spark.sql(s"set ${HoodieReaderConfig.FILE_GROUP_READER_ENABLED.key} = true")
+        spark.sql(s"set ${HoodieClusteringConfig.INLINE_CLUSTERING.key} = true")
+        spark.sql(s"set ${HoodieClusteringConfig.INLINE_CLUSTERING_MAX_COMMITS.key} = 1")
+
         spark.sql(
           s"""
              |merge into $tableName2 t0
-             |using ( select 1 as id, 'a1' as name, 12 as price) s0
+             |using ( select 1 as id, 'a2' as name, 12.0 as price) s0
              |on t0.id = s0.id
              |when matched then update set price = s0.price
              |""".stripMargin)
