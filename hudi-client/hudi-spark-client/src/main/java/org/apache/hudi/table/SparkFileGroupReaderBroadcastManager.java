@@ -7,14 +7,13 @@
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
  *
- *   http://www.apache.org/licenses/LICENSE-2.0
+ *      http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package org.apache.hudi.table;
@@ -41,15 +40,16 @@ import org.apache.spark.util.SerializableConfiguration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 
 import scala.Tuple2;
 import scala.collection.JavaConverters;
 
-public class SparkBroadcastManager extends EngineBroadcastManager {
+public class SparkFileGroupReaderBroadcastManager implements Serializable {
 
-  private static final Logger LOG = LoggerFactory.getLogger(SparkBroadcastManager.class);
+  private static final Logger LOG = LoggerFactory.getLogger(SparkFileGroupReaderBroadcastManager.class);
 
   private final transient HoodieEngineContext context;
 
@@ -58,12 +58,11 @@ public class SparkBroadcastManager extends EngineBroadcastManager {
   protected Broadcast<SparkParquetReader> parquetReaderBroadcast;
   protected Broadcast<SerializableConfiguration> configurationBroadcast;
 
-  public SparkBroadcastManager(HoodieEngineContext context) {
+  public SparkFileGroupReaderBroadcastManager(HoodieEngineContext context) {
     this.context = context;
   }
 
-  // Prepare broadcast variables
-  @Override
+  // Prepare broadcast variables.
   public void prepareAndBroadcast() {
     // This needs to be fixed.
     if (!(context instanceof HoodieSparkEngineContext)) {
@@ -90,7 +89,6 @@ public class SparkBroadcastManager extends EngineBroadcastManager {
     parquetReaderBroadcast = jsc.broadcast(parquetReaderOpt.get());
   }
 
-  @Override
   public Option<HoodieReaderContext> retrieveFileGroupReaderContext(StoragePath basePath) {
     if (parquetReaderBroadcast == null) {
       LOG.warn("ParquetReader is not broadcast; cannot create file group reader");
@@ -106,6 +104,8 @@ public class SparkBroadcastManager extends EngineBroadcastManager {
       List<Filter> filters = new ArrayList<>();
       return Option.of(new SparkFileFormatInternalRowReaderContext(
           sparkParquetReader,
+          // Need to verify this logic.
+          metaClient.getTableConfig().getRecordKeyFields().get()[0],
           JavaConverters.asScalaBufferConverter(filters).asScala().toSeq(),
           JavaConverters.asScalaBufferConverter(filters).asScala().toSeq()));
     } else {
@@ -114,7 +114,6 @@ public class SparkBroadcastManager extends EngineBroadcastManager {
     }
   }
 
-  @Override
   public Option<Configuration> retrieveStorageConfig() {
     return Option.of(configurationBroadcast.getValue().value());
   }
