@@ -458,7 +458,8 @@ public abstract class MultipleSparkJobExecutionStrategy<T>
     boolean canUseFileGroupReaderBasedClustering = !hasBootstrapFile
         && getWriteConfig().getBooleanOrDefault(HoodieReaderConfig.FILE_GROUP_READER_ENABLED)
         && getWriteConfig().getBooleanOrDefault(HoodieTableConfig.POPULATE_META_FIELDS)
-        && StringUtils.isNullOrEmpty(getWriteConfig().getInternalSchema());
+        && StringUtils.isNullOrEmpty(getWriteConfig().getInternalSchema())
+        && !containsUnsupportedTypesForFileGroupReader(tableSchemaWithMetaFields.toString());
 
     if (canUseFileGroupReaderBasedClustering) {
       return clusterBasedOnFileGroupReader(jsc, instantTime, tableSchemaWithMetaFields, clusteringOps);
@@ -519,6 +520,10 @@ public abstract class MultipleSparkJobExecutionStrategy<T>
           .createRelation(sqlContext, getHoodieTable().getMetaClient(), null, paths, params);
       return sqlContext.baseRelationToDataFrame(relation);
     }
+  }
+
+  private boolean containsUnsupportedTypesForFileGroupReader(String schemaStr) {
+    return HoodieAvroUtils.containsUnsupportedTypesForFileGroupReader(new Schema.Parser().parse(schemaStr));
   }
 
   private Dataset<Row> clusterBasedOnFileGroupReader(JavaSparkContext jsc,
