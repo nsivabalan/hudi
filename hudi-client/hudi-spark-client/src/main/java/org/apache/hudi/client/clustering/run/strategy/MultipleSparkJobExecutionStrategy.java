@@ -51,6 +51,7 @@ import org.apache.hudi.common.util.CustomizedThreadFactory;
 import org.apache.hudi.common.util.FutureUtils;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.StringUtils;
+import org.apache.hudi.common.util.ValidationUtils;
 import org.apache.hudi.common.util.collection.ClosableIterator;
 import org.apache.hudi.common.util.collection.CloseableMappingIterator;
 import org.apache.hudi.common.util.collection.Pair;
@@ -103,6 +104,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -452,10 +454,13 @@ public abstract class MultipleSparkJobExecutionStrategy<T>
                                                 Schema tableSchemaWithMetaFields) {
     List<ClusteringOperation> clusteringOps = clusteringGroup.getSlices().stream()
         .map(ClusteringOperation::create).collect(Collectors.toList());
+    boolean hasBootstrapFile = clusteringOps.stream().anyMatch(slice -> !StringUtils.isNullOrEmpty(slice.getBootstrapFilePath()));
+    boolean canUseFileGroupReaderBasedClustering = !hasBootstrapFile
+        && getWriteConfig().getBooleanOrDefault(HoodieReaderConfig.FILE_GROUP_READER_ENABLED)
+        && getWriteConfig().getBooleanOrDefault(HoodieTableConfig.POPULATE_META_FIELDS)
+        && StringUtils.isNullOrEmpty(getWriteConfig().getInternalSchema());
 
-    boolean isBootstrapClustering = clusteringOps.stream().anyMatch(slice -> !StringUtils.isNullOrEmpty(slice.getBootstrapFilePath()));
-
-    if (getWriteConfig().getBooleanOrDefault(HoodieReaderConfig.FILE_GROUP_READER_ENABLED) && !isBootstrapClustering) {
+    if (canUseFileGroupReaderBasedClustering) {
       return clusterBasedOnFileGroupReader(jsc, instantTime, tableSchemaWithMetaFields, clusteringOps);
     } else {
       boolean hasLogFiles = clusteringOps.stream().anyMatch(op -> op.getDeltaFilePaths().size() > 0);
@@ -537,12 +542,25 @@ public abstract class MultipleSparkJobExecutionStrategy<T>
       public Iterator<InternalRow> call(ClusteringOperation clusteringOperation) throws Exception {
         // construct FileSlice to pass into FileGroupReader
         String partitionPath = clusteringOperation.getPartitionPath();
-        HoodieBaseFile baseFile = new HoodieBaseFile(new StoragePath(basePath, clusteringOperation.getDataFilePath()).toString());
+        boolean baseFileExists = !StringUtils.isNullOrEmpty(clusteringOperation.getDataFilePath());
+        HoodieBaseFile baseFile = baseFileExists ? new HoodieBaseFile(new StoragePath(basePath, clusteringOperation.getDataFilePath()).toString()) : null;
         List<HoodieLogFile> logFiles = clusteringOperation.getDeltaFilePaths().stream().map(p ->
                 new HoodieLogFile(new StoragePath(FSUtils.constructAbsolutePath(
                     basePath, partitionPath), p)))
             .collect(Collectors.toList());
-        FileSlice fileSlice = new FileSlice(new HoodieFileGroupId(partitionPath, clusteringOperation.getFileId()), baseFile.getCommitTime(), baseFile, logFiles);
+
+        if (!baseFileExists) {
+          ValidationUtils.checkArgument(!logFiles.isEmpty(), "Both base file and log files are missing from this clustering operation " + clusteringOperation);
+        }
+        Collections.sort(logFiles, new HoodieLogFile.LogFileComparator());
+        String baseInstantTime = baseFileExists ? baseFile.getCommitTime() : logFiles.get(0).getDeltaCommitTime();
+        FileSlice fileSlice = new FileSlice(partitionPath, baseInstantTime, clusteringOperation.getFileId());
+        if (baseFileExists) {
+          fileSlice.setBaseFile(baseFile);
+        }
+        if (!logFiles.isEmpty()) {
+          logFiles.forEach(logFile -> fileSlice.addLogFile(logFile));
+        }
 
         // instantiate other supporting cast
         Schema readerSchema = serializableTableSchemaWithMetaFields.get();
@@ -556,7 +574,7 @@ public abstract class MultipleSparkJobExecutionStrategy<T>
         // instantiate FG reader
         HoodieFileGroupReader<T> fileGroupReader = new HoodieFileGroupReader<>(
             readerContextOpt.get(),
-            getHoodieTable().getMetaClient().getStorage().newInstance(getHoodieTable().getMetaClient().getBasePath(), new HadoopStorageConfiguration(conf)),
+            getHoodieTable().getMetaClient().getStorage().newInstance(new StoragePath(basePath), new HadoopStorageConfiguration(conf)),
             basePath,
             instantTime,
             fileSlice,
@@ -576,7 +594,7 @@ public abstract class MultipleSparkJobExecutionStrategy<T>
       }
     }).rdd();
 
-    return HoodieUnsafeUtils.createDataFrameFromRDD(((HoodieSparkEngineContext)getEngineContext()).getSqlContext().sparkSession(),
+    return HoodieUnsafeUtils.createDataFrameFromRDD(((HoodieSparkEngineContext) getEngineContext()).getSqlContext().sparkSession(),
         internalRowRDD, sparkSchemaWithMetaFields);
   }
 
