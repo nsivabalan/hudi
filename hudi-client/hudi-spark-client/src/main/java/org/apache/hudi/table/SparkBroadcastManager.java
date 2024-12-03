@@ -81,6 +81,20 @@ public class SparkBroadcastManager extends EngineBroadcastManager {
     // Do broadcast.
     sqlConfBroadcast = jsc.broadcast(sqlConf);
     // new Configuration() is critical so that we don't run into ConcurrentModificatonException
+    Configuration hadoopConf = new Configuration(jsc.hadoopConfiguration());
+    //hadoopConf.setBoolean(
+    //  SQLConf.NESTED_SCHEMA_PRUNING_ENABLED.key,
+    // sparkSession.sessionState.conf.nestedSchemaPruningEnabled)
+    hadoopConf.setBoolean(SQLConf.CASE_SENSITIVE().key(), false);
+
+    // Sets flags for `ParquetToSparkSchemaConverter`
+    hadoopConf.setBoolean(SQLConf.PARQUET_BINARY_AS_STRING().key(), false);
+    hadoopConf.setBoolean(SQLConf.PARQUET_INT96_AS_TIMESTAMP().key(), true);
+    // Using string value of this conf to preserve compatibility across spark versions.
+    hadoopConf.setBoolean(SQLConf.LEGACY_PARQUET_NANOS_AS_LONG().key(), false);
+
+    //hadoopConf.setBoolean(SQLConf.PARQUET_INFER_TIMESTAMP_NTZ_ENABLED.key, sparkSession.sessionState.conf.parquetInferTimestampNTZEnabled)
+    ///hadoopConf.setBoolean(SQLConf.LEGACY_PARQUET_NANOS_AS_LONG.key, sparkSession.sessionState.conf.legacyParquetNanosAsLong)
     configurationBroadcast = jsc.broadcast(new SerializableConfiguration(new Configuration(jsc.hadoopConfiguration())));
     // TODO: Disable vectorization as of now. Assign it based on relevant settings.
     // TODO: Verify if we can construct the reader on the executor side if we has broadcast all necessary variables.
