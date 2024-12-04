@@ -18,6 +18,8 @@
 
 package org.apache.hudi.utilities;
 
+import org.apache.hudi.avro.HoodieAvroUtils;
+import org.apache.hudi.avro.model.HoodieRecordIndexInfo;
 import org.apache.hudi.client.common.HoodieSparkEngineContext;
 import org.apache.hudi.common.config.HoodieConfig;
 import org.apache.hudi.common.config.TypedProperties;
@@ -28,6 +30,7 @@ import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.TableSchemaResolver;
 import org.apache.hudi.common.table.log.HoodieLogFormat;
+import org.apache.hudi.common.table.log.HoodieMergedLogRecordScanner;
 import org.apache.hudi.common.table.log.block.HoodieCommandBlock;
 import org.apache.hudi.common.table.log.block.HoodieCorruptBlock;
 import org.apache.hudi.common.table.log.block.HoodieDataBlock;
@@ -43,6 +46,8 @@ import org.apache.hudi.exception.TableNotFoundException;
 import org.apache.hudi.hadoop.fs.CachingPath;
 import org.apache.hudi.io.storage.HoodieFileReader;
 import org.apache.hudi.io.storage.HoodieFileReaderFactory;
+import org.apache.hudi.metadata.HoodieMetadataPayload;
+import org.apache.hudi.metadata.HoodieTableMetadataUtil;
 import org.apache.hudi.table.HoodieSparkTable;
 import org.apache.hudi.table.HoodieTable;
 import org.apache.hudi.utilities.streamer.HoodieStreamer;
@@ -59,6 +64,7 @@ import org.apache.parquet.avro.AvroSchemaConverter;
 import org.apache.parquet.schema.MessageType;
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaSparkContext;
+import org.apache.spark.unsafe.types.UTF8String;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -137,6 +143,9 @@ public class PrintRecordsTool implements Serializable {
 
     @Parameter(names = {"--log-files-location", "lfl"})
     public String logFiles = null;
+
+    @Parameter(names = {"--log-files-to-trim", "lflt"})
+    public Integer logFilesToTrim = -1;
 
     @Parameter(names = {"--compare-records", "cr"})
     public Boolean compareRecords = false;
@@ -242,20 +251,20 @@ public class PrintRecordsTool implements Serializable {
       TableSchemaResolver schemaResolver = new TableSchemaResolver(metaClient);
       HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder().withPath(cfg.basePath)
           .withSchema(schemaResolver.getTableAvroSchema().toString()).withProperties(props).build();
-      printRecs(writeConfig, context, metaClient);
+      printRecs(writeConfig, context, metaClient, context.hadoopConfiguration());
     } catch (Exception e) {
       throw new HoodieException("failed to print records");
     }
   }
 
   @VisibleForTesting
-  void printRecs(HoodieWriteConfig writeConfig, HoodieSparkEngineContext context, HoodieTableMetaClient metaClient) throws IOException {
+  void printRecs(HoodieWriteConfig writeConfig, HoodieSparkEngineContext context, HoodieTableMetaClient metaClient, Configuration configuration) throws Exception {
     HoodieTable table = HoodieSparkTable.create(writeConfig, context, metaClient);
     printLogRecords(table, cfg.recordKey == null ? Collections.emptySet()
-        : Arrays.stream(cfg.recordKey.split(",")).map(key -> key.trim()).collect(Collectors.toSet()));
+        : Arrays.stream(cfg.recordKey.split(",")).map(key -> key.trim()).collect(Collectors.toSet()), configuration);
   }
 
-  private void printLogRecords(HoodieTable hoodieTable, Set<String> keysToFilter) throws IOException {
+  private void printLogRecords(HoodieTable hoodieTable, Set<String> keysToFilter, Configuration configuration) throws Exception {
     FileSystem fs = hoodieTable.getMetaClient().getFs();
     if (cfg.logFiles == null) {
       Pair<String, String> partitionPathFileIDPair = Pair.of(cfg.partitionPath, cfg.fileId);
@@ -271,6 +280,11 @@ public class PrintRecordsTool implements Serializable {
       LOG.info("Looking for record key " + Arrays.toString(keysToFilter.toArray()) + " in log files " + cfg.logFiles);
       List<Path> logFilePaths = Arrays.stream(cfg.logFiles.split(",")).map(key -> key.trim()).map(file -> new Path(file)).collect(toList());
       printRecordsFromLogFiles(logFilePaths, fs, keysToFilter, null);
+
+      LOG.info("\n\n\nAlso printing final snapshot from all log files (size :" + logFilePaths.size() +")");
+
+      readRecordsForGroupWithLogs(cfg.basePath, logFilePaths.stream().map(path -> path.toString()).collect(toList()),
+          "20240915203755867", cfg.partitionPath, keysToFilter);
     } else {
       LOG.info("Comparing log records base file records");
       LOG.info("Looking for record key " + Arrays.toString(keysToFilter.toArray()) + " in log files " + cfg.logFiles);
@@ -292,8 +306,53 @@ public class PrintRecordsTool implements Serializable {
       });
 
       LOG.info("Total matched records after comparison :: " + totalMatched.get());
+
+      LOG.info("\n\n\nAlso printing final snapshot from all log files");
+
+      readRecordsForGroupWithLogs(cfg.basePath, logFilePaths.stream().map(path -> path.toString()).collect(toList()),
+          "20240917083023513", cfg.partitionPath, keysToFilter);
     }
   }
+
+  /**
+   * Read records from baseFiles, apply updates and convert to RDD.
+   */
+  private void readRecordsForGroupWithLogs(String basePath, List<String> logFilePaths, String latestInstant,
+                                           String partitionPath, Set<String> keystoFilter) throws Exception {
+    HoodieTableMetaClient metaClient = HoodieTableMetaClient.builder().setBasePath(basePath).setConf(jsc.hadoopConfiguration()).build();
+    TableSchemaResolver schemaResolver = new TableSchemaResolver(metaClient);
+    HoodieWriteConfig config = HoodieWriteConfig.newBuilder().withPath(cfg.basePath)
+        .withSchema(schemaResolver.getTableAvroSchema().toString()).withProperties(props).build();
+
+    Schema readerSchema = HoodieAvroUtils.addMetadataFields(new Schema.Parser().parse(config.getSchema()));
+    HoodieMergedLogRecordScanner scanner = HoodieMergedLogRecordScanner.newBuilder()
+        .withFileSystem(metaClient.getFs())
+        .withBasePath(metaClient.getBasePath())
+        .withLogFilePaths(logFilePaths)
+        .withReaderSchema(readerSchema)
+        .withLatestInstantTime(latestInstant)
+        .withMaxMemorySizeInBytes(1024*1024*1024L)
+        .withReadBlocksLazily(config.getCompactionLazyBlockReadEnabled())
+        .withReverseReader(config.getCompactionReverseLogReadEnabled())
+        .withBufferSize(config.getMaxDFSStreamBufferSize())
+        .withSpillableMapBasePath(config.getSpillableMapBasePath())
+        .withPartition(partitionPath)
+        .withOptimizedLogBlocksScan(config.enableOptimizedLogBlocksScan())
+        .withDiskMapType(config.getCommonConfig().getSpillableDiskMapType())
+        .withBitCaskDiskMapCompressionEnabled(config.getCommonConfig().isBitCaskDiskMapCompressionEnabled())
+        .withRecordMerger(config.getRecordMerger())
+        .withTableMetaClient(metaClient)
+        .build();
+
+    for (Map.Entry<String, HoodieRecord> entry : scanner.getRecords().entrySet()) {
+      if (keystoFilter != null && !keystoFilter.isEmpty()) {
+        if (keystoFilter.contains(entry.getKey())) {
+          LOG.info("======= Matching record found after reading snapshot from all log files ");
+        }
+      }
+    }
+  }
+
 
   private boolean compareTwoRecords(GenericRecord genericRecord1, GenericRecord genericRecord2) {
     List<Schema.Field> fields = genericRecord1.getSchema().getFields();
@@ -333,7 +392,12 @@ public class PrintRecordsTool implements Serializable {
   private void printRecordsFromLogFiles(List<Path> logFilePaths, FileSystem fs, Set<String> keysToFilter, Map<String, GenericRecord> logRecords) throws IOException {
     LOG.info("Log files for the matching file slice " + Arrays.toString(logFilePaths.toArray()));
     AtomicInteger totalMatchedRecords = new AtomicInteger(0);
+    int maxLogFiles = cfg.logFilesToTrim != -1 ? 1000 : cfg.logFilesToTrim;
+    int logFilesProcessed = 0;
     for (Path logFile : logFilePaths) {
+      if (logFilesProcessed++ >= maxLogFiles) {
+        break;
+      }
       LOG.info("Processing log file " + logFile.getName());
       MessageType schema = TableSchemaResolver.readSchemaFromLogFile(fs, new CachingPath(logFile.toString()));
       Schema writerSchema = schema != null
@@ -346,7 +410,7 @@ public class PrintRecordsTool implements Serializable {
         String fileName = n.getBlockContentLocation().get().getLogFile().getFileName();
         if (n instanceof HoodieDataBlock) {
           LOG.info("Processing next block " + fileName + ", log block type " + n.getBlockType()
-              + ", instant time " + n.getLogBlockHeader().get(HoodieLogBlock.HeaderMetadataType.INSTANT_TIME));
+              + ", instant time " + n.getLogBlockHeader().get(HoodieLogBlock.HeaderMetadataType.INSTANT_TIME) + ", in file " + logFile.getName());
           HoodieDataBlock blk = (HoodieDataBlock) n;
           HoodieLogBlock.HoodieLogBlockType logBlockType = blk.getBlockType();
           try (ClosableIterator<HoodieRecord<IndexedRecord>> recordItr = blk.getRecordIterator(HoodieRecord.HoodieRecordType.AVRO)) {
@@ -354,7 +418,8 @@ public class PrintRecordsTool implements Serializable {
             while (recordItr.hasNext()) {
               HoodieRecord<IndexedRecord> next = recordItr.next();
               counter++;
-              printHoodieRecord(next, keysToFilter, fileName, logBlockType, totalMatchedRecords, logRecords);
+              printHoodieRecord(next, keysToFilter, fileName, logBlockType, totalMatchedRecords, logRecords,
+                  n.getLogBlockHeader().get(HoodieLogBlock.HeaderMetadataType.INSTANT_TIME));
             }
             if (cfg.printLogBlocksInfo) {
               // if print only log blocks info,
@@ -363,13 +428,15 @@ public class PrintRecordsTool implements Serializable {
           }
           LOG.info("Finished processing " + fileName);
         } else if (n instanceof HoodieDeleteBlock) {
-          LOG.info("Encountered delete block " + n.getLogBlockHeader().get(HoodieLogBlock.HeaderMetadataType.INSTANT_TIME));
+          LOG.info("Encountered delete block " + n.getLogBlockHeader().get(HoodieLogBlock.HeaderMetadataType.INSTANT_TIME)
+              + ", in file " + logFile.getName());
           LOG.info("Total records in delete command block " + ((HoodieDeleteBlock) n).getRecordsToDelete().length);
           DeleteRecord[] deleteRecords = ((HoodieDeleteBlock) n).getRecordsToDelete();
           Arrays.stream(deleteRecords).forEach(deleteRecord -> {
             if (keysToFilter.contains(deleteRecord.getRecordKey())) {
-              LOG.info("Record key deleted in this block " + deleteRecord.getRecordKey() + ", ordering value " + deleteRecord.getOrderingValue()
-                  + ", partition path " + deleteRecord.getPartitionPath());
+              LOG.info("============= Matching Record :: Record key deleted in this instant time " + n.getLogBlockHeader().get(HoodieLogBlock.HeaderMetadataType.INSTANT_TIME)
+                  + " block, rk : " + deleteRecord.getRecordKey() + ", ordering value " + deleteRecord.getOrderingValue()
+                  + ", partition path " + deleteRecord.getPartitionPath() + ", file name " + logFile.getName());
             }
           });
         } else if (n instanceof HoodieCorruptBlock) {
@@ -387,10 +454,28 @@ public class PrintRecordsTool implements Serializable {
 
   private void printHoodieRecord(HoodieRecord<IndexedRecord> next, Set<String> keysToFilter, String fileName,
                                  HoodieLogBlock.HoodieLogBlockType logBlockType, AtomicInteger totalMatchedRecords,
-                                 Map<String, GenericRecord> logRecords) {
+                                 Map<String, GenericRecord> logRecords, String logBlockInstantTime) {
     if (cfg.printAllRecords) {
-      LOG.info("Record " + ((GenericRecord) next.getData()).get(HoodieRecord.RECORD_KEY_METADATA_FIELD).toString()
-          + " " + ((GenericRecord) next.getData()).toString());
+      //LOG.info("Record " + ((GenericRecord) next.getData()).get(HoodieRecord.RECORD_KEY_METADATA_FIELD).toString()
+        //  + " " + ((GenericRecord) next.getData()).toString());
+      if (fileName.contains("record-index-")) {
+        String keyInValue = (String) ((GenericRecord) next.getData()).get("key");
+        if (keyInValue.equals("624c9866b6324dab563f8912")) {
+          //LOG.info("Record Matched : " + ((GenericRecord) next.getData()).toString());
+          GenericRecord genericRecord = (GenericRecord) ((GenericRecord) next.getData()).get("recordIndexMetadata");
+          LOG.info("Record matched, high bits : " + genericRecord.get("fileIdHighBits") + ", low bits " + genericRecord.get("fileIdLowBits") + ", instant time "
+              + genericRecord.get("instantTime") + ", fileId " +
+              HoodieTableMetadataUtil.getLocationFromRecordIndexInfo("", 0, (Long) genericRecord.get("fileIdHighBits"), (Long) genericRecord.get("fileIdLowBits"),
+                  1, "", (Long) genericRecord.get("instantTime")));
+        }
+      } else {
+        HashMap<UTF8String, GenericRecord> fsMap = (HashMap<UTF8String, GenericRecord>) ((GenericRecord) next.getData()).get("filesystemMetadata");
+        LOG.info("Record matched :: ");
+        fsMap.entrySet().forEach((kv) -> {
+          LOG.info("      " + kv.getKey() + " -> " + kv.getValue().toString());
+        });
+      }
+
       totalMatchedRecords.incrementAndGet();
     } else if (!cfg.printLogBlocksInfo) {
       if (logBlockType == HoodieLogBlock.HoodieLogBlockType.AVRO_DATA_BLOCK || logBlockType == HoodieLogBlock.HoodieLogBlockType.PARQUET_DATA_BLOCK
@@ -398,7 +483,7 @@ public class PrintRecordsTool implements Serializable {
         // print matching records
         if (keysToFilter.contains(((GenericRecord) next.getData()).get(HoodieRecord.RECORD_KEY_METADATA_FIELD).toString())) {
           LOG.info("============= Matching Record " + ((GenericRecord) next.getData()).get(HoodieRecord.RECORD_KEY_METADATA_FIELD)
-              + " found in " + fileName + " ============== ");
+              + " found in block w/ instant time : " + logBlockInstantTime + ", and file name : " + fileName + " ============== ");
           totalMatchedRecords.incrementAndGet();
           if (logRecords != null) {
             logRecords.put((((GenericRecord) next.getData()).get(HoodieRecord.RECORD_KEY_METADATA_FIELD).toString()), (GenericRecord) next.getData());

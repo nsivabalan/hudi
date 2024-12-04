@@ -88,7 +88,7 @@ public class TestPrintRecordsTool extends SparkClientFunctionalTestHarness {
   }
 
   @Test
-  public void simpleTest() {
+  public void simpleTest() throws Exception {
 
     PrintRecordsTool.Config cfg = new PrintRecordsTool.Config();
     cfg.basePath = sourcePath;
@@ -120,19 +120,135 @@ public class TestPrintRecordsTool extends SparkClientFunctionalTestHarness {
       HoodieTableMetaClient metaClient = HoodieTableMetaClient.builder().setConf(jsc().hadoopConfiguration()).setBasePath(cfg.basePath)
           .setLoadActiveTimelineOnLoad(true).build();
       HoodieWriteConfig writeConfig = getHoodieWriteConfig(sourcePath);
-      printRecordsTool.printRecs(writeConfig, context, metaClient);
+      printRecordsTool.printRecs(writeConfig, context, metaClient, jsc().hadoopConfiguration());
 
       cfg.logFiles = logFileToTest;
       cfg.newBaseParquetFile = dataFileToTest;
       cfg.compareRecords = true;
 
-      printRecordsTool.printRecs(writeConfig, context, metaClient);
+      printRecordsTool.printRecs(writeConfig, context, metaClient, jsc().hadoopConfiguration());
 
     } catch (FileNotFoundException ex) {
       ex.printStackTrace();
     } catch (IOException ex) {
       ex.printStackTrace();
     }
+  }
+
+  /**
+   * delete matched. 2, 4, 5, 7, 9, 11, 13 , 15
+   * rollback blocks: 3, 6, 8, 10, 12, 14
+   * <p>
+   * 1: 134 records. delete block: 2281 records. none of them matches the record key of interest.
+   * 2: 20240915200809984. 71
+   * 2: 20240915200809984. 1589 records in delete block.
+   * 3: RB. target instant time ROLLBACK_BLOCK. matches 2
+   * 4: 20240915203755867. 71
+   * 4: 20240915203755867. 1589 records in delete block.
+   * 4 succeeded.
+   * 5: 20240916020817335, 59
+   * 5: 20240916020817335, 285 records in delete block.
+   * 6: rollback  target instant time matches 5
+   * 7: 20240916022517864, 59
+   * 7: 20240916022517864, 285 records in delete block.
+   * 8: rollback  target instant time matches 7
+   * 9: 20240916030258627, 59
+   * 9: 20240916030258627, 285 records in delete block.
+   * 10: rollback. target instant time matches
+   * 11: 20240916032112303, 59
+   * 11: 20240916032112303, 285 records in delete block.
+   * 12: rollback. target instant time matches 11
+   * 13: 20240916035133285, 59
+   * 13: 20240916035133285, 285 records in delete block.
+   * 14: rollback. target instant time matches 14
+   * 15: 20240916055242213, 59
+   * 15: 20240916055242213. 290 records to delete.
+   */
+  @Test
+  public void circle_user_debug() {
+
+    PrintRecordsTool.Config cfg = new PrintRecordsTool.Config();
+    cfg.basePath = "/tmp/circle_user/tbl_path/";
+    cfg.partitionPath = "date_updated_at=2024-09-10";
+    cfg.recordKey = "611bfb28dd08cf1a21c9bc4f";
+    cfg.fileId = "13903032-ee6e-4f68-b8ba-e4257c715c76-0";
+    cfg.baseInstantTime = "20240915075008505";
+    cfg.colsToPrint = "_hoodie_partition_path,_hoodie_commit_time,_hoodie_file_name,_hoodie_commit_seqno";
+    cfg.propsFilePath = "/tmp/input.props";
+    cfg.printLogBlocksInfo = true;
+
+    PrintRecordsTool printRecordsTool = new PrintRecordsTool(jsc(), cfg);
+    printRecordsTool.run();
+  }
+
+  @Test
+  public void circle_user_debug1() {
+
+    PrintRecordsTool.Config cfg = new PrintRecordsTool.Config();
+    cfg.basePath = "/tmp/tiramisu_investigate/tbl_path";
+    cfg.partitionPath = "date_updated_at=2024-09-12";
+    cfg.recordKey = "63dbdd60260d549722ecb758";
+    cfg.fileId = "f3a5c4ef-4ca6-41de-9502-72e1e78f84f0-0";
+    cfg.baseInstantTime = "20240914175524391";
+    cfg.colsToPrint = "_hoodie_partition_path,_hoodie_commit_time,_hoodie_file_name,_hoodie_commit_seqno";
+    cfg.propsFilePath = "/tmp/input.props";
+    cfg.printLogBlocksInfo = true;
+
+    PrintRecordsTool printRecordsTool = new PrintRecordsTool(jsc(), cfg);
+    printRecordsTool.run();
+  }
+
+  @Test
+  public void circle_user_debug_2024_04_24() {
+
+    PrintRecordsTool.Config cfg = new PrintRecordsTool.Config();
+    cfg.basePath = "/tmp/tiramisu_investigate/tbl_path";
+    cfg.partitionPath = "date_updated_at=2024-04-24";
+    cfg.recordKey = "63dbdd60260d549722ecb758";
+    cfg.fileId = "eec0b1ad-11dd-43f4-bdf6-8f696500d544-0";
+    cfg.baseInstantTime = "20240424094534253";
+    cfg.colsToPrint = "_hoodie_partition_path,_hoodie_commit_time,_hoodie_file_name,_hoodie_commit_seqno";
+    cfg.propsFilePath = "/tmp/input.props";
+
+    PrintRecordsTool printRecordsTool = new PrintRecordsTool(jsc(), cfg);
+    printRecordsTool.run();
+  }
+
+  @Test
+  public void circle_user_debug_2024_09_14() {
+
+    PrintRecordsTool.Config cfg = new PrintRecordsTool.Config();
+    cfg.basePath = "/tmp/tiramisu_investigate/tbl_path";
+    cfg.partitionPath = "date_updated_at=2024-09-14";
+    cfg.recordKey = "63dbdd60260d549722ecb758";
+    cfg.fileId = "f73407df-486d-4e24-94e5-60b410f509d5-0";
+    cfg.baseInstantTime = "20240914234855060";
+    cfg.colsToPrint = "_hoodie_partition_path,_hoodie_commit_time,_hoodie_file_name,_hoodie_commit_seqno";
+    cfg.propsFilePath = "/tmp/input.props";
+
+    PrintRecordsTool printRecordsTool = new PrintRecordsTool(jsc(), cfg);
+    printRecordsTool.run();
+  }
+
+  @Test
+  public void circle_user_debug2() {
+
+    PrintRecordsTool.Config cfg = new PrintRecordsTool.Config();
+    cfg.basePath = "/tmp/circle_user/tbl_path/";
+    cfg.partitionPath = "date_updated_at=2024-09-10";
+    cfg.recordKey = "611bfb28dd08cf1a21c9bc4f";
+    cfg.fileId = "13903032-ee6e-4f68-b8ba-e4257c715c76-0";
+    cfg.baseInstantTime = "20240915075008505";
+    cfg.colsToPrint = "_hoodie_partition_path,_hoodie_commit_time,_hoodie_file_name,_hoodie_commit_seqno";
+    cfg.propsFilePath = "/tmp/input.props";
+    // cfg.printLogBlocksInfo = true;
+    //cfg.logFiles =
+      //  "/tmp/circle_user/tbl_path/date_updated_at=2024-09-10/.13903032-ee6e-4f68-b8ba-e4257c715c76-0_20240915075008505.log.1_1450-2038-309104,/tmp/circle_user/tbl_path/date_updated_at=2024-09-10/.13903032-ee6e-4f68-b8ba-e4257c715c76-0_20240915075008505.log.2_1397-2213-301658,/tmp/circle_user/tbl_path/date_updated_at=2024-09-10/.13903032-ee6e-4f68-b8ba-e4257c715c76-0_20240915075008505.log.3_1-0-1,/tmp/circle_user/tbl_path/date_updated_at=2024-09-10/.13903032-ee6e-4f68-b8ba-e4257c715c76-0_20240915075008505.log.4_1397-7487-1076753,/tmp/circle_user/tbl_path/date_updated_at=2024-09-10/.13903032-ee6e-4f68-b8ba-e4257c715c76-0_20240915075008505.log.5_811-50063-6404861,/tmp/circle_user/tbl_path/date_updated_at=2024-09-10/.13903032-ee6e-4f68-b8ba-e4257c715c76-0_20240915075008505.log.6_1-0-1,/tmp/circle_user/tbl_path/date_updated_at=2024-09-10/.13903032-ee6e-4f68-b8ba-e4257c715c76-0_20240915075008505.log.7_811-53727-6909994,/tmp/circle_user/tbl_path/date_updated_at=2024-09-10/.13903032-ee6e-4f68-b8ba-e4257c715c76-0_20240915075008505.log.8_1-0-1,/tmp/circle_user/tbl_path/date_updated_at=2024-09-10/.13903032-ee6e-4f68-b8ba-e4257c715c76-0_20240915075008505.log.9_811-539-87049,/tmp/circle_user/tbl_path/date_updated_at=2024-09-10/.13903032-ee6e-4f68-b8ba-e4257c715c76-0_20240915075008505.log.10_1-0-1,/tmp/circle_user/tbl_path/date_updated_at=2024-09-10/.13903032-ee6e-4f68-b8ba-e4257c715c76-0_20240915075008505.log.11_811-4174-539857,/tmp/circle_user/tbl_path/date_updated_at=2024-09-10/.13903032-ee6e-4f68-b8ba-e4257c715c76-0_20240915075008505.log.12_1-0-1,/tmp/circle_user/tbl_path/date_updated_at=2024-09-10/.13903032-ee6e-4f68-b8ba-e4257c715c76-0_20240915075008505.log.13_811-12064-1486394,/tmp/circle_user/tbl_path/date_updated_at=2024-09-10/.13903032-ee6e-4f68-b8ba-e4257c715c76-0_20240915075008505.log.14_1-0-1,/tmp/circle_user/tbl_path/date_updated_at=2024-09-10/.13903032-ee6e-4f68-b8ba-e4257c715c76-0_20240915075008505.log.15_822-41116-4957529";
+    cfg.logFiles =
+        "/tmp/circle_user/tbl_path/date_updated_at=2024-09-10/.13903032-ee6e-4f68-b8ba-e4257c715c76-0_20240915075008505.log.1_1450-2038-309104,/tmp/circle_user/tbl_path/date_updated_at=2024-09-10/.13903032-ee6e-4f68-b8ba-e4257c715c76-0_20240915075008505.log.2_1397-2213-301658,/tmp/circle_user/tbl_path/date_updated_at=2024-09-10/.13903032-ee6e-4f68-b8ba-e4257c715c76-0_20240915075008505.log.3_1-0-1,/tmp/circle_user/tbl_path/date_updated_at=2024-09-10/.13903032-ee6e-4f68-b8ba-e4257c715c76-0_20240915075008505.log.4_1397-7487-1076753";
+
+    PrintRecordsTool printRecordsTool = new PrintRecordsTool(jsc(), cfg);
+    printRecordsTool.run();
   }
 
   private HoodieWriteConfig getHoodieWriteConfig(String basePath) {

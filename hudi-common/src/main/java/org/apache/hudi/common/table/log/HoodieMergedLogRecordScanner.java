@@ -241,6 +241,9 @@ public class HoodieMergedLogRecordScanner extends AbstractHoodieLogRecordReader
   @Override
   public <T> void processNextRecord(HoodieRecord<T> newRecord) throws IOException {
     String key = newRecord.getRecordKey();
+    if (key.equals("611bfb28dd08cf1a21c9bc4f")) {
+      System.out.println("asdfadf");
+    }
     HoodieRecord<T> prevRecord = records.get(key);
     if (prevRecord != null) {
       // Merge and store the combined record
@@ -272,6 +275,9 @@ public class HoodieMergedLogRecordScanner extends AbstractHoodieLogRecordReader
   @Override
   protected void processNextDeletedRecord(DeleteRecord deleteRecord) {
     String key = deleteRecord.getRecordKey();
+    if (key.equals("611bfb28dd08cf1a21c9bc4f")) {
+      System.out.println("asdfafd");
+    }
     HoodieRecord oldRecord = records.get(key);
     if (oldRecord != null) {
       // Merge and store the merged record. The ordering val is taken to decide whether the same key record
