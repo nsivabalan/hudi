@@ -61,6 +61,7 @@ class PartitionStatsIndexSupport(spark: SparkSession,
                                         ): Option[Set[String]] = {
     throw new UnsupportedOperationException("This method is not supported by PartitionStatsIndexSupport")
   }
+  }
 
   override def loadColumnStatsIndexRecords(targetColumns: Seq[String], prunedPartitions: Option[Set[String]] = None, shouldReadInMemory: Boolean): HoodieData[HoodieMetadataColumnStats] = {
     checkState(targetColumns.nonEmpty)
