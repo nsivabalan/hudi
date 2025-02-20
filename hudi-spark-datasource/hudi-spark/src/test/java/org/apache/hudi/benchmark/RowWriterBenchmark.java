@@ -30,6 +30,7 @@ import com.beust.jcommander.JCommander;
 import com.beust.jcommander.Parameter;
 import org.apache.avro.Schema;
 import org.apache.hadoop.fs.FileSystem;
+import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.api.java.function.Function;
@@ -70,13 +71,14 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.io.Serializable;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(TimeUnit.MILLISECONDS)
-@Warmup(iterations = 1, time = 30)
-@Measurement(iterations = 1)
+@Warmup(iterations = 1, time = 60)
+@Measurement(iterations = 10)
 @Fork(value = 1, warmups = 1, jvmArgs = {"-Xms4G", "-Xmx4G"})
 public class RowWriterBenchmark {
 
@@ -109,10 +111,10 @@ public class RowWriterBenchmark {
     @Param({""})
     public String runId;
 
-    @Param({"10000"})
+    @Param({"1000000"})
     public int totalRecordsToTest;
 
-    @Param("10")
+    @Param("100")
     public int repartitionByNum;
 
     SparkSession spark;
@@ -131,9 +133,8 @@ public class RowWriterBenchmark {
     @Setup(Level.Trial)
     public void setup() {
       try {
-        spark = SparkSession.builder().appName("Hoodie Write Benchmark")
-            .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer").master("local[2]").getOrCreate();
-        jssc = new JavaSparkContext(spark.sparkContext());
+        jssc = buildJSSC("Hoodie Write Benchmark", "yarn");
+        spark = SparkSession.builder().config(jssc.getConf()).getOrCreate();
         spark.sparkContext().setLogLevel("WARN");
         fs = FileSystem.get(jssc.hadoopConfiguration());
         dataGen = new HoodieTestDataGenerator();
@@ -180,6 +181,35 @@ public class RowWriterBenchmark {
         throw new RuntimeException("Error tearing down benchmark", e);
       }
     }
+
+    private static JavaSparkContext buildJSSC(String appName, String defaultMaster) {
+      final SparkConf sparkConf = new SparkConf().setAppName(appName);
+      sparkConf.setMaster("yarn");
+      sparkConf.set("spark.submit.deployMode","cluster");
+      /*sparkConf.setIfMissing("spark.ui.port", "8090");
+      sparkConf.setIfMissing("spark.driver.maxResultSize", "2g");
+      sparkConf.setIfMissing("spark.serializer", "org.apache.spark.serializer.KryoSerializer");
+      sparkConf.setIfMissing("spark.kryo.registrator", "org.apache.spark.HoodieSparkKryoRegistrar");
+      sparkConf.setIfMissing("spark.sql.extensions", "org.apache.spark.sql.hudi.HoodieSparkSessionExtension");
+      sparkConf.setIfMissing("spark.hadoop.mapred.output.compress", "true");
+      sparkConf.setIfMissing("spark.hadoop.mapred.output.compression.codec", "true");
+      sparkConf.setIfMissing("spark.hadoop.mapred.output.compression.codec", "org.apache.hadoop.io.compress.GzipCodec");
+      sparkConf.setIfMissing("spark.hadoop.mapred.output.compression.type", "BLOCK");*/
+
+      LOG.warn("AAA Spark executor memory " + sparkConf.get("spark.executor.memory","100g"));
+      LOG.warn("AAA Spark executor num instances " + sparkConf.get("spark.executor.instances","10"));
+
+      sparkConf.set("spark.driver.memory","6g");
+      sparkConf.set("spark.executor.memory","10g");
+      sparkConf.set("spark.executor.instances","3");
+      sparkConf.set("spark.executor.cores","3");
+      sparkConf.set("spark.driver.cores","3");
+
+      LOG.warn("BBB Spark executor memory " + sparkConf.get("spark.executor.memory","100g"));
+      LOG.warn("BBB Spark executor num instances " + sparkConf.get("spark.executor.instances","10"));
+
+      return new JavaSparkContext(sparkConf);
+    }
   }
 
   @Benchmark
@@ -193,7 +223,7 @@ public class RowWriterBenchmark {
         .count();
   }
 
-  @Benchmark
+  /*@Benchmark
   public void runDatasetHoodieRecordsBechmark(RowWriterBenchState bs, Blackhole bh) throws Exception {
     int totalFields = bs.totalFields;
     bs.datasetHoodieRecordsKryo
@@ -228,7 +258,7 @@ public class RowWriterBenchmark {
         //.sortBy(new JavaRDDHoodieRecordsSortFunc(), true, numPartitions) // disabling to get perf nos across the board
         //.map(new JavaRDDHoodieRecordsMapFunc()) // disabling to get perf nos across the board
         .count();
-  }
+  }*/
 
   public static void main(String[] args) throws RunnerException {
     RowWriterBenchmark.Config cfg = new RowWriterBenchmark.Config();
