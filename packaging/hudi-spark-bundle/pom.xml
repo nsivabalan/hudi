@@ -66,6 +66,9 @@
                   <resource>META-INF/services/org.apache.spark.sql.sources.DataSourceRegister</resource>
                 </transformer>
                 <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                  <mainClass>org.openjdk.jmh.Main</mainClass>
+                </transformer>
               </transformers>
               <artifactSet>
                 <includes combine.children="append">
@@ -81,6 +84,9 @@
                   <include>org.apache.hudi:hudi-sync-common</include>
                   <include>org.apache.hudi:hudi-hadoop-mr</include>
                   <include>org.apache.hudi:hudi-timeline-service</include>
+
+                  <include>org.openjdk.jmh:jmh-core:1.32</include>
+                  <include>org.openjdk.jmh:jmh-generator-annprocess:1.32</include>
 
                   <include>javax.servlet:javax.servlet-api</include>
                   <include>com.beust:jcommander</include>
@@ -241,6 +247,23 @@
       <version>${project.version}</version>
     </dependency>
 
+    <dependency>
+      <groupId>org.apache.hudi</groupId>
+      <artifactId>hudi-spark_${scala.binary.version}</artifactId>
+      <version>${project.version}</version>
+      <type>test-jar</type>
+    </dependency>
+
+    <dependency>
+      <groupId>org.openjdk.jmh</groupId>
+      <artifactId>jmh-core</artifactId>
+      <version>1.32</version>
+    </dependency>
+    <dependency>
+      <groupId>org.openjdk.jmh</groupId>
+      <artifactId>jmh-generator-annprocess</artifactId>
+      <version>1.32</version>
+    </dependency>
     <!-- Hoodie - Other -->
 
     <dependency>

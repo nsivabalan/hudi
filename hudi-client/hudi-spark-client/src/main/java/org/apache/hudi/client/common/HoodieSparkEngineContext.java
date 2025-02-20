@@ -108,7 +108,7 @@ public class HoodieSparkEngineContext extends HoodieEngineContext {
 
   @Override
   public <T> HoodieData<T> emptyHoodieData() {
-    return HoodieJavaRDD.of(javaSparkContext.emptyRDD());
+    return (HoodieData<T>) HoodieJavaRDD.of(javaSparkContext.emptyRDD());
   }
 
   @Override

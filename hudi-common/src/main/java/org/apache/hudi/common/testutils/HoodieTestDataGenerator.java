@@ -28,9 +28,19 @@ import org.apache.hudi.common.model.HoodieKey;
 import org.apache.hudi.common.model.HoodiePartitionMetadata;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.common.table.timeline.CommitMetadataSerDe;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieInstantTimeGenerator;
+import org.apache.hudi.common.table.timeline.InstantFileNameGenerator;
+import org.apache.hudi.common.table.timeline.InstantFileNameParser;
+import org.apache.hudi.common.table.timeline.InstantGenerator;
+import org.apache.hudi.common.table.timeline.TimelineFactory;
 import org.apache.hudi.common.table.timeline.TimelineMetadataUtils;
+import org.apache.hudi.common.table.timeline.versioning.DefaultCommitMetadataSerDe;
+import org.apache.hudi.common.table.timeline.versioning.DefaultInstantFileNameGenerator;
+import org.apache.hudi.common.table.timeline.versioning.DefaultInstantFileNameParser;
+import org.apache.hudi.common.table.timeline.versioning.DefaultInstantGenerator;
+import org.apache.hudi.common.table.timeline.versioning.DefaultTimelineFactory;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieIOException;
@@ -78,8 +88,6 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import static org.apache.hudi.common.table.timeline.TimelineMetadataUtils.serializeCommitMetadata;
-import static org.apache.hudi.common.testutils.HoodieTestUtils.COMMIT_METADATA_SER_DE;
-import static org.apache.hudi.common.testutils.HoodieTestUtils.INSTANT_FILE_NAME_GENERATOR;
 import static org.apache.hudi.common.util.StringUtils.getUTF8Bytes;
 import static org.apache.hudi.common.util.ValidationUtils.checkState;
 
@@ -110,6 +118,12 @@ public class HoodieTestDataGenerator implements AutoCloseable {
   public static final String[] DEFAULT_PARTITION_PATHS =
       {DEFAULT_FIRST_PARTITION_PATH, DEFAULT_SECOND_PARTITION_PATH, DEFAULT_THIRD_PARTITION_PATH};
   public static final int DEFAULT_PARTITION_DEPTH = 3;
+
+  public static final InstantGenerator INSTANT_GENERATOR = new DefaultInstantGenerator();
+  public static final TimelineFactory TIMELINE_FACTORY = new DefaultTimelineFactory();
+  public static final InstantFileNameGenerator INSTANT_FILE_NAME_GENERATOR = new DefaultInstantFileNameGenerator();
+  public static final InstantFileNameParser INSTANT_FILE_NAME_PARSER = new DefaultInstantFileNameParser();
+  public static final CommitMetadataSerDe COMMIT_METADATA_SER_DE = new DefaultCommitMetadataSerDe();
 
   public static final String TRIP_TYPE_ENUM_TYPE =
       "{\"type\": \"enum\", \"name\": \"TripType\", \"symbols\": [\"UNKNOWN\", \"UBERX\", \"BLACK\"], \"default\": \"UNKNOWN\"}";
@@ -246,7 +260,7 @@ public class HoodieTestDataGenerator implements AutoCloseable {
    */
   public static Long getNextCommitTime(long curCommitTime) {
     if ((curCommitTime + 1) % 1000000000000L >= 60) { // max seconds is 60 and hence
-      return Long.parseLong(InProcessTimeGenerator.createNewInstantTime());
+      return Long.parseLong(TempInProcessTimeGenerator.createNewInstantTime());
     } else {
       return curCommitTime + 1;
     }
@@ -548,7 +562,7 @@ public class HoodieTestDataGenerator implements AutoCloseable {
   }
 
   private static void createCommitFile(String basePath, String instantTime, StorageConfiguration<?> configuration, HoodieCommitMetadata commitMetadata) {
-    Arrays.asList(INSTANT_FILE_NAME_GENERATOR.makeCommitFileName(instantTime + "_" + InProcessTimeGenerator.createNewInstantTime()),
+    Arrays.asList(INSTANT_FILE_NAME_GENERATOR.makeCommitFileName(instantTime + "_" + TempInProcessTimeGenerator.createNewInstantTime()),
             INSTANT_FILE_NAME_GENERATOR.makeInflightCommitFileName(instantTime),
             INSTANT_FILE_NAME_GENERATOR.makeRequestedCommitFileName(instantTime))
         .forEach(f -> createMetadataFile(f, basePath, configuration, commitMetadata));
@@ -569,7 +583,7 @@ public class HoodieTestDataGenerator implements AutoCloseable {
   }
 
   private static void createDeltaCommitFile(String basePath, String instantTime, StorageConfiguration<?> configuration, HoodieCommitMetadata commitMetadata) {
-    Arrays.asList(INSTANT_FILE_NAME_GENERATOR.makeDeltaFileName(instantTime + "_" + InProcessTimeGenerator.createNewInstantTime()),
+    Arrays.asList(INSTANT_FILE_NAME_GENERATOR.makeDeltaFileName(instantTime + "_" + TempInProcessTimeGenerator.createNewInstantTime()),
             INSTANT_FILE_NAME_GENERATOR.makeInflightDeltaFileName(instantTime),
             INSTANT_FILE_NAME_GENERATOR.makeRequestedDeltaFileName(instantTime))
         .forEach(f -> createMetadataFile(f, basePath, configuration, commitMetadata));
@@ -670,7 +684,7 @@ public class HoodieTestDataGenerator implements AutoCloseable {
       throws IOException {
     Path commitFile = new Path(basePath + "/" + HoodieTableMetaClient.METAFOLDER_NAME
         + "/" + HoodieTableMetaClient.TIMELINEFOLDER_NAME + "/"
-        + INSTANT_FILE_NAME_GENERATOR.makeSavePointFileName(instantTime + "_" + InProcessTimeGenerator.createNewInstantTime()));
+        + INSTANT_FILE_NAME_GENERATOR.makeSavePointFileName(instantTime + "_" + TempInProcessTimeGenerator.createNewInstantTime()));
     HoodieStorage storage = HoodieStorageUtils.getStorage(basePath, configuration);
     try (OutputStream os = storage.create(new StoragePath(commitFile.toUri()), true)) {
       HoodieCommitMetadata commitMetadata = new HoodieCommitMetadata();
