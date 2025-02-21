@@ -78,6 +78,7 @@ public class RowWritingBenchmarkTool implements Serializable {
   private HoodieTestDataGenerator dataGen;
   private int totalFields;
   private Schema schema;
+  private StructType structType;
   private Dataset<Row> inputDF;
   private ExpressionEncoder encoder;
   private JavaRDD<Row> javaRddRecords;
@@ -97,11 +98,18 @@ public class RowWritingBenchmarkTool implements Serializable {
   }
 
   public static class Config implements Serializable {
+
+    @Parameter(names = {"--base-path-to-store-input"}, description = "Base path to store input", required = false)
+    public String basePathToStoreInput = "";
+
     @Parameter(names = {"--total-records-to-test"}, description = "total records to test", required = false)
     public Integer totalRecordsToTest = 10000;
 
     @Parameter(names = {"--repartition-by-num"}, description = "repatition by num spark tasks", required = false)
     public Integer repartitionByNum = 10;
+
+    @Parameter(names = {"--parallelism-to-generate-input"}, description = "repatition by num spark tasks", required = false)
+    public Integer parallelismToGenerateInput = 10;
 
     @Parameter(names = {"--total-rounds"}, description = "total rounds", required = false)
     public Integer roundsToTest = 2;
@@ -272,27 +280,31 @@ public class RowWritingBenchmarkTool implements Serializable {
   }
 
   private void setupDf() {
-    dataGen = new HoodieTestDataGenerator();
+    inputDF = BenchmarkUtils.generateInput(engineContext.getSqlContext().sparkSession(), cfg.parallelismToGenerateInput, cfg.totalRecordsToTest);
+    /*dataGen = new HoodieTestDataGenerator();
     schema = HoodieTestDataGenerator.AVRO_SCHEMA;
-    if (cfg.totalRecordsToTest <= 10000) {
+    if (cfg.totalRecordsToTest <= 100000) {
       List<HoodieRecord<?>> records = BenchmarkUtils.generateInputRecords(dataGen, cfg.totalRecordsToTest);
       inputDF = BenchmarkUtils.generateInputDf(records, engineContext.getSqlContext().sparkSession());
     } else {
-      int totalBatches = cfg.totalRecordsToTest / 10000;
+      int totalBatches = cfg.totalRecordsToTest / 100000;
       for (int j = 0; j < totalBatches; j++) {
-        List<HoodieRecord<?>> records = BenchmarkUtils.generateInputRecords(dataGen, 10000);
-        if (j == 0) {
-          inputDF = BenchmarkUtils.generateInputDf(records, engineContext.getSqlContext().sparkSession());
-        } else {
-          inputDF = inputDF.union(BenchmarkUtils.generateInputDf(records, engineContext.getSqlContext().sparkSession()));
-        }
+        String pathPerRound = cfg.basePathToStoreInput + "/" + j;
+        BenchmarkUtils.generateInputDf(
+            BenchmarkUtils.generateInputRecords(dataGen, 100000), engineContext.getSqlContext().sparkSession()).write().format("parquet").save(pathPerRound);
       }
-    }
+     // inputDF = engineContext.getSqlContext().sparkSession().read().format("parquet").load(cfg.basePathToStoreInput);
+    //}*/
     inputDF.cache();
     inputDF.count();
+    this.structType = inputDF.schema();
     totalFields = inputDF.schema().size();
     encoder = getEncoder(inputDF.schema());
   }
+
+  /*private Dataset<Row> generateInput() {
+    inputDf = BenchmarkUtils.generateInput(engineContext.getSqlContext().sparkSession(), cfg.repartitionByNum, cfg.totalRecordsToTest);
+  }*/
 
   private void setupDatasetHoodieRecords() {
     datasetHoodieRecordsKryo = engineContext.getSqlContext().sparkSession().createDataset(javaRDDHoodieRecords.rdd(), (Encoder<HoodieSparkRecord>) Encoders.kryo(HoodieSparkRecord.class));
@@ -307,7 +319,6 @@ public class RowWritingBenchmarkTool implements Serializable {
   }
 
   private void setupJavaRddHoodieRecords() {
-    StructType structType = AvroConversionUtils.convertAvroSchemaToStructType(schema);
     javaRDDHoodieRecords = BenchmarkUtils.convertToDatasetHoodieRecord(inputDF, structType);
     javaRDDHoodieRecords.cache();
     javaRDDHoodieRecords.count();
@@ -324,7 +335,7 @@ public class RowWritingBenchmarkTool implements Serializable {
       engineContext.getSqlContext().sparkSession().time(() -> inputDF
           .repartition(cfg.repartitionByNum)
           .map(new DataFrameMapFunc(totalFields), encoder)
-          .sort("_row_key") // disabling to get perf nos across the board
+          //.sort("_row_key") // disabling to get perf nos across the board
           //.map(new SparkDfTransformationBenchmark.DataFrameMapFunc(totalFields), bs.encoder) // enabling another map call fails.
           .count());
       long totalTime = System.currentTimeMillis() - startTime;
@@ -411,7 +422,8 @@ public class RowWritingBenchmarkTool implements Serializable {
 
     @Override
     public Row call(Row row) throws Exception {
-      return recreateRow(row, totalFields);
+      //return recreateRow(row, totalFields);
+      return row;
     }
   }
 
@@ -450,8 +462,8 @@ public class RowWritingBenchmarkTool implements Serializable {
 
     @Override
     public Row call(Row row) throws Exception {
-      return recreateRow(row, totalFields);
-      //return row;
+      //return recreateRow(row, totalFields);
+      return row;
     }
   }
 
