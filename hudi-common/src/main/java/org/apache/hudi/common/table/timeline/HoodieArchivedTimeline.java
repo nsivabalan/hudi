@@ -74,7 +74,7 @@ public interface HoodieArchivedTimeline extends HoodieTimeline {
   /**
    * A time based filter with range (startTs, endTs].
    */
-  public static class TimeRangeFilter {
+  class TimeRangeFilter {
     protected final String startTs;
     protected final String endTs;
 
@@ -88,7 +88,7 @@ public interface HoodieArchivedTimeline extends HoodieTimeline {
     }
   }
 
-  public static class InclusiveStartAndEndTsFilter extends TimeRangeFilter {
+  class InclusiveStartAndEndTsFilter extends TimeRangeFilter {
     private final String startTs;
     private final String endTs;
 
@@ -96,6 +96,11 @@ public interface HoodieArchivedTimeline extends HoodieTimeline {
       super(startTs, endTs);
       this.startTs = startTs;
       this.endTs = endTs;
+    }
+
+    @Override
+    public boolean isInRange(String instantTime) {
+      return InstantComparison.isInClosedRange(instantTime, this.startTs, this.endTs);
     }
 
     public boolean isInRange(HoodieInstant instant) {

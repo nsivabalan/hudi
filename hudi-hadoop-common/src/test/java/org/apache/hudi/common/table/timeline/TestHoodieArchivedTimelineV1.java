@@ -118,7 +118,7 @@ public class TestHoodieArchivedTimelineV1 extends HoodieCommonTestHarness {
   public void testLoadArchivedInstantsInInclusiveTsRangeToMemory() throws Exception {
     List<HoodieInstant> instants = createInstants();
 
-    timeline = new ArchivedTimelineV1(metaClient, "05", "09");
+    timeline = new ArchivedTimelineV1(metaClient, "04", "09");
 
     validateInstantsLoaded(timeline, Arrays.asList("01", "03", "11"), false);
     validateInstantsLoaded(timeline, Arrays.asList("05", "08", "09"), true);
@@ -352,7 +352,7 @@ public class TestHoodieArchivedTimelineV1 extends HoodieCommonTestHarness {
   @Test
   public void testLoadArchivedCompletedInstantsForAdditionalActions() throws Exception {
     List<HoodieInstant> instants = createAdditionalInstants();
-    timeline = new ArchivedTimelineV1(metaClient, "15", "21");
+    timeline = new ArchivedTimelineV1(metaClient, "14", "21");
 
     List<String> timestamps = Arrays.asList("15", "17", "19", "21");
     validateInstantsLoaded(timeline, timestamps, true, Collections.singletonList(HoodieInstant.State.COMPLETED));
@@ -364,7 +364,7 @@ public class TestHoodieArchivedTimelineV1 extends HoodieCommonTestHarness {
   @Test
   public void testLoadArchivedRequestedInstantsForAdditionalActions() throws Exception {
     List<HoodieInstant> instants = createAdditionalInstants();
-    timeline = new ArchivedTimelineV1(metaClient, "15", "21", Option.of(HoodieInstant.State.REQUESTED));
+    timeline = new ArchivedTimelineV1(metaClient, "14", "21", Option.of(HoodieInstant.State.REQUESTED));
 
     /**
      * According to {@link org.apache.hudi.common.table.timeline.HoodieArchivedTimeline.getMetadataKey},
@@ -381,7 +381,7 @@ public class TestHoodieArchivedTimelineV1 extends HoodieCommonTestHarness {
   @Test
   public void testLoadArchivedInflightInstantsForAdditionalActions() throws Exception {
     List<HoodieInstant> instants = createAdditionalInstants();
-    timeline = new ArchivedTimelineV1(metaClient, "15", "21", Option.of(HoodieInstant.State.INFLIGHT));
+    timeline = new ArchivedTimelineV1(metaClient, "14", "21", Option.of(HoodieInstant.State.INFLIGHT));
 
     /**
      * According to {@link org.apache.hudi.common.table.timeline.HoodieArchivedTimeline.getMetadataKey},
@@ -398,7 +398,7 @@ public class TestHoodieArchivedTimelineV1 extends HoodieCommonTestHarness {
   @Test
   public void testLoadArchivedInstantsForAdditionalActions() throws Exception {
     List<HoodieInstant> instants = createAdditionalInstants();
-    timeline = new ArchivedTimelineV1(metaClient, "15", "21", Option.empty());
+    timeline = new ArchivedTimelineV1(metaClient, "14", "21", Option.empty());
 
     List<String> timestamps = Arrays.asList("15", "17", "19", "21");
     // For CLEAN (ts 15) and ROLLBACK (ts 19) actions, only completed instants are loaded

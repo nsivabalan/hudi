@@ -195,7 +195,7 @@ public class ArchivedTimelineV1 extends BaseTimelineV1 implements HoodieArchived
   @Override
   public void loadCompactionDetailsInMemory(String startTs, String endTs) {
     // load compactionPlan
-    loadInstants(new HoodieArchivedTimeline.TimeRangeFilter(startTs, endTs), null, true,
+    loadInstants(new HoodieArchivedTimeline.InclusiveStartAndEndTsFilter(startTs, endTs), null, true,
         record -> {
           // Older files don't have action state set.
           Object action = record.get(ACTION_STATE);
