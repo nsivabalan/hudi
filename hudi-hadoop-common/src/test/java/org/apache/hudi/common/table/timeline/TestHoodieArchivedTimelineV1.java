@@ -51,7 +51,6 @@ import org.apache.hudi.storage.StoragePathFilter;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.avro.generic.IndexedRecord;
-import org.apache.hadoop.fs.Path;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -75,7 +74,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Tests {@link HoodieArchivedTimeline}.
  */
-public class TestHoodieArchivedTimeline extends HoodieCommonTestHarness {
+public class TestHoodieArchivedTimelineV1 extends HoodieCommonTestHarness {
 
   private HoodieArchivedTimeline timeline;
 

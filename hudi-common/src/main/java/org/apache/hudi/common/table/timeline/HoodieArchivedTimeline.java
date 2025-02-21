@@ -20,8 +20,6 @@ package org.apache.hudi.common.table.timeline;
 
 import org.apache.hudi.storage.StoragePathInfo;
 
-import org.apache.hadoop.fs.FileStatus;
-
 import java.util.Set;
 
 import static org.apache.hudi.common.table.timeline.InstantComparison.GREATER_THAN_OR_EQUALS;

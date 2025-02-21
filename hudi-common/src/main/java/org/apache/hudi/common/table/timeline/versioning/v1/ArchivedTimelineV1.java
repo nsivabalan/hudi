@@ -48,7 +48,6 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
-import java.util.stream.Collectors;
 
 public class ArchivedTimelineV1 extends BaseTimelineV1 implements HoodieArchivedTimeline, HoodieInstantReader {
   private static final String HOODIE_COMMIT_ARCHIVE_LOG_FILE_PREFIX = "commits";
