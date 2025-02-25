@@ -18,14 +18,19 @@
 
 package org.apache.hudi.utilities;
 
-import org.apache.hudi.AvroConversionUtils;
 import org.apache.hudi.SparkAdapterSupport$;
 import org.apache.hudi.client.common.HoodieSparkEngineContext;
 import org.apache.hudi.common.config.TypedProperties;
-import org.apache.hudi.common.function.SerializableFunction;
-import org.apache.hudi.common.model.HoodieRecord;
+import org.apache.hudi.common.model.HoodieAvroIndexedRecord;
+import org.apache.hudi.common.model.HoodieAvroRecord;
+import org.apache.hudi.common.model.HoodieKey;
+import org.apache.hudi.common.model.HoodieSparkBeanRecord;
+import org.apache.hudi.common.model.HoodieSparkBeanUnsafeRowRecord;
 import org.apache.hudi.common.model.HoodieSparkRecord;
+import org.apache.hudi.common.model.HoodieSparkRowBeanRecord;
+import org.apache.hudi.common.model.OverwriteWithLatestAvroPayload;
 import org.apache.hudi.common.testutils.HoodieTestDataGenerator;
+import org.apache.hudi.common.util.ValidationUtils;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.TableNotFoundException;
@@ -35,7 +40,11 @@ import com.beust.jcommander.Parameter;
 import com.codahale.metrics.Histogram;
 import com.codahale.metrics.Snapshot;
 import com.codahale.metrics.UniformReservoir;
+import com.esotericsoftware.kryo.Kryo;
+import com.esotericsoftware.kryo.io.Input;
 import org.apache.avro.Schema;
+import org.apache.avro.generic.GenericRecord;
+import org.apache.avro.generic.IndexedRecord;
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
@@ -56,11 +65,10 @@ import org.slf4j.LoggerFactory;
 
 import java.io.Serializable;
 import java.util.ArrayList;
-import java.util.Iterator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 public class RowWritingBenchmarkTool implements Serializable {
 
@@ -80,15 +88,27 @@ public class RowWritingBenchmarkTool implements Serializable {
   private Schema schema;
   private StructType structType;
   private Dataset<Row> inputDF;
-  private ExpressionEncoder encoder;
+  private ExpressionEncoder<Row> encoder;
   private JavaRDD<Row> javaRddRecords;
   private JavaRDD<HoodieSparkRecord> javaRDDHoodieRecords;
   private Dataset<HoodieSparkRecord> datasetHoodieRecords;
   private Dataset<HoodieSparkRecord> datasetHoodieRecordsKryo;
+  private JavaRDD<HoodieSparkBeanRecord> javaRDDHoodieBeanRecords;
+  private Dataset<HoodieSparkBeanRecord> datasetHoodieBeanRecords;
+  private Dataset<HoodieSparkBeanUnsafeRowRecord> datasetHoodieSparkBeanUnsafeRowRecords;
+  private Dataset<HoodieSparkRowBeanRecord> datasetHoodieRowBeanRecords;
+
+  private JavaRDD<HoodieAvroRecord<?>> javaRDDHoodieAvroRecords;
+
   private List<Long> dfRunTimes = new ArrayList<>();
   private List<Long> datasetHoodieRecordsRunTimes = new ArrayList<>();
   private List<Long> javaRddRowRunTimes = new ArrayList<>();
   private List<Long> javaRddHoodieRecordsRunTimes = new ArrayList<>();
+  private List<Long> javaRddHoodieAvroRecordsRunTimes = new ArrayList<>();
+
+  private List<Long> datasetHoodieBeanRecordsRunTimes = new ArrayList<>();
+  private List<Long> javaRddHoodieBeanRecordsRunTimes = new ArrayList<>();
+  private List<Long> datasetHoodieRowBeanRecordsRunTimes = new ArrayList<>();
 
   public RowWritingBenchmarkTool(JavaSparkContext jsc, Config cfg) {
     this.jsc = jsc;
@@ -103,16 +123,19 @@ public class RowWritingBenchmarkTool implements Serializable {
     public String basePathToStoreInput = "";
 
     @Parameter(names = {"--total-records-to-test"}, description = "total records to test", required = false)
-    public Integer totalRecordsToTest = 10000;
+    public Integer totalRecordsToTest = 100;
 
     @Parameter(names = {"--repartition-by-num"}, description = "repatition by num spark tasks", required = false)
-    public Integer repartitionByNum = 10;
+    public Integer repartitionByNum = 2;
 
     @Parameter(names = {"--parallelism-to-generate-input"}, description = "repatition by num spark tasks", required = false)
-    public Integer parallelismToGenerateInput = 10;
+    public Integer parallelismToGenerateInput = 2;
 
     @Parameter(names = {"--total-rounds"}, description = "total rounds", required = false)
     public Integer roundsToTest = 2;
+
+    @Parameter(names = {"--enable-sorting"}, description = "Validate column stats for all columns in the schema", required = false)
+    public boolean enableSorting = false;
 
     @Parameter(names = {"--disable-df-benchmark"}, description = "Validate column stats for all columns in the schema", required = false)
     public boolean disableDataFrameBenchmark = false;
@@ -125,6 +148,24 @@ public class RowWritingBenchmarkTool implements Serializable {
 
     @Parameter(names = {"--disable-javardd-hr-benchmark"}, description = "Validate column stats for all columns in the schema", required = false)
     public boolean disableJavaRddHoodieRecordsBenchmark = false;
+
+    @Parameter(names = {"--disable-javardd-h-avro-records-benchmark"}, description = "Validate column stats for all columns in the schema", required = false)
+    public boolean disableJavaRddHoodieAvroRecordsBenchmark = false;
+
+    @Parameter(names = {"--disable-dataset-hr-bean-benchmark"}, description = "Validate column stats for all columns in the schema", required = false)
+    public boolean disableDatasetHoodieRecordsBeanBenchmark = false;
+
+    @Parameter(names = {"--disable-javardd-hr-bean-benchmark"}, description = "Validate column stats for all columns in the schema", required = false)
+    public boolean disableJavaRddHoodieRecordsBeanBenchmark = false;
+
+    @Parameter(names = {"--disable-dataset-hoodie-row-bean-benchmark"}, description = "Validate column stats for all columns in the schema", required = false)
+    public boolean disableDatasetHoodieRowBeanRecordsBenchmark = false;
+
+    @Parameter(names = {"--disable-dataset-scala-hr-bean-benchmark"}, description = "Validate column stats for all columns in the schema", required = false)
+    public boolean disableDatasetScalaHoodieRecordsBeanBenchmark = false;
+
+    @Parameter(names = {"--enable-validation"}, description = "Validate column stats for all columns in the schema", required = false)
+    public boolean enableValidation = false;
 
     @Parameter(names = {"--spark-master", "-ms"}, description = "Spark master", required = false)
     public String sparkMaster = null;
@@ -209,13 +250,13 @@ public class RowWritingBenchmarkTool implements Serializable {
         runDfBechmark();
         LOG.warn("DF benchmarking complete");
       }
-      if (!cfg.disableJavaRddRowBenchmark) {
+      /*if (!cfg.disableJavaRddRowBenchmark) {
         LOG.warn("JavaRDD row Benchmarking Starting");
         setupJavaRddRows();
         LOG.warn("JavaRDD row Set up complete");
         runJavaRddRowBechmark();
         LOG.warn("JavaRDD row benchmarking complete");
-      }
+      }*/
       if (!cfg.disableJavaRddHoodieRecordsBenchmark) {
         LOG.warn("JavaRDD HoodieRecords Benchmarking Starting");
         setupJavaRddHoodieRecords();
@@ -223,13 +264,54 @@ public class RowWritingBenchmarkTool implements Serializable {
         runJavaRDDHoodieRecordsBechmark();
         LOG.warn("JavaRDD HoodieRecords benchmarking complete");
       }
-      if (!cfg.disableDatasetHoodieRecordsBenchmark) {
+
+      if (!cfg.disableJavaRddHoodieAvroRecordsBenchmark) {
+        LOG.warn("JavaRDD Hoodie Avro Records Benchmarking Starting");
+        setupJavaRddHoodieAvroRecords();
+        LOG.warn("JavaRDD Hoodie Avro Records Set up complete");
+        runJavaRDDHoodieAvroRecordsBechmark();
+        LOG.warn("JavaRDD Hoodie Avro Records benchmarking complete");
+      }
+
+      /*if (!cfg.disableDatasetHoodieRecordsBenchmark) {
         LOG.warn("Dataset HoodieRecords Benchmarking Starting");
         setupDatasetHoodieRecords();
         LOG.warn("Dataset HoodieRecords Set up complete");
         runDatasetHoodieRecordsBechmark();
         LOG.warn("Dataset HoodieRecords benchmarking complete");
-      }
+      }*/
+
+      /*if (!cfg.disableJavaRddHoodieRecordsBeanBenchmark) {
+        LOG.warn("JavaRDD HoodieRecords Bean Benchmarking Starting");
+        setupJavaRddHoodieBeanRecords();
+        LOG.warn("JavaRDD HoodieRecords Bean Set up complete");
+        runJavaRDDHoodieBeanRecordsBechmark();
+        LOG.warn("JavaRDD HoodieRecords Bean benchmarking complete");
+      }*/
+
+      /*if (!cfg.disableDatasetHoodieRecordsBeanBenchmark) {
+        LOG.warn("Dataset HoodieRecords Bean Benchmarking Starting");
+        setupDatasetHoodieBeanRecords();
+        LOG.warn("Dataset HoodieRecords Bean Set up complete");
+        runDatasetHoodieRecordsBeanBechmark();
+        LOG.warn("Dataset HoodieRecords Bean benchmarking complete");
+      }*/
+
+      /*if (!cfg.disableDatasetScalaHoodieRecordsBeanBenchmark) {
+        LOG.warn("Dataset HoodieRecords Bean Benchmarking Starting");
+        setupDatasetScalaHoodieRecordsBean();
+        LOG.warn("Dataset HoodieRecords Bean Set up complete");
+        //runDatasetHoodieRecordsBeanBechmark();
+        LOG.warn("Dataset HoodieRecords Bean benchmarking complete");
+      }*/
+
+      /*if (!cfg.disableDatasetHoodieRowBeanRecordsBenchmark) {
+        LOG.warn("Dataset HoodieRow Bean Records Benchmarking Starting");
+        setupDatasetHoodieRowBeanRecords();
+        LOG.warn("Dataset HoodieRow Bean Records Set up complete");
+        runDatasetHoodieRecordsBeanBechmark();
+        LOG.warn("Dataset HoodieRow Bean Records benchmarking complete");
+      }*/
 
       if (!dfRunTimes.isEmpty()) {
         com.codahale.metrics.Histogram histogram = new com.codahale.metrics.Histogram(new UniformReservoir(1_000_000));
@@ -255,6 +337,27 @@ public class RowWritingBenchmarkTool implements Serializable {
         com.codahale.metrics.Histogram histogram = new com.codahale.metrics.Histogram(new UniformReservoir(1_000_000));
         javaRddHoodieRecordsRunTimes.forEach(entry -> histogram.update(entry));
         LOG.warn("Java RDD HoodieRecord Stats ");
+        logStats(histogram);
+      }
+
+      if (!javaRddHoodieAvroRecordsRunTimes.isEmpty()) {
+        com.codahale.metrics.Histogram histogram = new com.codahale.metrics.Histogram(new UniformReservoir(1_000_000));
+        javaRddHoodieAvroRecordsRunTimes.forEach(entry -> histogram.update(entry));
+        LOG.warn("Java RDD HoodieAvroRecord Stats ");
+        logStats(histogram);
+      }
+
+      if (!javaRddHoodieBeanRecordsRunTimes.isEmpty()) {
+        com.codahale.metrics.Histogram histogram = new com.codahale.metrics.Histogram(new UniformReservoir(1_000_000));
+        javaRddHoodieBeanRecordsRunTimes.forEach(entry -> histogram.update(entry));
+        LOG.warn("Java RDD HoodieRecord Bean Stats ");
+        logStats(histogram);
+      }
+
+      if (!datasetHoodieBeanRecordsRunTimes.isEmpty()) {
+        com.codahale.metrics.Histogram histogram = new com.codahale.metrics.Histogram(new UniformReservoir(1_000_000));
+        datasetHoodieBeanRecordsRunTimes.forEach(entry -> histogram.update(entry));
+        LOG.warn("Dataset HoodieBeanRecord Stats ");
         logStats(histogram);
       }
 
@@ -307,6 +410,9 @@ public class RowWritingBenchmarkTool implements Serializable {
   }*/
 
   private void setupDatasetHoodieRecords() {
+    if (javaRDDHoodieRecords == null) {
+      setupJavaRddHoodieRecords();
+    }
     datasetHoodieRecordsKryo = engineContext.getSqlContext().sparkSession().createDataset(javaRDDHoodieRecords.rdd(), (Encoder<HoodieSparkRecord>) Encoders.kryo(HoodieSparkRecord.class));
     datasetHoodieRecordsKryo.cache();
     datasetHoodieRecordsKryo.count();
@@ -324,20 +430,100 @@ public class RowWritingBenchmarkTool implements Serializable {
     javaRDDHoodieRecords.count();
   }
 
-  private ExpressionEncoder getEncoder(StructType schema) {
+  private void setupJavaRddHoodieAvroRecords() {
+    javaRDDHoodieAvroRecords = BenchmarkUtils.convertToDatasetHoodieAvroRecord(inputDF);
+    javaRDDHoodieAvroRecords.cache();
+    javaRDDHoodieAvroRecords.count();
+  }
+
+  private void setupJavaRddHoodieBeanRecords() {
+    javaRDDHoodieBeanRecords = BenchmarkUtils.convertToDatasetHoodieBeanRecords(inputDF, structType.fields().length);
+    //javaRDDHoodieBeanRecords.cache();
+    //javaRDDHoodieBeanRecords.count();
+  }
+
+  private void setupDatasetHoodieBeanRecords() {
+    if (javaRDDHoodieBeanRecords == null) {
+      setupJavaRddHoodieBeanRecords();
+    }
+
+    //datasetHoodieBeanRecords = inputDF.map(new MapFuncRowToBean(encoder), Encoders.kryo(HoodieSparkBeanRecord.class));
+
+    //RDD<HoodieSparkRecordBean> localRdd = BenchmarkUtils.convertToDatasetHoodieRecordCustomEncoderRdd(inputDF, structType);
+    datasetHoodieBeanRecords = engineContext.getSqlContext().sparkSession().createDataset(javaRDDHoodieBeanRecords.rdd(), Encoders.bean(HoodieSparkBeanRecord.class));
+    datasetHoodieBeanRecords.cache(); // unsafeRow is empty array here.
+    datasetHoodieBeanRecords.count();
+    /*datasetHoodieSparkBeanUnsafeRowRecords = datasetHoodieBeanRecords.map(new DatasetHoodieSparkBeanToSparkBeanUnsafeRowRecord(), Encoders.kryo(HoodieSparkBeanUnsafeRowRecord.class));
+    datasetHoodieSparkBeanUnsafeRowRecords.cache();
+    datasetHoodieSparkBeanUnsafeRowRecords.count();*/
+  }
+
+  /*private void setupDatasetScalaHoodieRecordsBean() {
+    datasetScalaHoodieBeanRecords = inputDF.map(new MapFuncRowToScalaSparkBeanRec(encoder), BenchmarkUtils.getEncoderForScalaSparkRecord());
+
+    //RDD<HoodieSparkRecordBean> localRdd = BenchmarkUtils.convertToDatasetHoodieRecordCustomEncoderRdd(inputDF, structType);
+    //datasetHoodieRecordsBean = engineContext.getSqlContext().sparkSession().createDataset(javaRDDHoodieRecordsBean.rdd(), Encoders.bean(HoodieSparkBeanRecord.class));
+    datasetScalaHoodieBeanRecords.cache(); // unsafeRow is empty array here.
+    datasetScalaHoodieBeanRecords.count();
+  }*/
+
+  private void setupDatasetHoodieRowBeanRecords() {
+    datasetHoodieRowBeanRecords = inputDF.map(new MapFuncRowToSparkRowBeanRecord(), Encoders.bean(HoodieSparkRowBeanRecord.class));
+
+    datasetHoodieRowBeanRecords.cache(); // unsafeRow is empty array here.
+    datasetHoodieRowBeanRecords.count();
+  }
+
+  private ExpressionEncoder<Row> getEncoder(StructType schema) {
     return SparkAdapterSupport$.MODULE$.sparkAdapter().getCatalystExpressionUtils().getEncoder(schema);
   }
+
+
+  /**
+   * @throws Exception
+   */
 
   public void runDfBechmark() throws Exception {
     for (int i = 0; i < cfg.roundsToTest; i++) {
       LOG.warn("  Running iteration " + i);
       long startTime = System.currentTimeMillis();
-      engineContext.getSqlContext().sparkSession().time(() -> inputDF
-          .repartition(cfg.repartitionByNum)
-          .map(new DataFrameMapFunc(totalFields), encoder)
-          //.sort("_row_key") // disabling to get perf nos across the board
-          //.map(new SparkDfTransformationBenchmark.DataFrameMapFunc(totalFields), bs.encoder) // enabling another map call fails.
-          .count());
+      if (cfg.enableSorting) {
+        inputDF
+            .repartition(cfg.repartitionByNum)
+            .sort("key") // disabling to get perf nos across the board
+            .repartition(cfg.repartitionByNum * 3)
+            .map(new DataFrameMapFunc(totalFields), encoder)
+            .count();
+      } else {
+        inputDF
+            .repartition(cfg.repartitionByNum)
+            .map(new DataFrameMapFunc(totalFields), encoder)
+            .count();
+      }
+      long totalTime = System.currentTimeMillis() - startTime;
+      LOG.warn("   Iteration " + i + " took " + totalTime);
+      dfRunTimes.add(totalTime);
+    }
+  }
+
+  public void runDfBechmark2() throws Exception {
+    for (int i = 0; i < cfg.roundsToTest; i++) {
+      LOG.warn("  Running iteration " + i);
+      long startTime = System.currentTimeMillis();
+      if (cfg.enableSorting) {
+        inputDF
+            .repartition(cfg.repartitionByNum)
+            .sort("key") // disabling to get perf nos across the board
+            .repartition(cfg.repartitionByNum * 3)
+            .map(new DataFrameMapFunc(totalFields), encoder)
+            //.map(new SparkDfTransformationBenchmark.DataFrameMapFunc(totalFields), bs.encoder) // enabling another map call fails.
+            .count();
+      } else {
+        inputDF
+            .repartition(cfg.repartitionByNum)
+            .map(new DataFrameMapFunc(totalFields), encoder)
+            .count();
+      }
       long totalTime = System.currentTimeMillis() - startTime;
       LOG.warn("   Iteration " + i + " took " + totalTime);
       dfRunTimes.add(totalTime);
@@ -360,6 +546,186 @@ public class RowWritingBenchmarkTool implements Serializable {
     }
   }
 
+  public void runDatasetHoodieRecordsBeanBechmark() throws Exception {
+    for (int i = 0; i < cfg.roundsToTest; i++) {
+      LOG.warn("  Running iteration " + i);
+      long startTime = System.currentTimeMillis();
+      if (cfg.enableSorting) {
+        datasetHoodieBeanRecords
+            .repartition(cfg.repartitionByNum)
+            .sort("key.recordKey")
+            .repartition(cfg.repartitionByNum * 3)
+            .map(new DatasetHoodieRecBeanMapFunc(), Encoders.bean(HoodieSparkBeanRecord.class))
+            .count();
+      } else {
+        datasetHoodieBeanRecords
+            .repartition(cfg.repartitionByNum)
+            .map(new DatasetHoodieRecBeanMapFunc(), Encoders.bean(HoodieSparkBeanRecord.class))
+            .count();
+      }
+
+      if (cfg.enableValidation) {
+        /*List<HoodieSparkBeanRecord> firstList = datasetHoodieBeanRecords
+            .repartition(cfg.repartitionByNum)
+            .map(new DatasetHoodieRecBeanMapFunc(), Encoders.bean(HoodieSparkBeanRecord.class))
+            //.sort("key.recordKey") // sorting by cols not supported. there is no sort by support.
+            //.map(new DatasetHoodieRecMapFunc(), Encoders.kryo(HoodieSparkRecord.class)) // disabling to get perf nos across the board
+            .collectAsList();
+        List<Row> inputList = inputDF.collectAsList();
+
+        List<HoodieSparkBeanUnsafeRowRecord> secondList = datasetHoodieBeanRecords
+            .repartition(cfg.repartitionByNum)
+            .map(new DatasetHoodieRecBeanMapFunc(), Encoders.bean(HoodieSparkBeanRecord.class))
+            .map(new DatasetHoodieSparkBeanToSparkBeanUnsafeRowRecord(), Encoders.kryo(HoodieSparkBeanUnsafeRowRecord.class)).collectAsList();
+        Map<String, String> inputMap = new HashMap<>();
+        inputList.forEach(entry -> inputMap.put(entry.getString(0), entry.getString(3)));
+
+        Map<String, String> outputMap = new HashMap<>();
+        secondList.forEach(entry -> outputMap.put(entry.getKey().getRecordKey(), entry.getData().getString(3)));
+
+        AtomicInteger missingKeys = new AtomicInteger();
+        inputMap.forEach((k, v) -> {
+          if (outputMap.containsKey(k)) {
+            ValidationUtils.checkArgument(v.equals(outputMap.get(k)));
+          } else {
+            missingKeys.getAndIncrement();
+          }
+        });*/
+      }
+
+      long totalTime = System.currentTimeMillis() - startTime;
+      LOG.warn("   Iteration " + i + " took " + totalTime);
+      datasetHoodieBeanRecordsRunTimes.add(totalTime);
+    }
+
+      /*LOG.warn("------------------- Starting to validate records --------------------");
+
+      List<HoodieSparkRecordBean> inputRecords = datasetHoodieRecordsBean.collectAsList();
+
+      List<HoodieSparkRecordBean> outputRecords = datasetHoodieRecordsBean
+          .repartition(cfg.repartitionByNum)
+          .map(new DatasetHoodieRecBeanMapFunc(), Encoders.bean(HoodieSparkRecordBean.class)).collectAsList();
+      Map<HoodieKey, HoodieSparkRecordBean> inputMap = new HashMap<>();
+      inputRecords.forEach(entry -> inputMap.put(entry.getKey(), entry));
+
+      Map<HoodieKey, HoodieSparkRecordBean> outputMap = new HashMap<>();
+      outputRecords.forEach(entry -> outputMap.put(entry.getKey(), entry));
+      int missingRecords = 0;
+      for(Map.Entry<HoodieKey, HoodieSparkRecordBean> entry: inputMap.entrySet()) {
+        if (outputMap.containsKey(entry.getKey())) {
+          ValidationUtils.checkArgument(entry.getValue().equals(outputMap.get(entry.getKey())));
+        } else {
+          LOG.warn("Missing " + entry.getKey());
+          missingRecords++;
+        }
+      }*/
+    if (cfg.enableValidation) {
+
+        /*Option<HoodieUnsafeRowUtils.NestedFieldPath> fieldRef = HoodieUnsafeRowUtils.composeNestedFieldPath(structType, "textField");
+
+        // validate that InternalRow and UnsafeRow matches.
+        Map<HoodieKey, InternalRow> inputMap1 = new HashMap<>();
+        javaRDDHoodieRecords.collect().forEach(entry -> inputMap1.put(entry.getKey(), entry.getData()));
+
+        Map<HoodieKey, InternalRow> outputMap1 = new HashMap<>();
+        datasetHoodieBeanRecords
+            .repartition(cfg.repartitionByNum)
+            .map(new DatasetHoodieRecBeanMapFunc(), Encoders.bean(HoodieSparkBeanRecord.class))
+            .collectAsList()
+            .forEach(entry -> outputMap1.put(entry.getKey(), entry.getData()));
+
+        inputMap1.entrySet().forEach(entry -> {
+          ValidationUtils.checkArgument(outputMap1.containsKey(entry.getKey()));
+          System.out.println("Sample value " + HoodieUnsafeRowUtils.getNestedInternalRowValue(entry.getValue(), fieldRef.get()));
+          ValidationUtils.checkArgument(HoodieUnsafeRowUtils.getNestedInternalRowValue(entry.getValue(), fieldRef.get())
+                  .equals(HoodieUnsafeRowUtils.getNestedInternalRowValue(outputMap1.get(entry.getKey()), fieldRef.get())));
+        });*/
+    }
+  }
+
+  public void runDatasetHoodieRecordsBeanBechmark2() throws Exception {
+    for (int i = 0; i < cfg.roundsToTest; i++) {
+      LOG.warn("  Running iteration " + i);
+      long startTime = System.currentTimeMillis();
+      if (cfg.enableSorting) {
+        datasetHoodieBeanRecords
+            //.map(new DatasetHoodieRecBeanMapFunc(), Encoders.bean(HoodieSparkBeanRecord.class))
+            .repartition(cfg.repartitionByNum)
+            .sort("key.recordKey") // sorting by cols not supported. there is no sort by support.
+            //.map(new DatasetHoodieRecMapFunc(), Encoders.kryo(HoodieSparkRecord.class)) // disabling to get perf nos across the board
+            .repartition(cfg.repartitionByNum * 3)
+            .map(new DatasetHoodieSparkBeanToSparkBeanUnsafeRowRecord(), Encoders.kryo(HoodieSparkBeanUnsafeRowRecord.class))
+            .count();
+      } else {
+        datasetHoodieBeanRecords
+            //.map(new DatasetHoodieRecBeanMapFunc(), Encoders.bean(HoodieSparkBeanRecord.class))
+            .repartition(cfg.repartitionByNum)
+            .map(new DatasetHoodieSparkBeanToSparkBeanUnsafeRowRecord(), Encoders.kryo(HoodieSparkBeanUnsafeRowRecord.class))
+            .count();
+      }
+
+      long totalTime = System.currentTimeMillis() - startTime;
+      LOG.warn("   Iteration " + i + " took " + totalTime);
+      datasetHoodieBeanRecordsRunTimes.add(totalTime);
+    }
+  }
+
+  public void runDatasetHoodierowBeanRecordsBechmark() throws Exception {
+    for (int i = 0; i < cfg.roundsToTest; i++) {
+      LOG.warn("  Running iteration " + i);
+      long startTime = System.currentTimeMillis();
+      datasetHoodieRowBeanRecords
+          .repartition(cfg.repartitionByNum)
+          .map(new DatasetHoodieRowBeanRecMapFunc(), Encoders.bean(HoodieSparkRowBeanRecord.class))
+          //.sort("key.recordKey") // sorting by cols not supported. there is no sort by support.
+          //.map(new DatasetHoodieRecMapFunc(), Encoders.kryo(HoodieSparkRecord.class)) // disabling to get perf nos across the board
+          .count();
+      long totalTime = System.currentTimeMillis() - startTime;
+      LOG.warn("   Iteration " + i + " took " + totalTime);
+      datasetHoodieRowBeanRecordsRunTimes.add(totalTime);
+    }
+
+      /*LOG.warn("------------------- Starting to validate records --------------------");
+
+      List<HoodieSparkRecordBean> inputRecords = datasetHoodieRecordsBean.collectAsList();
+
+      List<HoodieSparkRecordBean> outputRecords = datasetHoodieRecordsBean
+          .repartition(cfg.repartitionByNum)
+          .map(new DatasetHoodieRecBeanMapFunc(), Encoders.bean(HoodieSparkRecordBean.class)).collectAsList();
+      Map<HoodieKey, HoodieSparkRecordBean> inputMap = new HashMap<>();
+      inputRecords.forEach(entry -> inputMap.put(entry.getKey(), entry));
+
+      Map<HoodieKey, HoodieSparkRecordBean> outputMap = new HashMap<>();
+      outputRecords.forEach(entry -> outputMap.put(entry.getKey(), entry));
+      int missingRecords = 0;
+      for(Map.Entry<HoodieKey, HoodieSparkRecordBean> entry: inputMap.entrySet()) {
+        if (outputMap.containsKey(entry.getKey())) {
+          ValidationUtils.checkArgument(entry.getValue().equals(outputMap.get(entry.getKey())));
+        } else {
+          LOG.warn("Missing " + entry.getKey());
+          missingRecords++;
+        }
+      }*/
+    if (cfg.enableValidation) {
+
+      // validate that InternalRow and UnsafeRow matches.
+      Map<String, Row> inputMap1 = new HashMap<>();
+      inputDF.collectAsList().forEach(entry -> inputMap1.put(entry.getString(0), entry));
+
+      Map<String, Row> outputMap1 = new HashMap<>();
+      datasetHoodieRowBeanRecords
+          .repartition(cfg.repartitionByNum)
+          .map(new DatasetHoodieRowBeanRecMapFunc(), Encoders.bean(HoodieSparkRowBeanRecord.class))
+          .collectAsList()
+          .forEach(entry -> outputMap1.put(entry.getKey().getRecordKey(), entry.getData()));
+
+      inputMap1.entrySet().forEach(entry -> {
+        ValidationUtils.checkArgument(outputMap1.containsKey(entry.getKey()));
+        ValidationUtils.checkArgument(entry.getValue().getString(3).equals(outputMap1.get(entry.getKey()).getString(3)));
+      });
+    }
+  }
+
   public void runJavaRddRowBechmark() throws Exception {
     for (int i = 0; i < cfg.roundsToTest; i++) {
       LOG.warn("  Running iteration " + i);
@@ -377,18 +743,69 @@ public class RowWritingBenchmarkTool implements Serializable {
   }
 
   public void runJavaRDDHoodieRecordsBechmark() throws Exception {
+
     for (int i = 0; i < cfg.roundsToTest; i++) {
       LOG.warn("  Running iteration " + i);
       long startTime = System.currentTimeMillis();
-      javaRDDHoodieRecords
+      if (cfg.enableSorting) {
+        javaRDDHoodieRecords
+            .repartition(cfg.repartitionByNum)
+            .sortBy(new JavaRDDHoodieRecordsSortFunc(), true, cfg.repartitionByNum) // disabling to get perf nos across the board
+            //.map(new JavaRDDHoodieRecordsMapFunc()) // disabling to get perf nos across the board
+            .repartition(cfg.repartitionByNum * 3)
+            .map(new JavaRDDHoodieRecordsMapFunc())
+            .count();
+      } else {
+        javaRDDHoodieRecords
+            .repartition(cfg.repartitionByNum)
+            .map(new JavaRDDHoodieRecordsMapFunc())
+            .count();
+      }
+      long totalTime = System.currentTimeMillis() - startTime;
+      LOG.warn("   Iteration " + i + " took " + totalTime);
+      javaRddHoodieRecordsRunTimes.add(totalTime);
+    }
+  }
+
+  public void runJavaRDDHoodieAvroRecordsBechmark() throws Exception {
+
+    for (int i = 0; i < cfg.roundsToTest; i++) {
+      LOG.warn("  Running iteration " + i);
+      long startTime = System.currentTimeMillis();
+      if (cfg.enableSorting) {
+        javaRDDHoodieAvroRecords
+            .repartition(cfg.repartitionByNum)
+            .sortBy(new JavaRDDHoodieAvroRecordsSortFunc(), true, cfg.repartitionByNum) // disabling to get perf nos across the board
+            //.map(new JavaRDDHoodieRecordsMapFunc()) // disabling to get perf nos across the board
+            .repartition(cfg.repartitionByNum * 3)
+            .map(new JavaRDDHoodieAvroRecordsMapFunc())
+            .count();
+      } else {
+        javaRDDHoodieAvroRecords
+            .repartition(cfg.repartitionByNum)
+            .map(new JavaRDDHoodieAvroRecordsMapFunc())
+            .count();
+      }
+      long totalTime = System.currentTimeMillis() - startTime;
+      LOG.warn("   Iteration " + i + " took " + totalTime);
+      javaRddHoodieAvroRecordsRunTimes.add(totalTime);
+    }
+  }
+
+  public void runJavaRDDHoodieBeanRecordsBechmark() throws Exception {
+
+    for (int i = 0; i < cfg.roundsToTest; i++) {
+      LOG.warn("  Running iteration " + i);
+      long startTime = System.currentTimeMillis();
+      javaRDDHoodieBeanRecords
           .repartition(cfg.repartitionByNum)
-          .map(new JavaRDDHoodieRecordsMapFunc())
+          .map(new JavaRDDHoodieRecordsBeanMapFunc())
           //.sortBy(new JavaRDDHoodieRecordsSortFunc(), true, numPartitions) // disabling to get perf nos across the board
           //.map(new JavaRDDHoodieRecordsMapFunc()) // disabling to get perf nos across the board
           .count();
       long totalTime = System.currentTimeMillis() - startTime;
       LOG.warn("   Iteration " + i + " took " + totalTime);
-      javaRddHoodieRecordsRunTimes.add(totalTime);
+      javaRddHoodieBeanRecordsRunTimes.add(totalTime);
     }
   }
 
@@ -399,6 +816,89 @@ public class RowWritingBenchmarkTool implements Serializable {
       InternalRow internalRow = hoodieSparkRecord.getData();
       internalRow.getString(1);
       return hoodieSparkRecord;
+    }
+  }
+
+  static class MapFuncRowToBean implements MapFunction<Row, HoodieSparkBeanRecord> {
+
+    private final ExpressionEncoder<Row> encoder;
+
+    public MapFuncRowToBean(ExpressionEncoder<Row> encoder) {
+      this.encoder = encoder;
+    }
+
+    @Override
+    public HoodieSparkBeanRecord call(Row row) throws Exception {
+      HoodieSparkBeanRecord hoodieSparkBeanRecord = new HoodieSparkBeanRecord();
+      hoodieSparkBeanRecord.setKey(new HoodieKey(row.getString(0), row.getString(1)));
+      //hoodieSparkBeanRecord.setData((UnsafeRow) encoder.createSerializer().apply(row));
+      return hoodieSparkBeanRecord;
+    }
+  }
+
+  /*static class MapFuncRowToScalaSparkBeanRec implements MapFunction<Row, ScalaSparkRecord> {
+
+    private final ExpressionEncoder<Row> encoder;
+    public MapFuncRowToScalaSparkBeanRec(ExpressionEncoder<Row> encoder) {
+      this.encoder = encoder;
+    }
+
+    @Override
+    public ScalaSparkRecord call(Row row) throws Exception {
+      ScalaSparkRecord hoodieSparkBeanRecord = BenchmarkUtils.getScalaSparkRecord(new ScalaHoodieKey(row.getString(0), row.getString(1)),
+          encoder.createSerializer().apply(row));
+      return hoodieSparkBeanRecord;
+    }
+  }*/
+
+  static class MapFuncRowToSparkRowBeanRecord implements MapFunction<Row, HoodieSparkRowBeanRecord> {
+
+    public MapFuncRowToSparkRowBeanRecord() {
+
+    }
+
+    @Override
+    public HoodieSparkRowBeanRecord call(Row row) throws Exception {
+      HoodieSparkRowBeanRecord hoodieSparkRowBeanRecord = new HoodieSparkRowBeanRecord();
+      hoodieSparkRowBeanRecord.setKey(new HoodieKey(row.getString(0), row.getString(1)));
+      hoodieSparkRowBeanRecord.setData(row);
+      hoodieSparkRowBeanRecord.setCopy(false);
+      return hoodieSparkRowBeanRecord;
+    }
+  }
+
+  static class DatasetHoodieRecBeanMapFunc implements MapFunction<HoodieSparkBeanRecord, HoodieSparkBeanRecord> {
+
+    @Override
+    public HoodieSparkBeanRecord call(HoodieSparkBeanRecord hoodieSparkRecord) throws Exception {
+      //InternalRow genericInternalRow = hoodieSparkRecord.getData();
+      return hoodieSparkRecord;
+    }
+  }
+
+  static class DatasetHoodieRowBeanRecMapFunc implements MapFunction<HoodieSparkRowBeanRecord, HoodieSparkRowBeanRecord> {
+
+    @Override
+    public HoodieSparkRowBeanRecord call(HoodieSparkRowBeanRecord hoodieSparkRecord) throws Exception {
+      Row row = hoodieSparkRecord.getData();
+      return hoodieSparkRecord;
+    }
+  }
+
+  static class DatasetHoodieSparkBeanToSparkBeanUnsafeRowRecord implements MapFunction<HoodieSparkBeanRecord, HoodieSparkBeanUnsafeRowRecord> {
+
+    public DatasetHoodieSparkBeanToSparkBeanUnsafeRowRecord() {
+    }
+
+    @Override
+    public HoodieSparkBeanUnsafeRowRecord call(HoodieSparkBeanRecord hoodieSparkRecord) throws Exception {
+      HoodieSparkBeanUnsafeRowRecord toReturn = new HoodieSparkBeanUnsafeRowRecord();
+      toReturn.setKey(hoodieSparkRecord.getKey());
+      byte[] bytes = hoodieSparkRecord.getData();
+      Kryo kryo = new Kryo();
+      Input input = new Input(bytes);
+      toReturn.setData((UnsafeRow) kryo.readClassAndObject(input));
+      return toReturn;
     }
   }
 
@@ -438,8 +938,16 @@ public class RowWritingBenchmarkTool implements Serializable {
   static class JavaRDDHoodieRecordsSortFunc implements Function<HoodieSparkRecord, String> {
     @Override
     public String call(HoodieSparkRecord hoodieRecord) throws Exception {
-      UnsafeRow row = (UnsafeRow) hoodieRecord.getData();
+      InternalRow row = (UnsafeRow) hoodieRecord.getData();
       return row.getString(1);
+    }
+  }
+
+  static class JavaRDDHoodieAvroRecordsSortFunc implements Function<HoodieAvroRecord<?>, String> {
+    @Override
+    public String call(HoodieAvroRecord hoodieRecord) throws Exception {
+      OverwriteWithLatestAvroPayload row = (OverwriteWithLatestAvroPayload) hoodieRecord.getData();
+      return hoodieRecord.getRecordKey();
     }
   }
 
@@ -447,7 +955,25 @@ public class RowWritingBenchmarkTool implements Serializable {
 
     @Override
     public HoodieSparkRecord call(HoodieSparkRecord hoodieRecord) throws Exception {
-      UnsafeRow row = (UnsafeRow) hoodieRecord.getData();
+      InternalRow row = (UnsafeRow) hoodieRecord.getData();
+      return hoodieRecord;
+    }
+  }
+
+  static class JavaRDDHoodieAvroRecordsMapFunc implements Function<HoodieAvroRecord<?>, HoodieAvroRecord<?>> {
+
+    @Override
+    public HoodieAvroRecord call(HoodieAvroRecord hoodieRecord) throws Exception {
+      OverwriteWithLatestAvroPayload record = (OverwriteWithLatestAvroPayload) hoodieRecord.getData();
+      return hoodieRecord;
+    }
+  }
+
+  static class JavaRDDHoodieRecordsBeanMapFunc implements Function<HoodieSparkBeanRecord, HoodieSparkBeanRecord> {
+
+    @Override
+    public HoodieSparkBeanRecord call(HoodieSparkBeanRecord hoodieRecord) throws Exception {
+      //InternalRow row = hoodieRecord.getData();
       return hoodieRecord;
     }
   }

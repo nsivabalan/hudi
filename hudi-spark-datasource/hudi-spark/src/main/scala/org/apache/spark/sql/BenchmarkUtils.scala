@@ -18,11 +18,16 @@
 
 package org.apache.spark.sql
 
-import org.apache.hudi.common.model.{HoodieKey, HoodieRecord, HoodieRecordLocation, HoodieSparkRecord}
+import com.esotericsoftware.kryo.Kryo
+import com.esotericsoftware.kryo.io.Output
+import org.apache.avro.generic.GenericRecord
+import org.apache.hudi.{AvroConversionUtils, DataSourceUtils, HoodieSparkUtils}
+import org.apache.hudi.common.model._
 import org.apache.hudi.common.testutils.HoodieTestDataGenerator
 import org.apache.hudi.common.testutils.RawTripTestPayload.recordsToStrings
 import org.apache.spark.api.java.JavaRDD
 import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.catalyst.expressions.UnsafeRow
 import org.apache.spark.sql.types.StructType
 
 import java.time.LocalDate
@@ -44,19 +49,19 @@ object BenchmarkUtils {
     val key = s"${"%03d".format(round)}-${ts}-${randomUUID()}"
 
     Record(
-      key           = key,
-      partition     = partitionPaths(random.nextInt(partitionPaths.length)),
-      ts            = ts,
-      textField     = (0 until size/5/TEXT_VALUE.length).map(i => TEXT_VALUE).mkString("|"),
-      decimalField  = random.nextFloat(),
-      longField     = random.nextLong(),
-      arrayField    = (0 until size/5).toArray,
-      mapField      = (0 until size/2/40).map(_ => (randomUUID(), random.nextInt())).toMap,
+      key = key,
+      partition = partitionPaths(random.nextInt(partitionPaths.length)),
+      ts = ts,
+      textField = (0 until size / 5 / TEXT_VALUE.length).map(i => TEXT_VALUE).mkString("|"),
+      decimalField = random.nextFloat(),
+      longField = random.nextLong(),
+      arrayField = (0 until size / 5).toArray,
+      mapField = (0 until size / 2 / 40).map(_ => (randomUUID(), random.nextInt())).toMap,
       round
     )
   }
 
-  private def randomUUID() : String =
+  private def randomUUID(): String =
     UUID.randomUUID().toString
 
   def genParallelRDD(spark: SparkSession, targetParallelism: Int, start: Long, end: Long): RDD[Long] = {
@@ -68,7 +73,7 @@ object BenchmarkUtils {
       }
   }
 
-  def generateInput(spark: SparkSession, targetParallelism: Integer, numInserts: Long) : DataFrame = {
+  def generateInput(spark: SparkSession, targetParallelism: Integer, numInserts: Long): DataFrame = {
     val partitionPaths = genDateBasedPartitionValues(100)
     val insertsRDD = genParallelRDD(spark, targetParallelism, 0, numInserts)
       .map(_ => newRecord(0, 1024, partitionPaths))
@@ -97,15 +102,89 @@ object BenchmarkUtils {
     inputDF.queryExecution.toRdd.mapPartitions { it =>
 
       it.map { sourceRow =>
-        val internalRowCopy = sourceRow.copy()
-        val (key: HoodieKey, recordLocation: Option[HoodieRecordLocation]) = (new HoodieKey(internalRowCopy.getString(0), internalRowCopy.getString(1)), Option.empty)
+        val (key: HoodieKey, recordLocation: Option[HoodieRecordLocation]) = (new HoodieKey(sourceRow.getString(0), sourceRow.getString(1)), Option.empty)
         //HoodieCreateRecordUtils.getHoodieKeyAndMayBeLocationFromSparkRecord(sparkKeyGenerator, internalRowCopy, structType, false, false)
-        val hoodieSparkRecord = new HoodieSparkRecord(key, internalRowCopy, structType, false)
+        val hoodieSparkRecord = new HoodieSparkRecord(key, sourceRow, structType, false)
         if (recordLocation.isDefined) hoodieSparkRecord.setCurrentLocation(recordLocation.get)
         hoodieSparkRecord
       }
     }.toJavaRDD().asInstanceOf[JavaRDD[HoodieSparkRecord]]
   }
+
+  def convertToDatasetHoodieAvroRecord(inputDF: DataFrame): JavaRDD[HoodieAvroRecord[_]] = {
+    val avroRecords: RDD[GenericRecord] = HoodieSparkUtils.createRdd(inputDF, "sample_record_struct_name", "sample_record_name_space",
+      None)
+    avroRecords.map(avroRecord => {
+      val hoodieKey = new HoodieKey((avroRecord.get("key").asInstanceOf[org.apache.avro.util.Utf8]).toString, (avroRecord.get("partition").asInstanceOf[org.apache.avro.util.Utf8]).toString)
+      DataSourceUtils.createHoodieRecord(avroRecord, hoodieKey,
+        "org.apache.hudi.common.model.OverwriteWithLatestAvroPayload", None)
+    }).toJavaRDD().asInstanceOf[JavaRDD[HoodieAvroRecord[_]]]
+  }
+
+  def convertToDatasetHoodieBeanRecords(inputDF: DataFrame, numFields: Integer): JavaRDD[HoodieSparkBeanRecord] = {
+    inputDF.queryExecution.toRdd.mapPartitions { it =>
+      val kryo = new Kryo()
+      it.map { sourceRow =>
+        val (key: HoodieKey, recordLocation: Option[HoodieRecordLocation]) = (new HoodieKey(sourceRow.getString(0), sourceRow.getString(1)), Option.empty)
+        val hoodieSparkRecordBean = new HoodieSparkBeanRecord()
+        hoodieSparkRecordBean.setKey(key)
+        val unsafeRow = sourceRow.asInstanceOf[UnsafeRow]
+        //val sizeInBytes = UnsafeRow.calculateBitSetWidthInBytes(numFields) + numFields * 8
+        /*val sizeInBytes = unsafeRow.getSizeInBytes
+        hoodieSparkRecordBean.setUnsafeRowSize(unsafeRow.getSizeInBytes)
+
+        val deserializedRow = new UnsafeRow(numFields)
+        val bytes : Array[Byte] = new Array(sizeInBytes)
+        deserializedRow.pointTo(bytes, sizeInBytes)*/
+
+        val output = new Output(1024, -1)
+        kryo.writeClassAndObject(output, unsafeRow);
+        val serializedBytes = output.toBytes
+
+        hoodieSparkRecordBean.setData(serializedBytes)
+        hoodieSparkRecordBean
+      }
+    }.toJavaRDD().asInstanceOf[JavaRDD[HoodieSparkBeanRecord]]
+  }
+
+  /*def getEncoder(structType: StructType): ExpressionEncoder[Row] = {
+    val encoder = ExpressionEncoder(structType)
+    encoder.t
+    encoder
+  }*/
+
+  /*def convertToDatasetHoodieRecordCustomEncoderRdd(inputDF: DataFrame, structType: StructType, ): RDD[HoodieSparkRecordBean] = {
+    inputDF.queryExecution.toRdd.mapPartitions { it =>
+
+      it.map { sourceRow =>
+        val (key: HoodieKey, recordLocation: Option[HoodieRecordLocation]) = (new HoodieKey(sourceRow.getString(0), sourceRow.getString(1)), Option.empty)
+        //HoodieCreateRecordUtils.getHoodieKeyAndMayBeLocationFromSparkRecord(sparkKeyGenerator, internalRowCopy, structType, false, false)
+        val hoodieSparkRecordBean = new HoodieSparkRecordBean()
+        hoodieSparkRecordBean.setKey(key)
+        hoodieSparkRecordBean.setData(sourceRow.asInstanceOf[UnsafeRow])
+        hoodieSparkRecordBean.setCopy(false)
+        //new HoodieSparkRecord(key, internalRowCopy, structType, false)
+        if (recordLocation.isDefined) hoodieSparkRecordBean.setCurrentLocation(recordLocation.get)
+        hoodieSparkRecordBean
+      }
+    }
+  }*/
+
+  /*def convertToJavaRDDHoodieRowBeanRecord(inputDF: DataFrame, encoder: Encoder[HoodieSparkRowBeanRecord]): JavaRDD[HoodieSparkRowBeanRecord] = {
+
+    inputDF.queryExecution.toRdd.mapPartitions { it =>
+
+      it.map { sourceRow =>
+        val (key: HoodieKey, recordLocation: Option[HoodieRecordLocation]) = (new HoodieKey(sourceRow.getString(0), sourceRow.getString(1)), Option.empty)
+        val hoodieSparkRecordBean = new HoodieSparkBeanRecord()
+        hoodieSparkRecordBean.setKey(key)
+        hoodieSparkRecordBean.setData(sourceRow.asInstanceOf[UnsafeRow])
+        hoodieSparkRecordBean.setCopy(false)
+        hoodieSparkRecordBean
+      }
+    }.toJavaRDD().asInstanceOf[JavaRDD[HoodieSparkRowBeanRecord]]
+  }*/
+
 }
 
 case class Record(key: String,
