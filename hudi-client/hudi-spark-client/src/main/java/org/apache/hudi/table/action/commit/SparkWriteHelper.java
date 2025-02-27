@@ -15,8 +15,12 @@ import org.apache.hudi.table.HoodieTable;
 
 import org.apache.spark.api.java.function.MapFunction;
 import org.apache.spark.api.java.function.ReduceFunction;
+import org.apache.spark.sql.Column;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Encoders;
+import org.apache.spark.sql.SparkSession;
+
+import java.util.Arrays;
 
 public class SparkWriteHelper<T, R> extends BaseWriteHelper<T, HoodieData<HoodieSparkBeanRecord>,
     HoodieData<HoodieKey>, HoodieData<WriteStatus>, R> {
@@ -50,5 +54,14 @@ public class SparkWriteHelper<T, R> extends BaseWriteHelper<T, HoodieData<Hoodie
         return hoodieSparkBeanRecord;
       }
     }));
+  }
+
+
+  public Dataset<HoodieSparkBeanRecord> repartition(Dataset<HoodieSparkBeanRecord> records, int outputSparkPartitions, String[] sortColumnNames, SparkSession spark) {
+
+    records.toDF()
+        .sort(Arrays.stream(sortColumnNames).map(Column::new).toArray(Column[]::new))
+        .coalesce(outputSparkPartitions);
+
   }
 }
