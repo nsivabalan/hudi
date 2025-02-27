@@ -81,4 +81,30 @@ public class HoodieWriteHelper<T, R> extends BaseWriteHelper<T, HoodieData<Hoodi
       return reducedRecord.newInstance(reducedKey, operation);
     }, parallelism).map(Pair::getRight);
   }
+
+  public HoodieData<HoodieRecord<T>> deduplicateDatasetRecords(
+      HoodieData<HoodieRecord<T>> records, HoodieIndex<?, ?> index, int parallelism, String schemaStr, TypedProperties props, HoodieRecordMerger merger) {
+    boolean isIndexingGlobal = index.isGlobal();
+    final SerializableSchema schema = new SerializableSchema(schemaStr);
+    return records.mapToPair(record -> {
+      HoodieKey hoodieKey = record.getKey();
+      // If index used is global, then records are expected to differ in their partitionPath
+      Object key = isIndexingGlobal ? hoodieKey.getRecordKey() : hoodieKey;
+      // NOTE: PLEASE READ CAREFULLY BEFORE CHANGING
+      //       Here we have to make a copy of the incoming record, since it might be holding
+      //       an instance of [[InternalRow]] pointing into shared, mutable buffer
+      return Pair.of(key, record.copy());
+    }).reduceByKey((rec1, rec2) -> {
+      HoodieRecord<T> reducedRecord;
+      try {
+        reducedRecord = merger.merge(rec1, schema.get(), rec2, schema.get(), props).get().getLeft();
+      } catch (IOException e) {
+        throw new HoodieException(String.format("Error to merge two records, %s, %s", rec1, rec2), e);
+      }
+      boolean choosePrev = rec1.getData().equals(reducedRecord.getData());
+      HoodieKey reducedKey = choosePrev ? rec1.getKey() : rec2.getKey();
+      HoodieOperation operation = choosePrev ? rec1.getOperation() : rec2.getOperation();
+      return reducedRecord.newInstance(reducedKey, operation);
+    }, parallelism).map(Pair::getRight);
+  }
 }

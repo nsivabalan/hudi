@@ -19,6 +19,7 @@
 package org.apache.hudi.testutils;
 
 import org.apache.hudi.HoodieDataSourceHelpers;
+import org.apache.hudi.common.model.HoodieSparkBeanRecord;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.testutils.HoodieTestDataGenerator;
@@ -33,9 +34,12 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
+import org.apache.spark.sql.HoodieSparkBeanRecordUtils;
 import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Encoders;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.RowFactory;
+import org.apache.spark.sql.SparkSession;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -55,6 +59,12 @@ import static org.apache.hudi.common.testutils.HoodieTestDataGenerator.DEFAULT_T
 public class DataSourceTestUtils {
 
   private static final Random RANDOM = new Random(0xDAADDEED);
+
+  public void investigate(SparkSession spark) {
+    Dataset<Row> inputDf = null;
+    Dataset<HoodieSparkBeanRecord> dataset = spark.createDataset(HoodieSparkBeanRecordUtils.convertToDatasetHoodieBeanRecords(inputDf).rdd(), Encoders.bean(HoodieSparkBeanRecord.class));
+  }
+
 
   public static Schema getStructTypeExampleSchema() throws IOException {
     return new Schema.Parser().parse(FileIOUtils.readAsUTFString(DataSourceTestUtils.class.getResourceAsStream("/exampleSchema.txt")));

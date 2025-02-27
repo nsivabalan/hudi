@@ -508,6 +508,7 @@ class HoodieSparkSqlWriterInternal {
               case Success(recs) => recs
               case Failure(e) => throw new HoodieRecordCreationException("Failed to create Hoodie Spark Record", e)
             }
+            val datasetHoodieSparkBeanRecs = DataSourceUtils.convertDfToHoodieSparkBeabRecords(df, spark)
 
             // Remove duplicates from incoming records based on existing keys from storage.
             val dedupedHoodieRecords = handleInsertDuplicates(hoodieRecords, hoodieConfig, operation, jsc, parameters)

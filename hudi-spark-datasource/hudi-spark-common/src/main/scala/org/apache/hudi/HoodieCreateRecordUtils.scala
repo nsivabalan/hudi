@@ -28,7 +28,6 @@ import org.apache.hudi.config.HoodieWriteConfig
 import org.apache.hudi.keygen.constant.KeyGeneratorOptions
 import org.apache.hudi.keygen.factory.HoodieSparkKeyGeneratorFactory
 import org.apache.hudi.keygen.{BaseKeyGenerator, KeyGenUtils, SparkKeyGeneratorInterface}
-
 import org.apache.avro.Schema
 import org.apache.avro.generic.GenericRecord
 import org.apache.spark.TaskContext
@@ -37,7 +36,7 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.HoodieInternalRowUtils.getCachedUnsafeRowWriter
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.types.StructType
-import org.apache.spark.sql.{DataFrame, HoodieInternalRowUtils}
+import org.apache.spark.sql.{DataFrame, Encoders, HoodieInternalRowUtils, HoodieSparkBeanRecordUtils, SparkSession}
 import org.slf4j.LoggerFactory
 
 import scala.collection.JavaConverters._
@@ -194,6 +193,17 @@ object HoodieCreateRecordUtils {
         }.toJavaRDD().asInstanceOf[JavaRDD[HoodieRecord[_]]]
     }
   }
+
+  /**
+   * Creating Dataset<HoodieSparkBeanRecord>
+   * @param args
+   * @return
+   */
+  def createHoodieRecordDataset(args: createHoodieRecordRddArgs, spark: SparkSession) = {
+
+    spark.createDataset(HoodieSparkBeanRecordUtils.convertToDatasetHoodieBeanRecords(args.df).rdd, Encoders.bean(classOf[HoodieSparkBeanRecord]))
+  }
+
 
   def getHoodieKeyAndMaybeLocationFromAvroRecord(keyGenerator: Option[BaseKeyGenerator], avroRec: GenericRecord,
                                                  useMetaFieldsForRecordKeyAndPartition: Boolean, fetchRecordLocationFromMetaFields: Boolean):

@@ -29,6 +29,7 @@ import org.apache.hudi.common.model.HoodieKey;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieRecordLocation;
 import org.apache.hudi.common.model.HoodieRecordPayload;
+import org.apache.hudi.common.model.HoodieSparkBeanRecord;
 import org.apache.hudi.common.model.WriteOperationType;
 import org.apache.hudi.common.table.HoodieTableConfig;
 import org.apache.hudi.common.util.Option;
@@ -49,7 +50,10 @@ import org.apache.avro.generic.GenericRecord;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Encoders;
+import org.apache.spark.sql.HoodieSparkBeanRecordUtils;
 import org.apache.spark.sql.Row;
+import org.apache.spark.sql.SparkSession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -69,6 +73,16 @@ import static org.apache.hudi.common.util.CommitUtils.getCheckpointValueAsString
 public class DataSourceUtils {
 
   private static final Logger LOG = LoggerFactory.getLogger(DataSourceUtils.class);
+
+  /**
+   * Creating Dataset<HoodieSparkBeabRecord> from df.
+   * @param df
+   * @param sparkSession
+   * @return
+   */
+  public static Dataset<HoodieSparkBeanRecord> convertDfToHoodieSparkBeabRecords(Dataset<Row> df, SparkSession sparkSession) {
+    return sparkSession.createDataset(HoodieSparkBeanRecordUtils.convertToDatasetHoodieBeanRecords(df).rdd(), Encoders.bean(HoodieSparkBeanRecord.class));
+  }
 
   public static String getTablePath(HoodieStorage storage,
                                     List<StoragePath> userProvidedPaths) throws IOException {
