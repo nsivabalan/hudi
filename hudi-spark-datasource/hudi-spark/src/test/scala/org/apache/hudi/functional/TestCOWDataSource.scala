@@ -104,6 +104,14 @@ class TestCOWDataSource extends HoodieSparkClientTestBase with ScalaAssertionSup
   }
 
   @Test
+  def testInvestigate() : Unit = {
+    val df = spark.read.format("hudi").load("/var/folders/ym/8yjkm3n90kq8tk4gfmvk7y140000gn/T/junit1540587854799942235/3acecaf2-f945-44e2-930e-4234ea9c5192_test_json_kafka_table_0/");
+    df.count()
+
+    val df1 = df
+  }
+
+  @Test
   def testShortNameStorage(): Unit = {
     val (writeOpts, readOpts) = getWriterReaderOpts()
 

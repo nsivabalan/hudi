@@ -79,6 +79,10 @@ public class HoodieKeyBasedFileGroupRecordBuffer<T> extends HoodieBaseFileGroupR
         Map<String, Object> metadata = readerContext.generateMetadataForRecord(
             nextRecord, recordsIteratorSchemaPair.getRight());
         String recordKey = (String) metadata.get(HoodieReaderContext.INTERNAL_META_RECORD_KEY);
+        System.out.println("Record key " + recordKey);
+        if (recordKey.equalsIgnoreCase("9-1741677134728")) {
+          System.out.println("asdfasd");
+        }
         processNextDataRecord(nextRecord, metadata, recordKey);
       }
     }
@@ -105,6 +109,9 @@ public class HoodieKeyBasedFileGroupRecordBuffer<T> extends HoodieBaseFileGroupR
     while (it.hasNext()) {
       DeleteRecord record = it.next();
       String recordKey = record.getRecordKey();
+      if (recordKey.equalsIgnoreCase("9-1741677134728")) {
+        System.out.println("adsfads");
+      }
       processNextDeletedRecord(record, recordKey);
     }
   }

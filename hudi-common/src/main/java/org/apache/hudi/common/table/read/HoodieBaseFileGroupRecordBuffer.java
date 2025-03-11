@@ -234,6 +234,12 @@ public abstract class HoodieBaseFileGroupRecordBuffer<T> implements HoodieFileGr
           case COMMIT_TIME_ORDERING:
             return Option.empty();
           case EVENT_TIME_ORDERING:
+            HoodieRecord newRec = readerContext.constructHoodieRecord(Option.of(record), metadata);
+            HoodieRecord oldRec = readerContext.constructHoodieRecord(
+                existingRecordMetadataPair.getLeft(), existingRecordMetadataPair.getRight());
+            /*if (newRec.getKey().getRecordKey().equals("317-1741653522918")) {
+              System.out.println("adsf");
+            }*/
             Comparable existingOrderingValue = readerContext.getOrderingValue(
                 existingRecordMetadataPair.getLeft(), existingRecordMetadataPair.getRight(),
                 readerSchema, orderingFieldName);
