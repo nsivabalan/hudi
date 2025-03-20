@@ -39,8 +39,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.apache.hudi.metadata.MetadataPartitionType.FILES;
-
 /**
  * Upsert commit action executor for Metadata table.
  *
@@ -69,9 +67,9 @@ public class SparkMetadataTableUpsertCommitActionExecutor<T> extends SparkUpsert
   protected WorkloadProfile prepareWorkloadProfileAndSaveToInflight(HoodieData<HoodieRecord<T>> inputRecordsWithClusteringUpdate) {
     // create workload profile only when we are writing to FILES partition in Metadata table.
     WorkloadProfile workloadProfile = new WorkloadProfile(Pair.of(EMPTY_MAP, PLACEHOLDER_GLOBAL_STAT));
-    if (mdtPartitionPathFileGroupIdList.size() == 1 && mdtPartitionPathFileGroupIdList.get(0).getKey().equals(FILES.getPartitionPath())) {
-      saveWorkloadProfileMetadataToInflight(workloadProfile, instantTime);
-    }
+    //if (mdtPartitionPathFileGroupIdList.size() == 1 && mdtPartitionPathFileGroupIdList.get(0).getKey().equals(FILES.getPartitionPath())) {
+    saveWorkloadProfileMetadataToInflight(workloadProfile, instantTime);
+    //}
     return workloadProfile;
   }
 

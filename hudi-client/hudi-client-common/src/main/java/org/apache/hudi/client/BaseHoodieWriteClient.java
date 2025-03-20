@@ -419,7 +419,7 @@ public abstract class BaseHoodieWriteClient<T, I, K, O> extends BaseHoodieClient
    * @param instantTime Instant time of the commit
    * @return Collection of WriteStatus to inspect errors and counts
    */
-  public O upsertPreppedRecords(I preppedRecords, final String instantTime, Option<PartitionFileIdPairsHolder> partitionFileIdPairsHolderOpt) {
+  public O upsertPreppedRecords(I preppedRecords, final String instantTime, Option<List<Pair<String, String>>> partitionFileIdPairsHolderOpt) {
     return upsertPreppedRecords(preppedRecords, instantTime);
   }
 

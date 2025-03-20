@@ -25,7 +25,6 @@ import org.apache.hudi.avro.model.HoodieRestoreMetadata;
 import org.apache.hudi.avro.model.HoodieRestorePlan;
 import org.apache.hudi.avro.model.HoodieRollbackMetadata;
 import org.apache.hudi.client.BaseHoodieWriteClient;
-import org.apache.hudi.client.PartitionFileIdPairsHolder;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.data.HoodieData;
 import org.apache.hudi.common.engine.EngineType;
@@ -89,7 +88,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -1346,9 +1344,9 @@ public abstract class HoodieBackedTableMetadataWriter<I> implements HoodieTableM
   protected void commitInternal(String instantTime, Map<String, HoodieData<HoodieRecord>> partitionRecordsMap, boolean isInitializing,
                                 Option<BulkInsertPartitioner> bulkInsertPartitioner) {
     ValidationUtils.checkState(metadataMetaClient != null, "Metadata table is not fully initialized yet.");
-    Pair<HoodieData<HoodieRecord>, PartitionFileIdPairsHolder> result = prepRecords(partitionRecordsMap);
+    Pair<HoodieData<HoodieRecord>, List<Pair<String, String>>> result = prepRecords(partitionRecordsMap);
     HoodieData<HoodieRecord> preppedRecords = result.getKey();
-    PartitionFileIdPairsHolder partitionFileIdPairsHolder = result.getValue();
+    List<Pair<String, String>> partitionFileIdPairs = result.getValue();
     I preppedRecordInputs = convertHoodieDataToEngineSpecificData(preppedRecords);
 
     BaseHoodieWriteClient<?, I, ?, ?> writeClient = getWriteClient();
@@ -1387,7 +1385,7 @@ public abstract class HoodieBackedTableMetadataWriter<I> implements HoodieTableM
     } else {
       engineContext.setJobStatus(this.getClass().getSimpleName(), String.format("Upserting at %s into metadata table %s", instantTime, metadataWriteConfig.getTableName()));
       // last argument is required so that we take optimized writes flow for metadata table. 
-      writeClient.upsertPreppedRecords(preppedRecordInputs, instantTime, Option.of(partitionFileIdPairsHolder));
+      writeClient.upsertPreppedRecords(preppedRecordInputs, instantTime, Option.of(partitionFileIdPairs));
     }
 
     metadataMetaClient.reloadActiveTimeline();
@@ -1438,11 +1436,10 @@ public abstract class HoodieBackedTableMetadataWriter<I> implements HoodieTableM
    * Tag each record with the location in the given partition.
    * The record is tagged with respective file slice's location based on its record key.
    */
-  protected Pair<HoodieData<HoodieRecord>, PartitionFileIdPairsHolder> prepRecords(Map<String, HoodieData<HoodieRecord>> partitionRecordsMap) {
+  protected Pair<HoodieData<HoodieRecord>, List<Pair<String, String>>> prepRecords(Map<String, HoodieData<HoodieRecord>> partitionRecordsMap) {
     // The result set
     HoodieData<HoodieRecord> allPartitionRecords = engineContext.emptyHoodieData();
     try (HoodieTableFileSystemView fsView = HoodieTableMetadataUtil.getFileSystemViewForMetadataTable(metadataMetaClient)) {
-      PartitionFileIdPairsHolder partitionFileIdPairsHolder = new PartitionFileIdPairsHolder();
       for (Map.Entry<String, HoodieData<HoodieRecord>> entry : partitionRecordsMap.entrySet()) {
         final String partitionName = entry.getKey();
         HoodieData<HoodieRecord> records = entry.getValue();
@@ -1457,21 +1454,21 @@ public abstract class HoodieBackedTableMetadataWriter<I> implements HoodieTableM
         ValidationUtils.checkArgument(fileGroupCount > 0, String.format("FileGroup count for MDT partition %s should be > 0", partitionName));
 
         List<FileSlice> finalFileSlices = fileSlices;
-        Set<String> mappedFileIds = new HashSet<>();
         HoodieData<HoodieRecord> rddSinglePartitionRecords = records.map(r -> {
           FileSlice slice = finalFileSlices.get(HoodieTableMetadataUtil.mapRecordKeyToFileGroupIndex(r.getRecordKey(),
               fileGroupCount));
           r.unseal();
           r.setCurrentLocation(new HoodieRecordLocation(slice.getBaseInstantTime(), slice.getFileId()));
           r.seal();
-          mappedFileIds.add(slice.getFileId());
           return r;
         });
 
         allPartitionRecords = allPartitionRecords.union(rddSinglePartitionRecords);
-        partitionFileIdPairsHolder.addFileIdsForPartition(partitionName, mappedFileIds);
       }
-      return Pair.of(allPartitionRecords, partitionFileIdPairsHolder);
+
+      List<Pair<String, String>> partitionFileIdPairs = allPartitionRecords.map(record -> Pair.of(record.getPartitionPath(), record.getCurrentLocation().getFileId()))
+          .distinct().collectAsList();
+      return Pair.of(allPartitionRecords, partitionFileIdPairs);
     }
   }
 
