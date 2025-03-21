@@ -79,6 +79,10 @@ public class HoodieInstant implements Serializable, Comparable<HoodieInstant> {
     return requestedTime;
   }
 
+  public String getTimestamp() {
+    return requestedTime;
+  }
+
   public boolean isLegacy() {
     return isLegacy;
   }
