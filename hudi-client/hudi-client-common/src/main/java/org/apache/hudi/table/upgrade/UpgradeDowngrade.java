@@ -19,16 +19,24 @@
 package org.apache.hudi.table.upgrade;
 
 import org.apache.hudi.common.config.ConfigProperty;
+import org.apache.hudi.common.config.HoodieMetadataConfig;
+import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.engine.HoodieEngineContext;
+import org.apache.hudi.common.model.HoodieCommitMetadata;
 import org.apache.hudi.common.model.HoodieFailedWritesCleaningPolicy;
+import org.apache.hudi.common.model.WriteOperationType;
 import org.apache.hudi.common.table.HoodieTableConfig;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.HoodieTableVersion;
+import org.apache.hudi.common.util.Option;
 import org.apache.hudi.config.HoodieWriteConfig;
+import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieUpgradeDowngradeException;
 import org.apache.hudi.metadata.HoodieMetadataWriteUtils;
 import org.apache.hudi.metadata.HoodieTableMetadata;
+import org.apache.hudi.metadata.HoodieTableMetadataWriter;
 import org.apache.hudi.storage.StoragePath;
+import org.apache.hudi.table.HoodieTable;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -145,7 +153,9 @@ public class UpgradeDowngrade {
     // Perform the actual upgrade/downgrade; this has to be idempotent, for now.
     LOG.info("Attempting to move table from version " + fromVersion + " to " + toVersion);
     Map<ConfigProperty, String> tableProps = new Hashtable<>();
+    boolean isDowngrade = true;
     if (fromVersion.versionCode() < toVersion.versionCode()) {
+      isDowngrade = false;
       // upgrade
       while (fromVersion.versionCode() < toVersion.versionCode()) {
         HoodieTableVersion nextVersion = HoodieTableVersion.fromVersionCode(fromVersion.versionCode() + 1);
@@ -170,12 +180,36 @@ public class UpgradeDowngrade {
     }
     // user could have disabled auto upgrade (probably to deploy the new binary only),
     // in which case, we should not update the table version
-    if (config.autoUpgrade()) {
+    if (isDowngrade || config.autoUpgrade()) { // for metadata table, we are not updating the table version to toVersion. Why?
       metaClient.getTableConfig().setTableVersion(toVersion);
     }
 
     HoodieTableConfig.update(metaClient.getStorage(),
         metaClient.getMetaPath(), metaClient.getTableConfig().getProps());
+
+    if (metaClient.getTableConfig().isMetadataTableAvailable() && toVersion.equals(HoodieTableVersion.SIX) && isDowngrade) {
+      // add empty dc to mdt
+      TypedProperties typedProperties = config.getProps();
+      typedProperties.setProperty(HoodieMetadataConfig.ENABLE_METADATA_INDEX_COLUMN_STATS.key(),"false");
+      typedProperties.setProperty(HoodieMetadataConfig.ENABLE_METADATA_INDEX_PARTITION_STATS.key(), "false");
+      typedProperties.setProperty(HoodieWriteConfig.WRITE_TABLE_VERSION.key(), "6");
+      typedProperties.setProperty(HoodieWriteConfig.AUTO_UPGRADE_VERSION.key(), "false");
+      HoodieWriteConfig updatedConfig = HoodieWriteConfig.newBuilder().withPath(config.getBasePath()).withProperties(typedProperties).build();
+
+      HoodieTable table = upgradeDowngradeHelper.getTable(updatedConfig, context);
+      String newInstant = table.getMetaClient().createNewInstantTime(false);
+      Option<HoodieTableMetadataWriter> mdtWriterOpt = table.getMetadataWriter(newInstant);
+      mdtWriterOpt.ifPresent(mdtWriter -> {
+        HoodieCommitMetadata commitMetadata = new HoodieCommitMetadata();
+        commitMetadata.setOperationType(WriteOperationType.UPSERT);
+        mdtWriter.update(commitMetadata, newInstant);
+        try {
+          mdtWriter.close();
+        } catch (Exception e) {
+          throw new HoodieException("Failed to close MDT writer for table " + table.getConfig().getBasePath());
+        }
+      });
+    }
   }
 
   protected Map<ConfigProperty, String> upgrade(HoodieTableVersion fromVersion, HoodieTableVersion toVersion, String instantTime) {

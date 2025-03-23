@@ -141,8 +141,9 @@ public class EightToSevenDowngradeHandler implements DowngradeHandler {
     if (metaClient.getTableConfig().isMetadataTableAvailable()) {
       // Delete unsupported metadata partitions in table version 7.
       downgradeMetadataPartitions(context, metaClient.getStorage(), metaClient, tablePropsToAdd);
-      UpgradeDowngradeUtils.updateMetadataTableVersion(context, HoodieTableVersion.SEVEN, metaClient);
+      //UpgradeDowngradeUtils.updateMetadataTableVersion(context, HoodieTableVersion.SEVEN, metaClient);
     }
+
     return tablePropsToAdd;
   }
 
