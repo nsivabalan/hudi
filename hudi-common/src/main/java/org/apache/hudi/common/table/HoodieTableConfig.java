@@ -759,6 +759,14 @@ public class HoodieTableConfig extends HoodieConfig {
     return getString(RECORD_MERGE_STRATEGY_ID);
   }
 
+  public static Triple<RecordMergeMode, String, String> inferCorrectMergingBehavior(RecordMergeMode recordMergeMode,
+                                                                                    String payloadClassName,
+                                                                                    String recordMergeStrategyId,
+                                                                                    String orderingFieldName,
+                                                                                    HoodieTableVersion tableVersion) {
+    return inferCorrectMergingBehavior(recordMergeMode, payloadClassName, recordMergeStrategyId, orderingFieldName, tableVersion, false);
+  }
+
   /**
    * Infers the merging behavior based on what the user sets (or doesn't set).
    * Validates that the user has not set an illegal combination of configs
@@ -767,7 +775,8 @@ public class HoodieTableConfig extends HoodieConfig {
                                                                                     String payloadClassName,
                                                                                     String recordMergeStrategyId,
                                                                                     String orderingFieldName,
-                                                                                    HoodieTableVersion tableVersion) {
+                                                                                    HoodieTableVersion tableVersion,
+                                                                                    boolean ignoreMergeStrategyIdAndPayloadContractValidation) {
     RecordMergeMode inferredRecordMergeMode;
     String inferredPayloadClassName;
     String inferredRecordMergeStrategyId;
@@ -783,17 +792,21 @@ public class HoodieTableConfig extends HoodieConfig {
       // Infer the merge mode from either the payload class or record merge strategy ID
       RecordMergeMode modeBasedOnPayload = inferRecordMergeModeFromPayloadClass(payloadClassName);
       RecordMergeMode modeBasedOnStrategyId = inferRecordMergeModeFromMergeStrategyId(recordMergeStrategyId);
-      checkArgument(modeBasedOnPayload != null || modeBasedOnStrategyId != null,
-          String.format("Cannot infer record merge mode from payload class (%s) or record merge "
-              + "strategy ID (%s).", payloadClassName, recordMergeStrategyId));
+      if (!ignoreMergeStrategyIdAndPayloadContractValidation) {
+        checkArgument(modeBasedOnPayload != null || modeBasedOnStrategyId != null,
+            String.format("Cannot infer record merge mode from payload class (%s) or record merge "
+                + "strategy ID (%s).", payloadClassName, recordMergeStrategyId));
+      }
       // TODO(HUDI-8925): once payload class name is not required, remove the check on
       //  modeBasedOnStrategyId
       if (tableVersion.greaterThanOrEquals(HoodieTableVersion.EIGHT)
           && modeBasedOnStrategyId != CUSTOM && modeBasedOnPayload != null && modeBasedOnStrategyId != null) {
-        checkArgument(modeBasedOnPayload.equals(modeBasedOnStrategyId),
-            String.format("Configured payload class (%s) and record merge strategy ID (%s) conflict "
-                    + "with each other. Please only set one of them in the write config.",
-                payloadClassName, recordMergeStrategyId));
+        if (!ignoreMergeStrategyIdAndPayloadContractValidation) {
+          checkArgument(modeBasedOnPayload.equals(modeBasedOnStrategyId),
+              String.format("Configured payload class (%s) and record merge strategy ID (%s) conflict "
+                      + "with each other. Please only set one of them in the write config.",
+                  payloadClassName, recordMergeStrategyId));
+        }
       }
       if (tableVersion.greaterThanOrEquals(HoodieTableVersion.EIGHT)) {
         inferredRecordMergeMode = modeBasedOnStrategyId != null ? modeBasedOnStrategyId : modeBasedOnPayload;
@@ -801,7 +814,7 @@ public class HoodieTableConfig extends HoodieConfig {
         inferredRecordMergeMode = modeBasedOnPayload != null ? modeBasedOnPayload : modeBasedOnStrategyId;
       }
     }
-    if (recordMergeMode != null) {
+    if (recordMergeMode != null && !ignoreMergeStrategyIdAndPayloadContractValidation) {
       checkArgument(inferredRecordMergeMode == recordMergeMode,
           String.format("Configured record merge mode (%s) is inconsistent with payload class (%s) "
                   + "or record merge strategy ID (%s) configured. Please revisit the configs.",
@@ -814,7 +827,7 @@ public class HoodieTableConfig extends HoodieConfig {
         LOG.warn("The precombine or ordering field ({}) is specified. COMMIT_TIME_ORDERING "
             + "merge mode does not use precombine or ordering field anymore.", orderingFieldName);
       }
-    } else if (inferredRecordMergeMode == EVENT_TIME_ORDERING) {
+    } else if (inferredRecordMergeMode == EVENT_TIME_ORDERING && !ignoreMergeStrategyIdAndPayloadContractValidation) {
       if (isNullOrEmpty(orderingFieldName)) {
         LOG.warn("The precombine or ordering field is not specified. EVENT_TIME_ORDERING "
             + "merge mode requires precombine or ordering field to be set for getting the "
