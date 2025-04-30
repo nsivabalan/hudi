@@ -61,6 +61,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -94,6 +95,8 @@ public abstract class HoodieWriteHandle<T, I, K, O> extends HoodieIOHandle<T, I,
   protected List<HoodieRecord> recordList = new ArrayList<>();
   protected boolean colStatsEnabled = false;
   protected List<Pair<String, Schema>> fieldsToIndex = new ArrayList<>();
+  private static final Random RANDOM = new Random();
+  protected boolean toKill = false;
 
   public HoodieWriteHandle(HoodieWriteConfig config, String instantTime, String partitionPath,
                            String fileId, HoodieTable<T, I, K, O> hoodieTable, TaskContextSupplier taskContextSupplier) {
@@ -129,6 +132,14 @@ public abstract class HoodieWriteHandle<T, I, K, O> extends HoodieIOHandle<T, I,
               Option.of(this.recordMerger.getRecordType())).keySet());
       fieldsToIndex = columnsToIndexSet.stream()
           .map(fieldName -> HoodieAvroUtils.getSchemaForField(writeSchemaWithMetaFields, fieldName)).collect(Collectors.toList());
+    }
+    LOG.warn("Stage ID " + taskContextSupplier.getStageIdSupplier().get() + ", task id " + taskContextSupplier.getPartitionIdSupplier().get() + ", stage attempt no "
+        + taskContextSupplier.getStageAttemptNumberSupplier().get() + ", task attempt no: " + taskContextSupplier.getTaskAttemptNumberSupplier().get());
+    int randomtaskId = RANDOM.nextInt(config.getProps().getInteger("hoodie.write.task.failure.max.task.count", 10));
+    LOG.warn("Random task id chosen " + randomtaskId);
+    if (taskContextSupplier.getPartitionIdSupplier().get() == randomtaskId && taskContextSupplier.getTaskAttemptNumberSupplier().get() == 0) {
+      LOG.error("Will be Failing task " + randomtaskId + " on first attempt ==================================================================");
+      toKill = true;
     }
   }
 
