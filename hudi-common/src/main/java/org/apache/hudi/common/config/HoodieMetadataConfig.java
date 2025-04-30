@@ -962,7 +962,7 @@ public final class HoodieMetadataConfig extends HoodieConfig {
     private boolean getDefaultColStatsEnable(EngineType engineType) {
       switch (engineType) {
         case SPARK:
-          return true;
+          return false;
         case FLINK:
         case JAVA:
           return false; // HUDI-8814
@@ -975,7 +975,7 @@ public final class HoodieMetadataConfig extends HoodieConfig {
       switch (engineType) {
         case SPARK:
         case JAVA:
-          return true;
+          return false;
         case FLINK:
           return false;
         default:
