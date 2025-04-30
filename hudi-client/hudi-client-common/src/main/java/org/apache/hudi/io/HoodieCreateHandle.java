@@ -232,6 +232,11 @@ public class HoodieCreateHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O
    */
   @Override
   public List<WriteStatus> close() {
+    if (toKill) {
+      LOG.error("Failing task on first attempt =====================================");
+      System.exit(1);
+    }
+
     LOG.info("Closing the file " + writeStatus.getFileId() + " as we are done with all the records " + recordsWritten);
     try {
       if (isClosed()) {

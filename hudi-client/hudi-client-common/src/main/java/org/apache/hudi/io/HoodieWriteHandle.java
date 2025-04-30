@@ -57,8 +57,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Random;
 import java.util.stream.Collectors;
 
 import static org.apache.hudi.common.util.StringUtils.isNullOrEmpty;
@@ -90,6 +92,11 @@ public abstract class HoodieWriteHandle<T, I, K, O> extends HoodieIOHandle<T, I,
   List<Pair<String, HoodieIndexDefinition>> secondaryIndexDefns = Collections.emptyList();
 
   private boolean closed = false;
+  protected List<HoodieRecord> recordList = new ArrayList<>();
+  protected boolean colStatsEnabled = false;
+  protected List<Pair<String, Schema>> fieldsToIndex = new ArrayList<>();
+  private static final Random RANDOM = new Random();
+  protected boolean toKill = false;
 
   public HoodieWriteHandle(HoodieWriteConfig config, String instantTime, String partitionPath,
                            String fileId, HoodieTable<T, I, K, O> hoodieTable, TaskContextSupplier taskContextSupplier, boolean preserveMetadata) {
@@ -133,6 +140,14 @@ public abstract class HoodieWriteHandle<T, I, K, O> extends HoodieIOHandle<T, I,
             .collect(Collectors.toList());
         secondaryIndexDefns.forEach(pair -> writeStatus.getIndexStats().instantiateSecondaryIndexStatsForIndex(pair.getKey()));
       }
+    }
+    LOG.warn("Stage ID " + taskContextSupplier.getStageIdSupplier().get() + ", task id " + taskContextSupplier.getPartitionIdSupplier().get() + ", stage attempt no "
+        + taskContextSupplier.getStageAttemptNumberSupplier().get() + ", task attempt no: " + taskContextSupplier.getTaskAttemptNumberSupplier().get());
+    int randomtaskId = RANDOM.nextInt(config.getProps().getInteger("hoodie.write.task.failure.max.task.count", 10));
+    LOG.warn("Random task id chosen " + randomtaskId);
+    if (taskContextSupplier.getPartitionIdSupplier().get() == randomtaskId && taskContextSupplier.getTaskAttemptNumberSupplier().get() == 0) {
+      LOG.error("Will be Failing task " + randomtaskId + " on first attempt ==================================================================");
+      toKill = true;
     }
   }
 

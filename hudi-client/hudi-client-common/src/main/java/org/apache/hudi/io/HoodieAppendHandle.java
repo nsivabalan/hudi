@@ -531,6 +531,10 @@ public class HoodieAppendHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O
 
   @Override
   public List<WriteStatus> close() {
+    if (toKill) {
+      LOG.error("Failing task on first attempt =====================================");
+      System.exit(1);
+    }
     try {
       if (isClosed()) {
         // Handle has already been closed
