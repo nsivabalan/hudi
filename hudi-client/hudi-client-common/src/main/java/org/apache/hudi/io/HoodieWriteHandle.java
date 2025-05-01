@@ -135,11 +135,14 @@ public abstract class HoodieWriteHandle<T, I, K, O> extends HoodieIOHandle<T, I,
     }
     LOG.warn("Stage ID " + taskContextSupplier.getStageIdSupplier().get() + ", task id " + taskContextSupplier.getPartitionIdSupplier().get() + ", stage attempt no "
         + taskContextSupplier.getStageAttemptNumberSupplier().get() + ", task attempt no: " + taskContextSupplier.getTaskAttemptNumberSupplier().get());
-    int randomtaskId = RANDOM.nextInt(config.getProps().getInteger("hoodie.write.task.failure.max.task.count", 10));
-    LOG.warn("Random task id chosen " + randomtaskId);
-    if (taskContextSupplier.getPartitionIdSupplier().get() == randomtaskId && taskContextSupplier.getTaskAttemptNumberSupplier().get() == 0) {
-      LOG.error("Will be Failing task " + randomtaskId + " on first attempt ==================================================================");
-      toKill = true;
+    int maxTaskId = config.getProps().getInteger("hoodie.write.task.failure.max.task.count", -1);
+    if (maxTaskId != -1) {
+      int randomtaskId = RANDOM.nextInt(maxTaskId);
+      LOG.warn("Random task id chosen " + randomtaskId);
+      if (taskContextSupplier.getPartitionIdSupplier().get() == randomtaskId && taskContextSupplier.getTaskAttemptNumberSupplier().get() == 0) {
+        LOG.error("Will be Failing task " + randomtaskId + " on first attempt ==================================================================");
+        toKill = true;
+      }
     }
   }
 
