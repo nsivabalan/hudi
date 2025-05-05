@@ -138,7 +138,7 @@ public abstract class HoodieWriteHandle<T, I, K, O> extends HoodieIOHandle<T, I,
     int maxTaskId = config.getProps().getInteger("hoodie.write.task.failure.max.task.count", -1);
     if (maxTaskId != -1) {
       int randomtaskId = RANDOM.nextInt(maxTaskId);
-      LOG.warn("Random task id chosen " + randomtaskId);
+      LOG.warn("Random task id chosen " + randomtaskId + ", current task ID " + taskContextSupplier.getPartitionIdSupplier().get());
       if (taskContextSupplier.getPartitionIdSupplier().get() == randomtaskId && taskContextSupplier.getTaskAttemptNumberSupplier().get() == 0) {
         LOG.error("Will be Failing task " + randomtaskId + " on first attempt ==================================================================");
         toKill = true;
