@@ -19,9 +19,13 @@
 package org.apache.hudi.io;
 
 import org.apache.hudi.avro.HoodieAvroUtils;
+import org.apache.hudi.client.SecondaryIndexStatsTracker;
 import org.apache.hudi.client.WriteStatus;
 import org.apache.hudi.common.config.HoodieReaderConfig;
 import org.apache.hudi.common.config.TypedProperties;
+import org.apache.hudi.common.engine.HoodieEngineContext;
+import org.apache.hudi.common.engine.HoodieLocalEngineContext;
+import org.apache.hudi.common.engine.HoodieReaderContext;
 import org.apache.hudi.common.engine.TaskContextSupplier;
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.BaseFile;
@@ -30,6 +34,8 @@ import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.model.HoodieColumnRangeMetadata;
 import org.apache.hudi.common.model.HoodieDeltaWriteStat;
+import org.apache.hudi.common.model.HoodieFileGroupId;
+import org.apache.hudi.common.model.HoodieIndexDefinition;
 import org.apache.hudi.common.model.HoodieLogFile;
 import org.apache.hudi.common.model.HoodiePartitionMetadata;
 import org.apache.hudi.common.model.HoodiePayloadProps;
@@ -57,8 +63,10 @@ import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.exception.HoodieAppendException;
 import org.apache.hudi.exception.HoodieException;
+import org.apache.hudi.exception.HoodieIOException;
 import org.apache.hudi.exception.HoodieUpsertException;
 import org.apache.hudi.metadata.HoodieTableMetadataUtil;
+import org.apache.hudi.metadata.SecondaryIndexRecordGenerationUtils;
 import org.apache.hudi.storage.StoragePath;
 import org.apache.hudi.table.HoodieTable;
 import org.apache.hudi.util.CommonClientUtils;
@@ -81,6 +89,8 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
+import static org.apache.hudi.metadata.HoodieMetadataPayload.createSecondaryIndexRecord;
+import static org.apache.hudi.metadata.HoodieTableMetadataUtil.PARTITION_NAME_SECONDARY_INDEX_PREFIX;
 import static org.apache.hudi.metadata.HoodieTableMetadataUtil.collectColumnRangeMetadata;
 
 /**
@@ -133,6 +143,10 @@ public class HoodieAppendHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O
   private boolean useWriterSchema = false;
 
   private final Properties recordProperties = new Properties();
+  private boolean generateStatsForStreamingMetadataWrites;
+  private Option<FileSlice> fileSliceOpt;
+  private Option<HoodieReaderContext<T>> readerContextOpt = Option.empty();
+  private List<Pair<String, HoodieIndexDefinition>> secondaryIndexDefns = Collections.emptyList();
 
   /**
    * This is used by log compaction only.
@@ -166,6 +180,18 @@ public class HoodieAppendHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O
     this.baseFileInstantTimeOfPositions = shouldWriteRecordPositions
         ? getBaseFileInstantTimeOfPositions()
         : Option.empty();
+    if (!hoodieTable.isMetadataTable() && config.isSecondaryIndexEnabled() && isStreamingWriteToMetadataEnabled) {
+      secondaryIndexDefns = hoodieTable.getMetaClient().getTableConfig().getMetadataPartitions()
+          .stream()
+          .filter(mdtPartition -> mdtPartition.startsWith(PARTITION_NAME_SECONDARY_INDEX_PREFIX))
+          .map(mdtPartitionPath -> Pair.of(mdtPartitionPath, HoodieTableMetadataUtil.getHoodieIndexDefinition(mdtPartitionPath, hoodieTable.getMetaClient())))
+          .collect(Collectors.toList());
+      generateStatsForStreamingMetadataWrites = !secondaryIndexDefns.isEmpty();
+      if (generateStatsForStreamingMetadataWrites) {
+        HoodieEngineContext engineContext = new HoodieLocalEngineContext(hoodieTable.getStorageConf(), taskContextSupplier);
+        this.readerContextOpt = Option.of((HoodieReaderContext<T>) engineContext.getReaderContextFactory(hoodieTable.getMetaClient()).getContext());
+      }
+    }
   }
 
   public HoodieAppendHandle(HoodieWriteConfig config, String instantTime, HoodieTable<T, I, K, O> hoodieTable,
@@ -192,7 +218,7 @@ public class HoodieAppendHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O
     if (tableVersion.greaterThanOrEquals(HoodieTableVersion.EIGHT)) {
       // table versions 8 and greater.
       prevCommit = instantTime;
-      if (hoodieTable.getMetaClient().getTableConfig().isCDCEnabled()) {
+      //if (hoodieTable.getMetaClient().getTableConfig().isCDCEnabled()) {
         // the cdc reader needs the base file metadata to have deterministic update sequence.
         TableFileSystemView.SliceView rtView = hoodieTable.getSliceView();
         fileSlice = rtView.getLatestFileSlice(partitionPath, fileId);
@@ -201,7 +227,7 @@ public class HoodieAppendHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O
           baseFile = fileSlice.get().getBaseFile().map(BaseFile::getFileName).orElse("");
           logFiles = fileSlice.get().getLogFiles().map(HoodieLogFile::getFileName).collect(Collectors.toList());
         }
-      }
+      //}
     } else {
       // older table versions.
       TableFileSystemView.SliceView rtView = hoodieTable.getSliceView();
@@ -237,7 +263,7 @@ public class HoodieAppendHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O
     writeStatus.setPartitionPath(partitionPath);
     deltaWriteStat.setPartitionPath(partitionPath);
     deltaWriteStat.setFileId(fileId);
-    Option<FileSlice> fileSliceOpt = populateWriteStatAndFetchFileSlice(record, deltaWriteStat);
+    fileSliceOpt = populateWriteStatAndFetchFileSlice(record, deltaWriteStat);
     averageRecordSize = sizeEstimator.sizeEstimate(record);
     try {
       // Save hoodie partition meta in the partition path
@@ -537,8 +563,6 @@ public class HoodieAppendHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O
         writer = null;
       }
 
-      // generate Secondary index stats if streaming is enabled.
-
       // update final size, once for all log files
       // TODO we can actually deduce file size purely from AppendResult (based on offset and size
       //      of the appended block)
@@ -549,10 +573,63 @@ public class HoodieAppendHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O
         status.getStat().setFileSizeInBytes(logFileSize);
       }
 
+      // generate Secondary index stats if streaming is enabled.
+      if (generateStatsForStreamingMetadataWrites) {
+        trackMetadataIndexStatsForStreamingMetadataWrites(fileSliceOpt, statuses.stream().map(status -> status.getStat().getPath()).collect(Collectors.toList()),
+            statuses.get(statuses.size() - 1));
+      }
+
       return statuses;
     } catch (IOException e) {
       throw new HoodieUpsertException("Failed to close UpdateHandle", e);
     }
+  }
+
+  private void trackMetadataIndexStatsForStreamingMetadataWrites(Option<FileSlice> fileSliceOpt, List<String> newLogFiles, WriteStatus status) {
+
+    secondaryIndexDefns.forEach(secondaryIndexDefnPair -> {
+      status.getIndexStats().instantiateSecondaryIndexStatsForIndex(secondaryIndexDefnPair.getKey());
+
+      // fetch primary key -> secondary index for prev file slice.
+        Map<String, String> recordKeyToSecondaryKeyForPreviousFileSlice = fileSliceOpt.map(fileSlice -> {
+      try {
+        return SecondaryIndexRecordGenerationUtils.getRecordKeyToSecondaryKey(hoodieTable.getMetaClient(), readerContextOpt.get(), fileSlice, writeSchemaWithMetaFields,
+            secondaryIndexDefnPair.getValue(), instantTime, config.getProps(), false);
+      } catch (IOException e) {
+        throw new HoodieIOException("Failed to generate secondary index stats ", e);
+      }
+    }).orElse(Collections.emptyMap());
+
+      // fetch primary key -> secondary index for latest file slice including inflight.
+      FileSlice latestIncludingInflight = fileSliceOpt.orElse(new FileSlice(new HoodieFileGroupId(partitionPath, fileId), instantTime));
+      newLogFiles.stream().forEach(logFile -> latestIncludingInflight.addLogFile(new HoodieLogFile(new StoragePath(config.getBasePath(), logFile))));
+      Map<String, String> recordKeyToSecondaryKeyForCurrentFileSlice = new HashMap<>();
+      try {
+        recordKeyToSecondaryKeyForCurrentFileSlice = SecondaryIndexRecordGenerationUtils.getRecordKeyToSecondaryKey(hoodieTable.getMetaClient(), readerContextOpt.get(),
+            latestIncludingInflight, writeSchemaWithMetaFields, secondaryIndexDefnPair.getValue(), instantTime, config.getProps(), true);
+      } catch (IOException e) {
+        throw new HoodieIOException("Failed to generate secondary index stats ", e);
+      }
+
+      recordKeyToSecondaryKeyForCurrentFileSlice.forEach((recordKey, secondaryKey) -> {
+        if (!recordKeyToSecondaryKeyForPreviousFileSlice.containsKey(recordKey)) {
+          status.getIndexStats().addSecondaryIndexStats(secondaryIndexDefnPair.getKey(), recordKey, secondaryKey,false);
+        } else {
+          // delete previous entry and insert new value if secondaryKey is different
+          String previousSecondaryKey = recordKeyToSecondaryKeyForPreviousFileSlice.get(recordKey);
+          if (!previousSecondaryKey.equals(secondaryKey)) {
+            status.getIndexStats().addSecondaryIndexStats(secondaryIndexDefnPair.getKey(), recordKey, previousSecondaryKey, true);
+            status.getIndexStats().addSecondaryIndexStats(secondaryIndexDefnPair.getKey(), recordKey, secondaryKey,false);
+          }
+        }
+      });
+      Map<String, String> finalRecordKeyToSecondaryKeyForCurrentFileSlice = recordKeyToSecondaryKeyForCurrentFileSlice;
+      recordKeyToSecondaryKeyForPreviousFileSlice.forEach((recordKey, secondaryKey) -> {
+        if (!finalRecordKeyToSecondaryKeyForCurrentFileSlice.containsKey(recordKey)) {
+          status.getIndexStats().addSecondaryIndexStats(secondaryIndexDefnPair.getKey(), recordKey, secondaryKey,true);
+        }
+      });
+    });
   }
 
   public void write(Map<String, HoodieRecord<T>> recordMap) {

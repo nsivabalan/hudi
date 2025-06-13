@@ -19,10 +19,10 @@
 
 package org.apache.spark.sql.hudi.feature.index
 
-import org.apache.hudi.{DataSourceReadOptions, DataSourceWriteOptions, HoodieSparkUtils}
+import org.apache.hudi.{DataSourceReadOptions, DataSourceWriteOptions, DefaultSparkRecordMerger, HoodieSparkUtils}
 import org.apache.hudi.DataSourceWriteOptions._
 import org.apache.hudi.common.config.{HoodieMetadataConfig, RecordMergeMode}
-import org.apache.hudi.common.model.WriteOperationType
+import org.apache.hudi.common.model.{HoodieRecordMerger, WriteOperationType}
 import org.apache.hudi.common.table.HoodieTableMetaClient
 import org.apache.hudi.common.testutils.{HoodieTestDataGenerator, HoodieTestUtils}
 import org.apache.hudi.common.testutils.RawTripTestPayload.recordsToStrings
@@ -31,13 +31,11 @@ import org.apache.hudi.metadata.HoodieMetadataPayload.SECONDARY_INDEX_RECORD_KEY
 import org.apache.hudi.metadata.HoodieTableMetadataUtil.PARTITION_NAME_SECONDARY_INDEX
 import org.apache.hudi.metadata.SecondaryIndexKeyUtils
 import org.apache.hudi.storage.StoragePath
-
 import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.hudi.common.HoodieSparkSqlTestBase
 import org.junit.jupiter.api.Assertions.{assertEquals, assertFalse, assertTrue}
 
 import java.util.concurrent.atomic.AtomicInteger
-
 import scala.collection.JavaConverters._
 
 class TestSecondaryIndex extends HoodieSparkSqlTestBase {
@@ -265,7 +263,9 @@ class TestSecondaryIndex extends HoodieSparkSqlTestBase {
       updateDf.write.format("hudi")
         .options(hudiOpts)
         .option(OPERATION.key, BULK_INSERT_OPERATION_OPT_VAL)
-        .option(DataSourceWriteOptions.ENABLE_ROW_WRITER.key, "false")
+        .option(DataSourceWriteOptions.ENABLE_ROW_WRITER.key ,"false")
+        .option(HoodieWriteConfig.RECORD_MERGE_IMPL_CLASSES.key, classOf[DefaultSparkRecordMerger].getName)
+        .option("hoodie.write.record.merge.strategy.id", HoodieRecordMerger.EVENT_TIME_BASED_MERGE_STRATEGY_UUID)
         .mode(SaveMode.Append)
         .save(basePath)
       // Verify secondary index after updates
