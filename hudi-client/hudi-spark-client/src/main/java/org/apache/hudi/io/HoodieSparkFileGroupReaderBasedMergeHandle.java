@@ -136,9 +136,4 @@ public class HoodieSparkFileGroupReaderBasedMergeHandle<T, I, K, O> extends Base
       throw new HoodieUpsertException("Failed to compact file slice: " + fileSlice, e);
     }
   }
-
-  @Override
-  boolean isSecondaryIndexStreamingDisabled() {
-    return true;
-  }
 }
