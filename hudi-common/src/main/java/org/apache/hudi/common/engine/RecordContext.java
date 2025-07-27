@@ -26,8 +26,8 @@ import org.apache.hudi.common.table.read.BufferedRecord;
 import org.apache.hudi.common.util.DefaultJavaTypeConverter;
 import org.apache.hudi.common.util.JavaTypeConverter;
 import org.apache.hudi.common.util.LocalAvroSchemaCache;
-import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.OrderingValues;
+import org.apache.hudi.common.util.collection.ArrayComparable;
 import org.apache.hudi.keygen.KeyGenerator;
 
 import org.apache.avro.Schema;
@@ -41,7 +41,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.BiFunction;
 
-import static org.apache.hudi.common.model.HoodieRecord.DEFAULT_ORDERING_VALUE;
 import static org.apache.hudi.common.model.HoodieRecord.RECORD_KEY_METADATA_FIELD;
 
 public abstract class RecordContext<T> implements Serializable {
@@ -164,6 +163,15 @@ public abstract class RecordContext<T> implements Serializable {
    */
   public Comparable convertValueToEngineType(Comparable value) {
     return value;
+  }
+
+  /**
+   * Converts the ordering value to the specific engine type.
+   */
+  public final Comparable convertOrderingValueToEngineType(Comparable value) {
+    return value instanceof ArrayComparable
+        ? ((ArrayComparable) value).apply(comparable -> convertValueToEngineType(comparable))
+        : convertValueToEngineType(value);
   }
 
   /**

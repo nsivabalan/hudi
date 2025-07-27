@@ -111,7 +111,7 @@ class TestFileGroupRecordBuffer {
     Comparable orderingValue = "xyz";
     Comparable convertedValue = "_xyz";
     mockDeleteRecord(deleteRecord, orderingValue);
-    when(readerContext.convertOrderingValueToEngineType(orderingValue)).thenReturn(convertedValue);
+    when(readerContext.getRecordContext().convertOrderingValueToEngineType(orderingValue)).thenReturn(convertedValue);
     assertEquals(convertedValue, getOrderingValue(readerContext, deleteRecord));
   }
 
@@ -222,7 +222,7 @@ class TestFileGroupRecordBuffer {
     record.put("op", "d");
     record.put("_hoodie_is_deleted", false);
     when(readerContext.getRecordContext().getOrderingValue(any(), any(), any())).thenReturn(1);
-    when(readerContext.convertOrderingValueToEngineType(any())).thenReturn(1);
+    when(readerContext.getRecordContext().convertOrderingValueToEngineType(any())).thenReturn(1);
     BufferedRecord<GenericRecord> bufferedRecord = BufferedRecord.forRecordWithContext(record, schema, readerContext.getRecordContext(), Collections.singletonList("ts"), true);
 
     keyBasedBuffer.processNextDataRecord(bufferedRecord, "12345");

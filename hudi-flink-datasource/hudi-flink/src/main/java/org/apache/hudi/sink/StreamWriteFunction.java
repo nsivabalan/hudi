@@ -124,7 +124,7 @@ public class StreamWriteFunction extends AbstractStreamWriteFunction<HoodieFlink
 
   private transient BufferedRecordMerger<RowData> recordMerger;
   private transient HoodieReaderContext<RowData> readerContext;
-  private transient Option<String> orderingFieldNameOpt;
+  private transient List<String> orderingFieldNames;
 
   protected final RowType rowType;
 
@@ -234,13 +234,13 @@ public class StreamWriteFunction extends AbstractStreamWriteFunction<HoodieFlink
 
   private void initMergeClass() {
     readerContext = writeClient.getEngineContext().<RowData>getReaderContextFactory(metaClient).getContext();
-    orderingFieldNameOpt = getOrderingFieldName(readerContext, writeClient.getConfig().getProps(), metaClient);
+    orderingFieldNames = getOrderingFieldName(readerContext, writeClient.getConfig().getProps(), metaClient);
     recordMerger = BufferedRecordMergerFactory.create(
         readerContext,
         writeClient.getConfig().getRecordMergeMode(),
         false,
         Option.ofNullable(writeClient.getConfig().getRecordMerger()),
-        orderingFieldNameOpt,
+        orderingFieldNames,
         Option.ofNullable(writeClient.getConfig().getPayloadClass()),
         new SerializableSchema(writeClient.getConfig().getSchema()).get(),
         writeClient.getConfig().getProps(),
@@ -446,7 +446,7 @@ public class StreamWriteFunction extends AbstractStreamWriteFunction<HoodieFlink
       return FlinkWriteHelper.newInstance().deduplicateRecords(
           records, null, -1, this.writeClient.getConfig().getSchema(),
           this.writeClient.getConfig().getProps(),
-          recordMerger, readerContext, orderingFieldNameOpt);
+          recordMerger, readerContext, orderingFieldNames);
     } else {
       return records;
     }

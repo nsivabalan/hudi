@@ -102,7 +102,7 @@ public class FlinkWriteHelper<T, R> extends BaseWriteHelper<T, Iterator<HoodieRe
                                                       TypedProperties props,
                                                       BufferedRecordMerger<T> recordMerger,
                                                       HoodieReaderContext<T> readerContext,
-                                                      Option<String> orderingFieldNameOpt) {
+                                                      List<String> orderingFieldNames) {
     // If index used is global, then records are expected to differ in their partitionPath
     Map<Object, List<HoodieRecord<T>>> keyedRecords = CollectionUtils.toStream(records)
         .collect(Collectors.groupingBy(record -> record.getKey().getRecordKey()));
@@ -114,7 +114,7 @@ public class FlinkWriteHelper<T, R> extends BaseWriteHelper<T, Iterator<HoodieRe
       try {
         // Precombine do not need schema and do not return null
         Option<BufferedRecord<T>> merged = merge(
-            rec1, rec2, schema, schema, readerContext.getRecordContext(), orderingFieldNameOpt, recordMerger,
+            rec1, rec2, schema, schema, readerContext.getRecordContext(), orderingFieldNames, recordMerger,
             readerContext.getSchemaHandler().hasBuiltInDelete(), readerContext.getSchemaHandler().getCustomDeleteMarkerKeyValue(),
             readerContext.getSchemaHandler().getHoodieOperationPos());
         reducedRecord = readerContext.getRecordContext().constructHoodieRecord(merged.get());

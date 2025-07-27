@@ -332,7 +332,7 @@ abstract class FileGroupRecordBuffer<T> implements HoodieFileGroupRecordBuffer<T
     Comparable orderingValue = deleteRecord.getOrderingValue();
     return isCommitTimeOrderingValue(orderingValue)
         ? OrderingValues.getDefault()
-        : readerContext.convertOrderingValueToEngineType(orderingValue);
+        : readerContext.getRecordContext().convertOrderingValueToEngineType(orderingValue);
   }
 
   private static class LogRecordIterator<T> implements ClosableIterator<BufferedRecord<T>> {

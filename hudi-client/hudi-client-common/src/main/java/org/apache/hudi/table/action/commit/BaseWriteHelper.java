@@ -35,7 +35,6 @@ import org.apache.hudi.common.table.read.BufferedRecordMergerFactory;
 import org.apache.hudi.common.util.ConfigUtils;
 import org.apache.hudi.common.util.HoodieTimer;
 import org.apache.hudi.common.util.Option;
-import org.apache.hudi.common.util.StringUtils;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.exception.HoodieUpsertException;
 import org.apache.hudi.index.HoodieIndex;
@@ -45,6 +44,9 @@ import org.apache.hudi.table.action.HoodieWriteMetadata;
 import org.apache.avro.Schema;
 
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 
 import static org.apache.hudi.common.model.HoodieRecord.HOODIE_IS_DELETED_FIELD;
 
@@ -105,13 +107,13 @@ public abstract class BaseWriteHelper<T, I, K, O, R> extends ParallelismHelper<I
     HoodieReaderContext<T> readerContext =
         (HoodieReaderContext<T>) table.getContext().<T>getReaderContextFactoryDuringWrite(table.getMetaClient(), table.getConfig().getRecordMerger().getRecordType())
             .getContext();
-    Option<String> orderingFieldNameOpt = getOrderingFieldName(readerContext, table.getConfig().getProps(), table.getMetaClient());
+    List<String> orderingFieldNames = getOrderingFieldName(readerContext, table.getConfig().getProps(), table.getMetaClient());
     BufferedRecordMerger<T> recordMerger = BufferedRecordMergerFactory.create(
         readerContext,
         table.getConfig().getRecordMergeMode(),
         false,
         Option.ofNullable(table.getConfig().getRecordMerger()),
-        orderingFieldNameOpt,
+        orderingFieldNames,
         Option.ofNullable(table.getConfig().getPayloadClass()),
         new SerializableSchema(table.getConfig().getSchema()).get(),
         table.getConfig().getProps(),
@@ -126,7 +128,7 @@ public abstract class BaseWriteHelper<T, I, K, O, R> extends ParallelismHelper<I
         table.getConfig().getProps(),
         recordMerger,
         readerContext,
-        orderingFieldNameOpt);
+        orderingFieldNames);
   }
 
   public abstract I deduplicateRecords(I records,
@@ -136,21 +138,14 @@ public abstract class BaseWriteHelper<T, I, K, O, R> extends ParallelismHelper<I
                                        TypedProperties props,
                                        BufferedRecordMerger<T> merger,
                                        HoodieReaderContext<T> readerContext,
-                                       Option<String> orderingFieldNameOpt);
+                                       List<String> orderingFieldNames);
 
-  public static Option<String> getOrderingFieldName(HoodieReaderContext readerContext,
-                                                    TypedProperties props,
-                                                    HoodieTableMetaClient metaClient) {
+  public static List<String> getOrderingFieldName(HoodieReaderContext readerContext,
+                                                  TypedProperties props,
+                                                  HoodieTableMetaClient metaClient) {
     return readerContext.getMergeMode() == RecordMergeMode.COMMIT_TIME_ORDERING
-        ? Option.empty()
-        : Option.ofNullable(ConfigUtils.getOrderingField(props))
-        .or(() -> {
-          String preCombineField = metaClient.getTableConfig().getPreCombineField();
-          if (StringUtils.isNullOrEmpty(preCombineField)) {
-            return Option.empty();
-          }
-          return Option.of(preCombineField);
-        });
+        ? Collections.emptyList()
+        : Option.ofNullable(ConfigUtils.getOrderingFields(props)).map(Arrays::asList).orElse(metaClient.getTableConfig().getPreCombineFields());
   }
 
   /**
@@ -202,7 +197,7 @@ public abstract class BaseWriteHelper<T, I, K, O, R> extends ParallelismHelper<I
                                                     Schema newSchema,
                                                     Schema oldSchema,
                                                     RecordContext<T> recordContext,
-                                                    Option<String> orderingFieldNameOpt,
+                                                    List<String> orderingFieldNames,
                                                     BufferedRecordMerger<T> recordMerger,
                                                     boolean hasBuiltInDelete,
                                                     Option<Pair<String, String>> customDeleteMarkerKeyValue,
@@ -212,13 +207,13 @@ public abstract class BaseWriteHelper<T, I, K, O, R> extends ParallelismHelper<I
         || isCustomDeleteRecord(newRecord.getData(), recordContext, newSchema, hasBuiltInDelete, customDeleteMarkerKeyValue)
         || isDeleteHoodieOperation(newRecord.getData(), recordContext, hoodieOperationPos);
     BufferedRecord<T> bufferedRec1 = BufferedRecord.forRecordWithContext(
-        newRecord.getData(), newSchema, recordContext, orderingFieldNameOpt, isDelete1);
+        newRecord.getData(), newSchema, recordContext, orderingFieldNames, isDelete1);
     // Construct old buffered record.
     boolean isDelete2 = isBuiltInDeleteRecord(oldRecord.getData(), recordContext, oldSchema, customDeleteMarkerKeyValue)
         || isCustomDeleteRecord(oldRecord.getData(), recordContext, oldSchema, hasBuiltInDelete, customDeleteMarkerKeyValue)
         || isDeleteHoodieOperation(oldRecord.getData(), recordContext, hoodieOperationPos);
     BufferedRecord<T> bufferedRec2 = BufferedRecord.forRecordWithContext(
-        oldRecord.getData(), oldSchema, recordContext, orderingFieldNameOpt, isDelete2);
+        oldRecord.getData(), oldSchema, recordContext, orderingFieldNames, isDelete2);
     // Run merge.
     return recordMerger.deltaMerge(bufferedRec1, bufferedRec2);
   }

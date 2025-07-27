@@ -426,13 +426,13 @@ public class HoodieIndexUtils {
       BufferedRecordMerger<R> recordMerger,
       BaseKeyGenerator keyGenerator,
       RecordContext<R> recordContext,
-      Option<String> orderingFieldNameOpt,
+      List<String> orderingFieldNames,
       boolean hasBuiltInDelete,
       Option<Pair<String, String>> customDeleteMarkerKeyValue,
       int hoodieOperationPos) throws IOException {
     Option<BufferedRecord<R>> mergeResult = merge(
         incoming, existing, writeSchemaWithMetaFields, existingSchema,
-        recordContext, orderingFieldNameOpt, recordMerger,
+        recordContext, orderingFieldNames, recordMerger,
         hasBuiltInDelete, customDeleteMarkerKeyValue, hoodieOperationPos);
     // the record was deleted
     if (!mergeResult.isPresent()) {
@@ -464,7 +464,7 @@ public class HoodieIndexUtils {
       BufferedRecordMerger<R> recordMerger,
       Option<BaseKeyGenerator> expressionPayloadKeygen,
       RecordContext<R> recordContext,
-      Option<String> orderingFieldNameOpt,
+      List<String> orderingFieldNames,
       boolean hasBuiltInDelete,
       Option<Pair<String, String>> customDeleteMarkerKeyValue,
       int hoodieOperationPos,
@@ -481,7 +481,7 @@ public class HoodieIndexUtils {
       }
       return mergeIncomingWithExistingRecordWithExpressionPayload(
           newRecord, oldRecord, writeSchema, existingSchema, writeSchemaWithMetaFields,
-          config, recordMerger, expressionPayloadKeygen.get(), recordContext, orderingFieldNameOpt,
+          config, recordMerger, expressionPayloadKeygen.get(), recordContext, orderingFieldNames,
           hasBuiltInDelete, customDeleteMarkerKeyValue, hoodieOperationPos);
     } else {
       // prepend the hoodie meta fields as the incoming record does not have them
@@ -494,14 +494,14 @@ public class HoodieIndexUtils {
       HoodieRecord oldRecord = existing;
       if (recordContext instanceof AvroRecordContext) {
         // We need to convert HoodieAvroRecord to HoodieAvroIndexedRecord in order to use the reader context
-        newRecord = incomingWithMetaFields.toIndexedRecord(writeSchema, config.getProps()).get();
+        newRecord = incoming.toIndexedRecord(writeSchema, config.getProps()).get();
         oldRecord = existing.toIndexedRecord(writeSchema, config.getProps()).get();
         // For Avro, we need to use avro key generator factory to create key generator
         keyGenerator = HoodieAvroKeyGeneratorFactory.createKeyGenerator(config.getProps());
       }
       Option<BufferedRecord<R>> mergeResult = merge(
           newRecord, oldRecord, writeSchemaWithMetaFields, existingSchema,
-          recordContext, orderingFieldNameOpt, recordMerger,
+          recordContext, orderingFieldNames, recordMerger,
           hasBuiltInDelete, customDeleteMarkerKeyValue, hoodieOperationPos);
       if (mergeResult.isPresent()) {
         // the merged record needs to be converted back to the original payload
@@ -549,14 +549,14 @@ public class HoodieIndexUtils {
     // merged existing records with current locations being set
     HoodieData<HoodieRecord<R>> existingRecords =
         getExistingRecords(globalLocations, keyGeneratorWriteConfigOpt.getLeft(), hoodieTable, readerContextFactory);
-    Option<String> orderingFieldNameOpt = getOrderingFieldName(
+    List<String> orderingFieldNames = getOrderingFieldName(
         readerContext, hoodieTable.getConfig().getProps(), hoodieTable.getMetaClient());
     BufferedRecordMerger<R> recordMerger = BufferedRecordMergerFactory.create(
         readerContext,
         hoodieTable.getConfig().getRecordMergeMode(),
         false,
         Option.ofNullable(hoodieTable.getConfig().getRecordMerger()),
-        orderingFieldNameOpt,
+        orderingFieldNames,
         Option.ofNullable(hoodieTable.getConfig().getPayloadClass()),
         new SerializableSchema(hoodieTable.getConfig().getSchema()).get(),
         hoodieTable.getConfig().getProps(),
@@ -587,7 +587,7 @@ public class HoodieIndexUtils {
           }
           Option<HoodieRecord<R>> mergedOpt = mergeIncomingWithExistingRecord(
               incoming, existing, writeSchema, updatedConfig, recordMerger, expressionPayloadKeygen,
-              recordContext, orderingFieldNameOpt, hasBuiltInDelete, customDeleteMarkerKeyValue, hoodieOperationPos, keyGenerator);
+              recordContext, orderingFieldNames, hasBuiltInDelete, customDeleteMarkerKeyValue, hoodieOperationPos, keyGenerator);
           if (!mergedOpt.isPresent()) {
             // merge resulted in delete: force tag the incoming to the old partition
             return Collections.singletonList(tagRecord(incoming.newInstance(existing.getKey()), existing.getCurrentLocation())).iterator();

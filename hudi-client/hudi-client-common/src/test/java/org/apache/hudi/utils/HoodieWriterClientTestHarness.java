@@ -551,14 +551,14 @@ public abstract class HoodieWriterClientTestHarness extends HoodieCommonTestHarn
     BaseHoodieWriteClient writeClient = getHoodieWriteClient(writeConfig);
     HoodieReaderContext<HoodieRecord> readerContext = writeClient.getEngineContext()
         .<HoodieRecord>getReaderContextFactory(metaClient).getContext();
-    Option<String> orderingFieldNameOpt = getOrderingFieldName(
+    List<String> orderingFieldNames = getOrderingFieldName(
         readerContext, writeClient.getConfig().getProps(), metaClient);
     BufferedRecordMerger<HoodieRecord> recordMerger = BufferedRecordMergerFactory.create(
         readerContext,
         writeClient.getConfig().getRecordMergeMode(),
         false,
         Option.ofNullable(writeClient.getConfig().getRecordMerger()),
-        orderingFieldNameOpt,
+        orderingFieldNames,
         Option.ofNullable(writeClient.getConfig().getPayloadClass()),
         new SerializableSchema(writeClient.getConfig().getSchema()).get(),
         writeClient.getConfig().getProps(),
@@ -573,7 +573,7 @@ public abstract class HoodieWriterClientTestHarness extends HoodieCommonTestHarn
                 writeConfig.getProps(),
                 recordMerger,
                 readerContext,
-                orderingFieldNameOpt);
+                orderingFieldNames);
     assertEquals(expectedNumPartitions, dedupedRecsRdd.getNumPartitions());
     List<HoodieRecord<RawTripTestPayload>> dedupedRecs = dedupedRecsRdd.collectAsList();
     assertEquals(isGlobal ? 1 : 2, dedupedRecs.size());

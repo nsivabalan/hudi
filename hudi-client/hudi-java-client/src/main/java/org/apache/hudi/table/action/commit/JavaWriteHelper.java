@@ -69,7 +69,7 @@ public class JavaWriteHelper<T,R> extends BaseWriteHelper<T, List<HoodieRecord<T
                                                   TypedProperties props,
                                                   BufferedRecordMerger<T> recordMerger,
                                                   HoodieReaderContext<T> readerContext,
-                                                  Option<String> orderingFieldNameOpt) {
+                                                  List<String> orderingFieldNames) {
     boolean isIndexingGlobal = index.isGlobal();
     Map<Object, List<Pair<Object, HoodieRecord<T>>>> keyedRecords = records.stream().map(record -> {
       HoodieKey hoodieKey = record.getKey();
@@ -83,7 +83,7 @@ public class JavaWriteHelper<T,R> extends BaseWriteHelper<T, List<HoodieRecord<T
       HoodieRecord<T> reducedRecord;
       try {
         Option<BufferedRecord<T>> merged = merge(
-            rec2, rec1, schema, schema, readerContext.getRecordContext(), orderingFieldNameOpt, recordMerger,
+            rec2, rec1, schema, schema, readerContext.getRecordContext(), orderingFieldNames, recordMerger,
             readerContext.getSchemaHandler().hasBuiltInDelete(), readerContext.getSchemaHandler().getCustomDeleteMarkerKeyValue(),
             readerContext.getSchemaHandler().getHoodieOperationPos());
         reducedRecord = readerContext.getRecordContext().constructHoodieRecord(merged.get());

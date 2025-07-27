@@ -27,7 +27,6 @@ import org.apache.hudi.common.model.HoodieOperation;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.table.HoodieTableConfig;
 import org.apache.hudi.common.table.read.BufferedRecord;
-import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.OrderingValues;
 import org.apache.hudi.configuration.FlinkOptions;
 import org.apache.hudi.storage.StorageConfiguration;
@@ -45,8 +44,6 @@ import org.apache.flink.types.RowKind;
 
 import java.util.List;
 import java.util.Map;
-
-import static org.apache.hudi.common.model.HoodieRecord.DEFAULT_ORDERING_VALUE;
 
 public class FlinkRecordContext extends RecordContext<RowData> {
 

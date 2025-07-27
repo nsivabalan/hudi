@@ -31,13 +31,9 @@ import org.apache.hudi.common.table.HoodieTableVersion;
 import org.apache.hudi.common.table.log.InstantRange;
 import org.apache.hudi.common.table.read.BufferedRecord;
 import org.apache.hudi.common.table.read.FileGroupReaderSchemaHandler;
-import org.apache.hudi.common.util.DefaultJavaTypeConverter;
 import org.apache.hudi.common.util.HoodieRecordSizeEstimator;
-import org.apache.hudi.common.util.JavaTypeConverter;
 import org.apache.hudi.common.util.Option;
-import org.apache.hudi.common.util.OrderingValues;
 import org.apache.hudi.common.util.SizeEstimator;
-import org.apache.hudi.common.util.collection.ArrayComparable;
 import org.apache.hudi.common.util.collection.ClosableIterator;
 import org.apache.hudi.common.util.collection.CloseableFilterIterator;
 import org.apache.hudi.common.util.collection.Pair;
@@ -339,14 +335,5 @@ public abstract class HoodieReaderContext<T> {
 
   public final UnaryOperator<T> projectRecord(Schema from, Schema to) {
     return projectRecord(from, to, Collections.emptyMap());
-  }
-
-  /**
-   * Converts the ordering value to the specific engine type.
-   */
-  public final Comparable convertOrderingValueToEngineType(Comparable value) {
-    return value instanceof ArrayComparable
-        ? ((ArrayComparable) value).apply(comparable -> convertValueToEngineType(comparable))
-        : recordContext.convertValueToEngineType(value);
   }
 }

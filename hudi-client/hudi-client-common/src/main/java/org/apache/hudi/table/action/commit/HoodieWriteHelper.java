@@ -41,6 +41,7 @@ import org.apache.hudi.table.HoodieTable;
 import org.apache.avro.Schema;
 
 import java.io.IOException;
+import java.util.List;
 
 public class HoodieWriteHelper<T, R> extends BaseWriteHelper<T, HoodieData<HoodieRecord<T>>,
     HoodieData<HoodieKey>, HoodieData<WriteStatus>, R> {
@@ -71,7 +72,7 @@ public class HoodieWriteHelper<T, R> extends BaseWriteHelper<T, HoodieData<Hoodi
                                                         TypedProperties props,
                                                         BufferedRecordMerger<T> recordMerger,
                                                         HoodieReaderContext<T> readerContext,
-                                                        Option<String> orderingFieldNameOpt) {
+                                                        List<String> orderingFieldNames) {
     boolean isIndexingGlobal = index.isGlobal();
     final SerializableSchema schema = new SerializableSchema(schemaStr);
     RecordContext recordContext = readerContext.getRecordContext();
@@ -101,7 +102,7 @@ public class HoodieWriteHelper<T, R> extends BaseWriteHelper<T, HoodieData<Hoodi
         }
         // NOTE: The order of rec1 and rec2 is uncertain within "reduceByKey".
         Option<BufferedRecord<T>> merged = merge(
-            newRecord, oldRecord, schema.get(), schema.get(), recordContext, orderingFieldNameOpt, recordMerger,
+            newRecord, oldRecord, schema.get(), schema.get(), recordContext, orderingFieldNames, recordMerger,
             hasBuiltInDelete, customDeleteMarkerKeyValue, hoodieOperationPos);
         // NOTE: For merge mode based merging, it returns non-null.
         //       For mergers / payloads based merging, it may return null.
