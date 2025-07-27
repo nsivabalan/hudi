@@ -177,7 +177,7 @@ class TestFileGroupRecordBuffer {
             Collections.emptyList(),
             updateProcessor
         );
-    when(readerContext.getValue(any(), any(), any())).thenReturn(null);
+    when(readerContext.getRecordContext().getValue(any(), any(), any())).thenReturn(null);
     assertFalse(keyBasedBuffer.isCustomDeleteRecord(record));
 
     props.setProperty(DELETE_KEY, customDeleteKey);
@@ -191,9 +191,9 @@ class TestFileGroupRecordBuffer {
             Collections.emptyList(),
             updateProcessor
     );
-    when(readerContext.getValue(any(), any(), any())).thenReturn("i");
+    when(readerContext.getRecordContext().getValue(any(), any(), any())).thenReturn("i");
     assertFalse(keyBasedBuffer.isCustomDeleteRecord(record));
-    when(readerContext.getValue(any(), any(), any())).thenReturn("d");
+    when(readerContext.getRecordContext().getValue(any(), any(), any())).thenReturn("d");
     assertTrue(keyBasedBuffer.isCustomDeleteRecord(record));
   }
 
@@ -221,9 +221,9 @@ class TestFileGroupRecordBuffer {
     record.put("ts", System.currentTimeMillis());
     record.put("op", "d");
     record.put("_hoodie_is_deleted", false);
-    when(readerContext.getOrderingValue(any(), any(), any())).thenReturn(1);
+    when(readerContext.getRecordContext().getOrderingValue(any(), any(), any())).thenReturn(1);
     when(readerContext.convertOrderingValueToEngineType(any())).thenReturn(1);
-    BufferedRecord<GenericRecord> bufferedRecord = BufferedRecord.forRecordWithContext(record, schema, readerContext, Collections.singletonList("ts"), true);
+    BufferedRecord<GenericRecord> bufferedRecord = BufferedRecord.forRecordWithContext(record, schema, readerContext.getRecordContext(), Collections.singletonList("ts"), true);
 
     keyBasedBuffer.processNextDataRecord(bufferedRecord, "12345");
     Map<Serializable, BufferedRecord<GenericRecord>> records = keyBasedBuffer.getLogRecords();
@@ -238,7 +238,7 @@ class TestFileGroupRecordBuffer {
     anotherRecord.put("ts", System.currentTimeMillis());
     anotherRecord.put("op", "i");
     anotherRecord.put("_hoodie_is_deleted", true);
-    bufferedRecord = BufferedRecord.forRecordWithContext(anotherRecord, schema, readerContext, Collections.singletonList("ts"), true);
+    bufferedRecord = BufferedRecord.forRecordWithContext(anotherRecord, schema, readerContext.getRecordContext(), Collections.singletonList("ts"), true);
 
     keyBasedBuffer.processNextDataRecord(bufferedRecord, "54321");
     records = keyBasedBuffer.getLogRecords();

@@ -98,9 +98,13 @@ public class FileGroupReaderSchemaHandler<T> {
     this.customDeleteMarkerKeyValue = deleteConfigs.getLeft();
     this.hasBuiltInDelete = deleteConfigs.getRight();
     this.requiredSchema = AvroSchemaCache.intern(prepareRequiredSchema());
-    this.hoodieOperationPos = Option.ofNullable(requiredSchema.getField(HoodieRecord.OPERATION_METADATA_FIELD)).map(Schema.Field::pos).orElse(-1);
+    this.hoodieOperationPos = getHoodieOperationPos(requiredSchema);
     this.internalSchema = pruneInternalSchema(requiredSchema, internalSchemaOpt);
     this.internalSchemaOpt = getInternalSchemaOpt(internalSchemaOpt);
+  }
+
+  public static Integer getHoodieOperationPos(Schema schema) {
+    return Option.ofNullable(schema.getField(HoodieRecord.OPERATION_METADATA_FIELD)).map(Schema.Field::pos).orElse(-1);
   }
 
   public Schema getTableSchema() {
@@ -308,8 +312,8 @@ public class FileGroupReaderSchemaHandler<T> {
    * @return a pair of custom delete marker key, value, and whether built-in delete marker
    * (`_hoodie_is_deleted`) is included.
    */
-  private static Pair<Option<Pair<String, String>>, Boolean> getDeleteConfigs(TypedProperties props,
-                                                                              Schema tableSchema) {
+  public static Pair<Option<Pair<String, String>>, Boolean> getDeleteConfigs(TypedProperties props,
+                                                                             Schema tableSchema) {
     String deleteKey = props.getProperty(DELETE_KEY);
     String deleteMarker = props.getProperty(DELETE_MARKER);
     boolean deleteKeyExists = !StringUtils.isNullOrEmpty(deleteKey);

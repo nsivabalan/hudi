@@ -88,7 +88,7 @@ public class FileGroupReaderBasedAppendHandle<T, I, K, O> extends HoodieAppendHa
         .withRequestedSchema(writeSchemaWithMetaFields).withEnableOptimizedLogBlockScan(true).withInternalSchema(internalSchemaOption).withProps(props).withEmitDelete(true)
         .withShouldUseRecordPosition(usePosition).withSortOutput(hoodieTable.requireSortedRecords()).build()) {
       recordItr = new CloseableMappingIterator<>(fileGroupReader.getLogRecordsOnly(), record -> {
-        HoodieRecord<T> hoodieRecord = readerContext.constructHoodieRecord(record);
+        HoodieRecord<T> hoodieRecord = readerContext.getRecordContext().constructHoodieRecord(record);
         hoodieRecord.setCurrentLocation(newRecordLocation);
         return hoodieRecord;
       });

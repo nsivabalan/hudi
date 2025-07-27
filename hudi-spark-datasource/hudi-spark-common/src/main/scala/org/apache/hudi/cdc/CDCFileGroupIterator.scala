@@ -464,7 +464,7 @@ class CDCFileGroupIterator(split: HoodieCDCFileGroupSplit,
     val readerContext = new SparkFileFormatInternalRowReaderContext(parquetReader, Seq.empty, Seq.empty,
       conf, metaClient.getTableConfig)
     loadFileSlice(fileSlice, readerContext).map(internalRow => {
-      val recordKey = readerContext.getRecordKey(internalRow, avroSchema)
+      val recordKey = readerContext.getRecordContext().getRecordKey(internalRow, avroSchema)
       (recordKey, internalRow)
     })
   }

@@ -150,7 +150,7 @@ abstract class FileGroupRecordBuffer<T> implements HoodieFileGroupRecordBuffer<T
     Pair<String, String> markerKeyValue =
         readerContext.getSchemaHandler().getCustomDeleteMarkerKeyValue().get();
     Object deleteMarkerValue =
-        readerContext.getValue(record, readerSchema, markerKeyValue.getLeft());
+        readerContext.getRecordContext().getValue(record, readerSchema, markerKeyValue.getLeft());
     return deleteMarkerValue != null
         && markerKeyValue.getRight().equals(deleteMarkerValue.toString());
   }
@@ -163,9 +163,9 @@ abstract class FileGroupRecordBuffer<T> implements HoodieFileGroupRecordBuffer<T
       return false;
     }
 
-    Object columnValue = readerContext.getValue(
+    Object columnValue = readerContext.getRecordContext().getValue(
         record, readerSchema, HOODIE_IS_DELETED_FIELD);
-    return columnValue != null && readerContext.getTypeConverter().castToBoolean(columnValue);
+    return columnValue != null && readerContext.getRecordContext().getTypeConverter().castToBoolean(columnValue);
   }
 
   /**
@@ -176,7 +176,7 @@ abstract class FileGroupRecordBuffer<T> implements HoodieFileGroupRecordBuffer<T
     if (hoodieOperationPos < 0) {
       return false;
     }
-    String hoodieOperation = readerContext.getMetaFieldValue(record, hoodieOperationPos);
+    String hoodieOperation = readerContext.getRecordContext().getMetaFieldValue(record, hoodieOperationPos);
     return hoodieOperation != null && HoodieOperation.isDeleteRecord(hoodieOperation);
   }
 
@@ -278,7 +278,7 @@ abstract class FileGroupRecordBuffer<T> implements HoodieFileGroupRecordBuffer<T
 
   protected boolean hasNextBaseRecord(T baseRecord, BufferedRecord<T> logRecordInfo) throws IOException {
     if (logRecordInfo != null) {
-      BufferedRecord<T> baseRecordInfo = BufferedRecord.forRecordWithContext(baseRecord, readerSchema, readerContext, orderingFieldNames, false);
+      BufferedRecord<T> baseRecordInfo = BufferedRecord.forRecordWithContext(baseRecord, readerSchema, readerContext.getRecordContext(), orderingFieldNames, false);
       MergeResult<T> mergeResult = bufferedRecordMerger.finalMerge(baseRecordInfo, logRecordInfo);
       nextRecord = updateProcessor.processUpdate(logRecordInfo.getRecordKey(), baseRecord, mergeResult.getMergedRecord(), mergeResult.isDelete());
       return nextRecord != null;

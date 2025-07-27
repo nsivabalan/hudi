@@ -49,7 +49,7 @@ public class ParquetRowIndexBasedSchemaHandler<T> extends FileGroupReaderSchemaH
                                            HoodieTableConfig hoodieTableConfig,
                                            TypedProperties properties) {
     super(readerContext, dataSchema, requestedSchema, internalSchemaOpt, hoodieTableConfig, properties);
-    if (!readerContext.supportsParquetRowIndex()) {
+    if (!readerContext.getRecordContext().supportsParquetRowIndex()) {
       throw new IllegalStateException("Using " + this.getClass().getName() + " but context does not support parquet row index");
     }
   }
