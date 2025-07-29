@@ -192,6 +192,7 @@ public abstract class BaseWriteHelper<T, I, K, O, R> extends ParallelismHelper<I
         && markerKeyValue.getRight().equals(deleteMarkerValue.toString());
   }
 
+  // to do: pass in properties from higher layer to fetch the data.
   public static <T> Option<BufferedRecord<T>> merge(HoodieRecord<T> newRecord,
                                                     HoodieRecord<T> oldRecord,
                                                     Schema newSchema,
@@ -201,19 +202,20 @@ public abstract class BaseWriteHelper<T, I, K, O, R> extends ParallelismHelper<I
                                                     BufferedRecordMerger<T> recordMerger,
                                                     boolean hasBuiltInDelete,
                                                     Option<Pair<String, String>> customDeleteMarkerKeyValue,
-                                                    int hoodieOperationPos) throws IOException {
+                                                    int hoodieOperationPos,
+                                                    TypedProperties properties) throws IOException {
     // Construct new buffered record.
     boolean isDelete1 = isBuiltInDeleteRecord(newRecord.getData(), recordContext, newSchema, customDeleteMarkerKeyValue)
         || isCustomDeleteRecord(newRecord.getData(), recordContext, newSchema, hasBuiltInDelete, customDeleteMarkerKeyValue)
         || isDeleteHoodieOperation(newRecord.getData(), recordContext, hoodieOperationPos);
     BufferedRecord<T> bufferedRec1 = BufferedRecord.forRecordWithContext(
-        newRecord.getData(), newSchema, recordContext, orderingFieldNames, isDelete1);
+        newRecord.getData(), newSchema, recordContext, orderingFieldNames, isDelete1, Option.of(newRecord.getKey()), Option.of(newRecord.getOrderingValue(newSchema, properties)));
     // Construct old buffered record.
     boolean isDelete2 = isBuiltInDeleteRecord(oldRecord.getData(), recordContext, oldSchema, customDeleteMarkerKeyValue)
         || isCustomDeleteRecord(oldRecord.getData(), recordContext, oldSchema, hasBuiltInDelete, customDeleteMarkerKeyValue)
         || isDeleteHoodieOperation(oldRecord.getData(), recordContext, hoodieOperationPos);
     BufferedRecord<T> bufferedRec2 = BufferedRecord.forRecordWithContext(
-        oldRecord.getData(), oldSchema, recordContext, orderingFieldNames, isDelete2);
+        oldRecord.getData(), oldSchema, recordContext, orderingFieldNames, isDelete2, Option.of(oldRecord.getKey()), Option.of(oldRecord.getOrderingValue(oldSchema, properties)));
     // Run merge.
     return recordMerger.deltaMerge(bufferedRec1, bufferedRec2);
   }

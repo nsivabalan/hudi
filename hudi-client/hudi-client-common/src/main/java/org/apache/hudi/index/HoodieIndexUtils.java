@@ -430,10 +430,11 @@ public class HoodieIndexUtils {
       boolean hasBuiltInDelete,
       Option<Pair<String, String>> customDeleteMarkerKeyValue,
       int hoodieOperationPos) throws IOException {
+    // fix props as last arg.
     Option<BufferedRecord<R>> mergeResult = merge(
         incoming, existing, writeSchemaWithMetaFields, existingSchema,
         recordContext, orderingFieldNames, recordMerger,
-        hasBuiltInDelete, customDeleteMarkerKeyValue, hoodieOperationPos);
+        hasBuiltInDelete, customDeleteMarkerKeyValue, hoodieOperationPos, new TypedProperties());
     // the record was deleted
     if (!mergeResult.isPresent()) {
       return Option.empty();
@@ -499,10 +500,11 @@ public class HoodieIndexUtils {
         // For Avro, we need to use avro key generator factory to create key generator
         keyGenerator = HoodieAvroKeyGeneratorFactory.createKeyGenerator(config.getProps());
       }
+      // fix props as last arg.
       Option<BufferedRecord<R>> mergeResult = merge(
           newRecord, oldRecord, writeSchemaWithMetaFields, existingSchema,
           recordContext, orderingFieldNames, recordMerger,
-          hasBuiltInDelete, customDeleteMarkerKeyValue, hoodieOperationPos);
+          hasBuiltInDelete, customDeleteMarkerKeyValue, hoodieOperationPos, new TypedProperties());
       if (mergeResult.isPresent()) {
         // the merged record needs to be converted back to the original payload
         TypedProperties recordCreationProps = TypedProperties.copy(config.getProps());

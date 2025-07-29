@@ -137,7 +137,7 @@ public abstract class HoodieEngineContext {
 
   public ReaderContextFactory<?> getReaderContextFactoryDuringWrite(HoodieTableMetaClient metaClient, HoodieRecord.HoodieRecordType recordType) {
     if (recordType == HoodieRecord.HoodieRecordType.AVRO) {
-      return new AvroReaderContextFactory(metaClient);
+      return new AvroPayloadReaderContextFactory(metaClient);
     }
     return getDefaultContextFactory(metaClient);
   }
