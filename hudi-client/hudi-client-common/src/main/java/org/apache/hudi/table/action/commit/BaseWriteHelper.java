@@ -119,7 +119,7 @@ public abstract class BaseWriteHelper<T, I, K, O, R> extends ParallelismHelper<I
         table.getConfig().getProps(),
         table.getMetaClient().getTableConfig().getPartialUpdateMode());
     // Due to new records we cant use meta fields for record key extraction
-    readerContext.getRecordContext().updateRecordKeyExtractor(table.getMetaClient().getTableConfig(), false);
+    //readerContext.getRecordContext().updateRecordKeyExtractor(table.getMetaClient().getTableConfig(), false);
     return deduplicateRecords(
         records,
         table.getIndex(),

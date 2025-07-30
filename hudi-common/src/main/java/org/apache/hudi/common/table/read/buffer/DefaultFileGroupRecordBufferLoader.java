@@ -80,4 +80,9 @@ class DefaultFileGroupRecordBufferLoader<T> extends LogScanningRecordBufferLoade
     }
     return Pair.of(recordBuffer, scanLogFiles(readerContext, storage, inputSplit, hoodieTableMetaClient, props, readerParameters, readStats, recordBuffer));
   }
+
+  @Override
+  public boolean hasLogFiles() {
+    return true;
+  }
 }

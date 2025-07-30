@@ -74,6 +74,11 @@ public class ReusableFileGroupRecordBufferLoader<T> extends LogScanningRecordBuf
   }
 
   @Override
+  public boolean hasLogFiles() {
+    return true;
+  }
+
+  @Override
   public void close() {
     if (cachedResults != null && cachedResults.getLeft() != null) {
       cachedResults.getLeft().close();

@@ -18,22 +18,31 @@
 
 package org.apache.hudi.avro;
 
+import org.apache.hudi.common.config.HoodieConfig;
 import org.apache.hudi.common.config.RecordMergeMode;
 import org.apache.hudi.common.engine.HoodieReaderContext;
+import org.apache.hudi.common.model.HoodieAvroRecordMerger;
+import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieRecordMerger;
 import org.apache.hudi.common.model.HoodieRecordPayload;
 import org.apache.hudi.common.table.HoodieTableConfig;
 import org.apache.hudi.common.table.log.InstantRange;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.common.util.ReflectionUtils;
 import org.apache.hudi.common.util.collection.ClosableIterator;
+import org.apache.hudi.common.util.collection.CloseableMappingIterator;
 import org.apache.hudi.common.util.collection.Pair;
+import org.apache.hudi.exception.HoodieException;
+import org.apache.hudi.exception.HoodieIOException;
 import org.apache.hudi.expression.Predicate;
 import org.apache.hudi.io.storage.HoodieAvroFileReader;
+import org.apache.hudi.io.storage.HoodieIOFactory;
 import org.apache.hudi.storage.HoodieStorage;
 import org.apache.hudi.storage.StorageConfiguration;
 import org.apache.hudi.storage.StoragePath;
 
 import org.apache.avro.Schema;
+import org.apache.avro.generic.GenericRecord;
 
 import java.io.IOException;
 import java.util.Collections;
@@ -82,12 +91,49 @@ public class HoodieAvroPayloadReaderContext extends HoodieReaderContext<HoodieRe
   @Override
   public ClosableIterator<HoodieRecordPayload> getFileRecordIterator(StoragePath filePath, long start, long length, Schema dataSchema,
                                                                      Schema requiredSchema, HoodieStorage storage) throws IOException {
-    return null;
+    HoodieAvroFileReader reader;
+    if (reusableFileReaders.containsKey(filePath)) {
+      reader = reusableFileReaders.get(filePath);
+    } else {
+      reader = (HoodieAvroFileReader) HoodieIOFactory.getIOFactory(storage)
+          .getReaderFactory(HoodieRecord.HoodieRecordType.AVRO).getFileReader(new HoodieConfig(),
+              filePath, baseFileFormat, Option.empty());
+    }
+    if (keyFilterOpt.isEmpty()) {
+      return new CloseableMappingIterator(reader.getIndexedRecordIterator(dataSchema, requiredSchema),
+          record -> createPayload(tableConfig.getPayloadClass(), (GenericRecord) record));
+    }
+    if (reader.supportKeyPredicate()) {
+      List<String> keys = reader.extractKeys(keyFilterOpt);
+      if (!keys.isEmpty()) {
+        return new CloseableMappingIterator(reader.getIndexedRecordsByKeysIterator(keys, requiredSchema),
+            record -> createPayload(tableConfig.getPayloadClass(), (GenericRecord) record));
+      }
+    }
+    if (reader.supportKeyPrefixPredicate()) {
+      List<String> keyPrefixes = reader.extractKeyPrefixes(keyFilterOpt);
+      if (!keyPrefixes.isEmpty()) {
+        return new CloseableMappingIterator(reader.getIndexedRecordsByKeyPrefixIterator(keyPrefixes, requiredSchema),
+            record -> createPayload(tableConfig.getPayloadClass(), (GenericRecord) record));
+      }
+    }
+    return new CloseableMappingIterator(reader.getIndexedRecordIterator(dataSchema, requiredSchema),
+        record -> createPayload(tableConfig.getPayloadClass(), (GenericRecord) record));
+  }
+
+  public static HoodieRecordPayload createPayload(String payloadClass, GenericRecord record)
+      throws HoodieIOException {
+    try {
+      return (HoodieRecordPayload) ReflectionUtils.loadClass(payloadClass,
+          new Class<?>[] {Option.class}, Option.of(record));
+    } catch (Throwable e) {
+      throw new HoodieException("Could not create payload for class: " + payloadClass, e);
+    }
   }
 
   @Override
   protected Option<HoodieRecordMerger> getRecordMerger(RecordMergeMode mergeMode, String mergeStrategyId, String mergeImplClasses) {
-    return null;
+    return Option.of(HoodieAvroRecordMerger.INSTANCE);
   }
 
   @Override

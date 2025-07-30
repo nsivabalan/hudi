@@ -20,6 +20,7 @@ package org.apache.hudi.common.table.read.buffer;
 
 import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.engine.HoodieReaderContext;
+import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.read.BaseFileUpdateCallback;
 import org.apache.hudi.common.table.read.HoodieReadStats;
@@ -30,6 +31,7 @@ import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.storage.HoodieStorage;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * This interface defines the contract for initializing a {@link FileGroupRecordBuffer} for a given file group.
@@ -48,11 +50,17 @@ public interface FileGroupRecordBufferLoader<T> {
                                                                      HoodieReadStats readStats,
                                                                      Option<BaseFileUpdateCallback<T>> fileGroupUpdateCallback);
 
+  boolean hasLogFiles();
+
   static <T> FileGroupRecordBufferLoader<T> createDefault() {
     return DefaultFileGroupRecordBufferLoader.getInstance();
   }
 
   static <T> ReusableFileGroupRecordBufferLoader<T> createReusable(HoodieReaderContext<T> readerContextWithoutFilters) {
     return new ReusableFileGroupRecordBufferLoader<>(readerContextWithoutFilters);
+  }
+
+  static <T> RecordsBasedFileGroupRecordBufferLoader<T> createRecordsBasedBufferLoader(Map<String, HoodieRecord<T>> keyToNewRecords) {
+    return new RecordsBasedFileGroupRecordBufferLoader(keyToNewRecords);
   }
 }

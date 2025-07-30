@@ -858,7 +858,7 @@ public class HoodieWriteConfig extends HoodieConfig {
 
   public static final ConfigProperty<String> MERGE_HANDLE_CLASS_NAME = ConfigProperty
       .key("hoodie.write.merge.handle.class")
-      .defaultValue(HoodieWriteMergeHandle.class.getName())
+      .defaultValue(FileGroupReaderBasedMergeHandle.class.getName())
       .markAdvanced()
       .sinceVersion("1.1.0")
       .withDocumentation("The merge handle class that implements interface{@link HoodieMergeHandle} to merge the records "
