@@ -138,7 +138,7 @@ public class HoodieAvroPayloadReaderContext extends HoodieReaderContext<HoodieRe
 
   @Override
   public HoodieRecordPayload seal(HoodieRecordPayload record) {
-    return null;
+    return record;
   }
 
   @Override

@@ -236,8 +236,14 @@ class HoodieFileGroupReaderBasedParquetFileFormat(tablePath: String,
           buildCDCRecordIterator(hoodiePartitionCDCFileGroupSliceMapping, fileGroupParquetFileReader.value, storageConf, fileIndexProps, requiredSchema)
 
         case _ =>
+          try {
           readBaseFile(file, parquetFileReader.value, requestedSchema, remainingPartitionSchema, fixedPartitionIndexes,
             requiredSchema, partitionSchema, outputSchema, filters, storageConf)
+          } catch {
+            case e: RuntimeException =>
+              logDebug(s"Failed to read from parquet file", e)
+              throw e
+          }
       }
       CloseableIteratorListener.addListener(iter)
     }
@@ -320,7 +326,13 @@ class HoodieFileGroupReaderBasedParquetFileFormat(tablePath: String,
                            storageConf: StorageConfiguration[Configuration]): Iterator[InternalRow] = {
     if (remainingPartitionSchema.fields.length == partitionSchema.fields.length) {
       //none of partition fields are read from the file, so the reader will do the appending for us
-      parquetFileReader.read(file, requiredSchema, partitionSchema, internalSchemaOpt, filters, storageConf)
+      try {
+        parquetFileReader.read(file, requiredSchema, partitionSchema, internalSchemaOpt, filters, storageConf)
+      } catch {
+        case e: RuntimeException =>
+          logDebug(s"Failed to read from parquet file", e)
+          throw e
+      }
     } else if (remainingPartitionSchema.fields.length == 0) {
       //we read all of the partition fields from the file
       val pfileUtils = sparkAdapter.getSparkPartitionedFileUtils
