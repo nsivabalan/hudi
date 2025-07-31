@@ -18,9 +18,11 @@
 
 package org.apache.hudi.table.action.commit;
 
+import org.apache.hudi.avro.HoodieAvroReaderContext;
 import org.apache.hudi.common.config.RecordMergeMode;
 import org.apache.hudi.common.config.SerializableSchema;
 import org.apache.hudi.common.config.TypedProperties;
+import org.apache.hudi.common.engine.AvroReaderContextFactory;
 import org.apache.hudi.common.engine.HoodieEngineContext;
 import org.apache.hudi.common.engine.HoodieReaderContext;
 import org.apache.hudi.common.engine.RecordContext;
@@ -104,10 +106,15 @@ public abstract class BaseWriteHelper<T, I, K, O, R> extends ParallelismHelper<I
    * @return Collection of HoodieRecord already be deduplicated
    */
   public I deduplicateRecords(I records, HoodieTable<T, I, K, O> table, int parallelism) {
-    HoodieReaderContext<T> readerContext =
-        (HoodieReaderContext<T>) table.getContext().<T>getReaderContextFactoryDuringWrite(table.getMetaClient(), table.getConfig().getRecordMerger().getRecordType())
-            .getContext();
+    // Incoming: Payload records
+    // Avro Indexed record reader context.
+    //HoodieReaderContext<T> readerContext =
+      //  (HoodieReaderContext<T>) table.getContext().<T>getReaderContextFactoryDuringWrite(table.getMetaClient(), table.getConfig().getRecordMerger().getRecordType())
+        //    .getContext();
+
+    HoodieReaderContext<T> readerContext = (HoodieReaderContext<T>) new AvroReaderContextFactory(table.getMetaClient()).getContext();
     List<String> orderingFieldNames = getOrderingFieldName(readerContext, table.getConfig().getProps(), table.getMetaClient());
+    // T = IndexedRecord
     BufferedRecordMerger<T> recordMerger = BufferedRecordMergerFactory.create(
         readerContext,
         table.getConfig().getRecordMergeMode(),
@@ -119,7 +126,7 @@ public abstract class BaseWriteHelper<T, I, K, O, R> extends ParallelismHelper<I
         table.getConfig().getProps(),
         table.getMetaClient().getTableConfig().getPartialUpdateMode());
     // Due to new records we cant use meta fields for record key extraction
-    //readerContext.getRecordContext().updateRecordKeyExtractor(table.getMetaClient().getTableConfig(), false);
+    readerContext.getRecordContext().updateRecordKeyExtractor(table.getMetaClient().getTableConfig(), false);
     return deduplicateRecords(
         records,
         table.getIndex(),
@@ -208,14 +215,22 @@ public abstract class BaseWriteHelper<T, I, K, O, R> extends ParallelismHelper<I
     boolean isDelete1 = isBuiltInDeleteRecord(newRecord.getData(), recordContext, newSchema, customDeleteMarkerKeyValue)
         || isCustomDeleteRecord(newRecord.getData(), recordContext, newSchema, hasBuiltInDelete, customDeleteMarkerKeyValue)
         || isDeleteHoodieOperation(newRecord.getData(), recordContext, hoodieOperationPos);
+    // can we take payload record and construct BufferedRecord of type IndexedRecord
+    // recordContext.toEngineRecord.
+    //BufferedRecord<T> bufferedRec1 = BufferedRecord.forRecordWithContext(
+      //  newRecord.getData(), newSchema, recordContext, orderingFieldNames, isDelete1, Option.of(newRecord.getKey()), Option.of(newRecord.getOrderingValue(newSchema, properties)));
     BufferedRecord<T> bufferedRec1 = BufferedRecord.forRecordWithContext(
-        newRecord.getData(), newSchema, recordContext, orderingFieldNames, isDelete1, Option.of(newRecord.getKey()), Option.of(newRecord.getOrderingValue(newSchema, properties)));
+        newRecord.getData(), newSchema, recordContext, orderingFieldNames, isDelete1, Option.of(newRecord.getKey()), Option.empty());
+
     // Construct old buffered record.
     boolean isDelete2 = isBuiltInDeleteRecord(oldRecord.getData(), recordContext, oldSchema, customDeleteMarkerKeyValue)
         || isCustomDeleteRecord(oldRecord.getData(), recordContext, oldSchema, hasBuiltInDelete, customDeleteMarkerKeyValue)
         || isDeleteHoodieOperation(oldRecord.getData(), recordContext, hoodieOperationPos);
+    //BufferedRecord<T> bufferedRec2 = BufferedRecord.forRecordWithContext(
+      //  oldRecord.getData(), oldSchema, recordContext, orderingFieldNames, isDelete2, Option.of(oldRecord.getKey()), Option.of(oldRecord.getOrderingValue(oldSchema, properties)));
     BufferedRecord<T> bufferedRec2 = BufferedRecord.forRecordWithContext(
-        oldRecord.getData(), oldSchema, recordContext, orderingFieldNames, isDelete2, Option.of(oldRecord.getKey()), Option.of(oldRecord.getOrderingValue(oldSchema, properties)));
+        oldRecord.getData(), oldSchema, recordContext, orderingFieldNames, isDelete2, Option.of(oldRecord.getKey()), Option.empty());
+
     // Run merge.
     return recordMerger.deltaMerge(bufferedRec1, bufferedRec2);
   }

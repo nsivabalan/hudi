@@ -56,6 +56,8 @@ public class BufferedRecord<T> implements Serializable {
   }
 
   public static <T> BufferedRecord<T> forRecordWithContext(HoodieRecord<T> record, Schema schema, RecordContext<T> recordContext, Properties props) {
+    // record context.getData(HoodieRecord) the record context will determine the right type.
+    // HoodieRecord could be payload. but record context.getData() should return IndexedRecord in this case.
     HoodieKey hoodieKey = record.getKey();
     String recordKey = hoodieKey == null ? recordContext.getRecordKey(record.getData(), schema) : hoodieKey.getRecordKey();
     Integer schemaId = recordContext.encodeAvroSchema(schema);

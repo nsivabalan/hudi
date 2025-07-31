@@ -75,7 +75,7 @@ public class RecordsBasedFileGroupRecordBufferLoader<T> implements FileGroupReco
       records = initializeRecordsMap(props, readerContext);
       keyToNewRecords.entrySet().forEach(kv -> {
         HoodieRecord hoodieRecord = kv.getValue();
-        BufferedRecord<T> bufferedRecord = (BufferedRecord<T>) BufferedRecord.forRecordWithContext(hoodieRecord, readerContext.getSchemaHandler().getTableSchema(),
+        BufferedRecord<T> bufferedRecord = (BufferedRecord<T>) BufferedRecord.forRecordWithContext(hoodieRecord, readerContext.getSchemaHandler().getRequestedSchema(),
             readerContext.getRecordContext(), props);
         records.put(hoodieRecord.getRecordKey(), bufferedRecord);
       });

@@ -94,6 +94,8 @@ public class HoodieWriteHelper<T, R> extends BaseWriteHelper<T, HoodieData<Hoodi
       try {
         HoodieRecord newRecord = rec1;
         HoodieRecord oldRecord = rec2;
+        newRecord = rec1.toIndexedRecord(schema.get(), props).get();
+        oldRecord = rec2.toIndexedRecord(schema.get(), props).get();
         /*if (isAvroReaderContext) {
           // We need to convert HoodieAvroRecord to HoodieAvroIndexedRecord in order to use the reader context
           newRecord = rec1.toIndexedRecord(schema.get(), props).get();
@@ -106,6 +108,8 @@ public class HoodieWriteHelper<T, R> extends BaseWriteHelper<T, HoodieData<Hoodi
         // NOTE: For merge mode based merging, it returns non-null.
         //       For mergers / payloads based merging, it may return null.
         reducedRecord = recordContext.constructHoodieRecord(merged.get());
+        // convert back to HoodieRecord of type payload. punt this for now.
+        // lets return the HoodieRecord of type IndexedRecord for now back to driver.
       } catch (IOException e) {
         throw new HoodieException(String.format("Error to merge two records, %s, %s", rec1, rec2), e);
       }

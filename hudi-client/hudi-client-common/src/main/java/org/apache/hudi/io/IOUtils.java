@@ -114,11 +114,13 @@ public class IOUtils {
   public static Iterator<List<WriteStatus>> runMerge(HoodieMergeHandle<?, ?, ?, ?> mergeHandle,
                                                      String instantTime,
                                                      String fileId) throws IOException {
+    List<WriteStatus> writeStatuses = null;
     if (mergeHandle.getOldFilePath() == null) {
       throw new HoodieUpsertException(
           "Error in finding the old file path at commit " + instantTime + " for fileId: " + fileId);
     } else {
       mergeHandle.doMerge();
+      writeStatuses = mergeHandle.close();
     }
 
     // TODO(vc): This needs to be revisited
@@ -126,6 +128,6 @@ public class IOUtils {
       LOG.info("Upsert Handle has partition path as null " + mergeHandle.getOldFilePath() + ", " + mergeHandle.getWriteStatuses());
     }
 
-    return Collections.singletonList(mergeHandle.getWriteStatuses()).iterator();
+    return Collections.singletonList(writeStatuses).iterator();
   }
 }

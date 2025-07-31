@@ -19,6 +19,7 @@
 
 package org.apache.hudi.io;
 
+import org.apache.hudi.avro.HoodieAvroUtils;
 import org.apache.hudi.client.WriteStatus;
 import org.apache.hudi.common.config.HoodieMemoryConfig;
 import org.apache.hudi.common.config.TypedProperties;
@@ -30,6 +31,7 @@ import org.apache.hudi.common.model.HoodieLogFile;
 import org.apache.hudi.common.model.HoodiePartitionMetadata;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieWriteStat;
+import org.apache.hudi.common.model.MetadataValues;
 import org.apache.hudi.common.table.cdc.HoodieCDCUtils;
 import org.apache.hudi.common.table.read.BaseFileUpdateCallback;
 import org.apache.hudi.common.table.read.HoodieFileGroupReader;
@@ -50,6 +52,7 @@ import org.apache.hudi.util.Lazy;
 
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
+import org.apache.avro.generic.IndexedRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -94,6 +97,7 @@ public class FileGroupReaderBasedMergeHandle<T, I, K, O> extends HoodieWriteMerg
     super(config, instantTime, hoodieTable, recordItr, partitionPath, fileId, taskContextSupplier, keyGeneratorOpt);
     this.operation = Option.empty();
     this.readerContext = readerContext;
+    readerContext.getRecordContext().updateRecordKeyExtractor(hoodieTable.getMetaClient().getTableConfig(), false);
     this.maxInstantTime = instantTime;
     initRecordTypeAndCdcLogger(enginRecordType);
     this.usePosition = false;
@@ -205,6 +209,7 @@ public class FileGroupReaderBasedMergeHandle<T, I, K, O> extends HoodieWriteMerg
     try (HoodieFileGroupReader<T> fileGroupReader = getFileGroupReader(usePosition, internalSchemaOption, props, isCompaction, logFilesStreamOpt,
         isCompaction ? Option.empty(): Option.of(keyToNewRecords))) {
       // Reads the records from the file slice
+
       try (ClosableIterator<HoodieRecord<T>> recordIterator = fileGroupReader.getClosableHoodieRecordIterator()) {
         while (recordIterator.hasNext()) {
           HoodieRecord<T> record = recordIterator.next();
@@ -245,7 +250,7 @@ public class FileGroupReaderBasedMergeHandle<T, I, K, O> extends HoodieWriteMerg
                                                    Option<Map<String, HoodieRecord<T>>> keyToNewRecordsOpt) {
     HoodieFileGroupReader.Builder fileGroupBuilder = HoodieFileGroupReader.<T>newBuilder().withReaderContext(readerContext).withHoodieTableMetaClient(hoodieTable.getMetaClient())
         .withLatestCommitTime(maxInstantTime).withPartitionPath(partitionPath).withBaseFileOption(Option.ofNullable(baseFileToMerge))
-        .withDataSchema(writeSchemaWithMetaFields).withRequestedSchema(writeSchemaWithMetaFields).withInternalSchema(internalSchemaOption).withProps(props)
+        .withDataSchema(writeSchema).withRequestedSchema(writeSchema).withInternalSchema(internalSchemaOption).withProps(props)
         .withShouldUseRecordPosition(usePosition).withSortOutput(hoodieTable.requireSortedRecords())
         .withFileGroupUpdateCallback(cdcLogger.map(logger -> new CDCCallback(logger, readerContext)));
 
@@ -257,7 +262,6 @@ public class FileGroupReaderBasedMergeHandle<T, I, K, O> extends HoodieWriteMerg
     }
     return fileGroupBuilder.build();
   }
-
 
   @Override
   protected void writeIncomingRecords() {

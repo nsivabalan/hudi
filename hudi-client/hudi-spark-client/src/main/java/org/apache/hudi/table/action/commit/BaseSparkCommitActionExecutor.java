@@ -19,6 +19,7 @@
 package org.apache.hudi.table.action.commit;
 
 import org.apache.hudi.client.utils.SparkPartitionUtils;
+import org.apache.hudi.common.engine.AvroReaderContextFactory;
 import org.apache.hudi.common.engine.HoodieReaderContext;
 import org.apache.hudi.index.HoodieSparkIndexClient;
 import org.apache.hudi.client.WriteStatus;
@@ -393,8 +394,10 @@ public abstract class BaseSparkCommitActionExecutor<T> extends
     //HoodieMergeHandle mergeHandle = HoodieMergeHandleFactory.create(operationType, config, instantTime, table, recordItr, partitionPath, fileId,
       //  taskContextSupplier, keyGeneratorOpt);
     if (config.getMergeHandleClassName().equals(FileGroupReaderBasedMergeHandle.class.getName())) {
-      HoodieReaderContext<?> readerContext =
-          table.getContext().getReaderContextFactoryDuringWrite(table.getMetaClient(), table.getConfig().getRecordMerger().getRecordType()).getContext();
+      // ensure reader context Avro. and the record context it returns is IndexedRecord.
+      //HoodieReaderContext<?> readerContext =
+        //  table.getContext().getReaderContextFactoryDuringWrite(table.getMetaClient(), table.getConfig().getRecordMerger().getRecordType()).getContext();
+      HoodieReaderContext<?> readerContext = new AvroReaderContextFactory(table.getMetaClient()).getContext();
       mergeHandle = new FileGroupReaderBasedMergeHandle(
           config, instantTime, table, recordItr, partitionPath, fileId, taskContextSupplier, keyGeneratorOpt,
           readerContext, table.getConfig().getRecordMerger().getRecordType());
