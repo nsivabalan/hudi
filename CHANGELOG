@@ -954,3 +954,7 @@ f5824e51ca7 [ENG-28779][INTERNAL] Add parallelism configs to AwsGlueSync (#1428)
 
 --- [2025-08-15 18:02:05] [release-v1.164.0] ---
 [AUDIT-1071]: Changelog for release-v1.163.0 (#1488)
+
+--- [2025-08-15 21:34:07] [release-v1.164.1] ---
+[ENG-31330][INTERNAL] Fix the gcs lock provider when bucket name has underscores (#1492)
+[AUDIT-1673]: Changelog for release-v1.164.0 (#1493)
