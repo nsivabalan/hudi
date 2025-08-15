@@ -951,3 +951,6 @@ f5824e51ca7 [ENG-28779][INTERNAL] Add parallelism configs to AwsGlueSync (#1428)
 --- [2025-08-13 16:03:44] [release-v1.163.0] ---
 [ENG-31199][INTERNAL] Emit lock metrics when closing lock provider (#1486)
 [AUDIT-1071]: Changelog for release-v1.162.0 (#1485)
+
+--- [2025-08-15 18:02:05] [release-v1.164.0] ---
+[AUDIT-1071]: Changelog for release-v1.163.0 (#1488)
