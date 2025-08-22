@@ -45,7 +45,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
-public abstract class AbstractHoodieCreateHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O> {
+public abstract class AbstractCreateHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O> {
   protected Logger logger;
 
   protected HoodieTable hoodieTable;
@@ -59,11 +59,11 @@ public abstract class AbstractHoodieCreateHandle<T, I, K, O> extends HoodieWrite
   protected Map<String, HoodieRecord<T>> recordMap;
   protected boolean useWriterSchema = false;
 
-  public AbstractHoodieCreateHandle(HoodieWriteConfig config, String instantTime, HoodieTable<T, I, K, O> hoodieTable,
+  public AbstractCreateHandle(HoodieWriteConfig config, String instantTime, HoodieTable<T, I, K, O> hoodieTable,
                                     String partitionPath, String fileId, Option<Schema> overriddenSchema,
                                     TaskContextSupplier taskContextSupplier, boolean preserveMetadata) {
     super(config, instantTime, partitionPath, fileId, hoodieTable, overriddenSchema, taskContextSupplier);
-    this.logger = LoggerFactory.getLogger(AbstractHoodieCreateHandle.class);
+    this.logger = LoggerFactory.getLogger(AbstractCreateHandle.class);
 
     this.hoodieTable = hoodieTable;
     this.preserveMetadata = preserveMetadata;
@@ -71,19 +71,7 @@ public abstract class AbstractHoodieCreateHandle<T, I, K, O> extends HoodieWrite
     writeStatus.setPartitionPath(partitionPath);
     writeStatus.setStat(new HoodieWriteStat());
     this.path = makeNewPath(partitionPath);
-
-    try {
-      this.fileWriter = initializeFileWriter();
-    } catch (Exception e) {
-      throw new HoodieInsertException("Failed to initialize HoodieStorageWriter for path " + path, e);
-    }
-    logger.info("New CreateHandle for partition {} with fileId {}", partitionPath, fileId);
   }
-
-  /**
-   * Initializes the file writer (e.g. HoodieAvroParquetWriter) to use for CreateHandle.
-   */
-  protected abstract HoodieFileWriter initializeFileWriter() throws IOException;
 
   /**
    * Creates partition metadata and marker file for tracking the write operation.

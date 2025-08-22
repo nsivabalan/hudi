@@ -21,7 +21,9 @@ package org.apache.hudi.io;
 import org.apache.hudi.common.engine.TaskContextSupplier;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.common.util.VisibleForTesting;
 import org.apache.hudi.config.HoodieWriteConfig;
+import org.apache.hudi.exception.HoodieInsertException;
 import org.apache.hudi.io.storage.HoodieFileWriter;
 import org.apache.hudi.io.storage.HoodieFileWriterFactory;
 import org.apache.hudi.metadata.HoodieTableMetadata;
@@ -36,7 +38,7 @@ import java.io.IOException;
 import java.util.Map;
 
 @NotThreadSafe
-public class HoodieCreateHandle<T, I, K, O> extends AbstractHoodieCreateHandle<T, I, K, O> {
+public class HoodieCreateHandle<T, I, K, O> extends AbstractCreateHandle<T, I, K, O> {
 
   public HoodieCreateHandle(HoodieWriteConfig config, String instantTime, HoodieTable<T, I, K, O> hoodieTable,
                             String partitionPath, String fileId, TaskContextSupplier taskContextSupplier) {
@@ -63,11 +65,17 @@ public class HoodieCreateHandle<T, I, K, O> extends AbstractHoodieCreateHandle<T
     super(config, instantTime, hoodieTable, partitionPath, fileId, overriddenSchema,
         taskContextSupplier, preserveMetadata);
     this.logger = LoggerFactory.getLogger(HoodieCreateHandle.class);
+    try {
+      this.fileWriter = initializeFileWriter();
+    } catch (Exception e) {
+      throw new HoodieInsertException("Failed to initialize HoodieStorageWriter for path " + path, e);
+    }
     createPartitionMetadataAndMarkerFile();
+    logger.info("New HoodieCreateHandle for partition {} with fileId {}", partitionPath, fileId);
   }
 
-  @Override
-  protected HoodieFileWriter initializeFileWriter() throws IOException {
+  @VisibleForTesting
+  HoodieFileWriter initializeFileWriter() throws IOException {
     return HoodieFileWriterFactory.getFileWriter(instantTime, path, hoodieTable.getHadoopConf(), config,
       writeSchemaWithMetaFields, this.taskContextSupplier, config.getRecordMerger().getRecordType());
   }

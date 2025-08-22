@@ -449,7 +449,7 @@ public class TestHoodieCreateHandle extends HoodieCommonTestHarness {
         writeConfig, TEST_INSTANT_TIME, mockHoodieTable,
         TEST_PARTITION_PATH, TEST_FILE_ID, taskContextSupplier);
     
-    // Verify fields inherited from AbstractHoodieCreateHandle are properly initialized
+    // Verify fields inherited from AbstractCreateHandle are properly initialized
     assertEquals(0, createHandle.recordsWritten);
     assertEquals(0, createHandle.recordsDeleted);
     assertEquals(0, createHandle.insertRecordsWritten);
@@ -666,22 +666,22 @@ public class TestHoodieCreateHandle extends HoodieCommonTestHarness {
       public FailingFileWriterCreateHandle(HoodieWriteConfig config, String instantTime, 
                                            HoodieTable<Object, Object, Object, Object> hoodieTable,
                                            String partitionPath, String fileId, 
-                                           TaskContextSupplier taskContextSupplier) {
+                                           TaskContextSupplier taskContextSupplier) throws IOException {
         super(config, instantTime, hoodieTable, partitionPath, fileId, taskContextSupplier);
       }
       
       @Override
       protected HoodieFileWriter initializeFileWriter() throws IOException {
+        // Simulate file writer initialization failure
         throw new IOException("Simulated file writer initialization failure");
       }
-      
-      @Override
+
       protected void createMarkerFile(String partitionPath, String dataFileName) {
         // Track if marker file creation was attempted
         throw new AssertionError("Marker file should not be created when file writer fails");
       }
     }
-    
+
     // Verify that HoodieInsertException is thrown when file writer initialization fails
     HoodieInsertException exception = assertThrows(HoodieInsertException.class, () ->
       new FailingFileWriterCreateHandle(writeConfig, TEST_INSTANT_TIME, mockHoodieTable,
