@@ -37,9 +37,9 @@ jobs:
           PR_TITLE="${{ github.event.pull_request.title }}"
           HUDI_PR_TITLE=$(echo "$PR_TITLE" | cut -d ']' -f2-)
           echo "Extracted title after the Clickup task ID: $HUDI_PR_TITLE"
-          if [[ "$HUDI_PR_TITLE" == "[INTERNAL]"* ]] || [[ "$HUDI_PR_TITLE" == "[CHERRYPICK]"* ]]; then
+          if [[ "$HUDI_PR_TITLE" == "[CHERRYPICK]"* ]]; then
             echo "skip-hudi-title-check=true" >> $GITHUB_ENV
-            echo "Skipping Hudi title check for internal or cherrypick changes."
+            echo "Skipping Hudi title check for cherrypick changes."
           else
             echo "skip-hudi-title-check=false" >> $GITHUB_ENV
             echo "title=${HUDI_PR_TITLE}" >> $GITHUB_OUTPUT

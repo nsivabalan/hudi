@@ -70,14 +70,12 @@ title, i.e., `[AUDIT-<ID>]`, `[ONHS-<ID>]`, or `[ENG-<ID>]`. There are four case
   approving the `hudi-internal` PR by holding the same standard as Hudi OSS PR review and approval (e.g., backwards
   compatibility, extreme care around public interface changes and format changes, test coverage, etc.).
   - For example, you may follow the same convention as **Feature development and bug fixes** above.
-  - As another example, you may have the PR tile as `[ENG-7807][INTERNAL] Hotfix` if the fix is intended for internal
-    temporary hotfix.
 - **Release cut**: create AUDIT ticket and PR with the AUDIT ticket in the title (e.g.,
   `[AUDIT-689] Upgrade to release`), by
   following [Dataplane Rollout Process](https://app.clickup.com/18029943/v/dc/h67bq-25107/h67bq-72820)
-- **Other cases**: in the cases of internal or cherrypick PRs, add `[INTERNAL]` or `[CHERRYPICK]` to the PR title.
-  - For example:
-    `[ENG-1234][INTERNAL] Internal tooling changes`, `[ENG-5678][CHERRYPICK] Cherrypick community OSS changes`, etc.
+- **Other cases**: in the cases of cherrypick PRs, add `[CHERRYPICK]` to the PR title.
+  - For example: `[ENG-5678][CHERRYPICK] Cherrypick community OSS changes`, etc.
+  - For cherrypicking a single PR from OSS, it is recommended to use the same JIRA ticket as OSS PR.
 
 ## Features
 
