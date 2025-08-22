@@ -192,6 +192,8 @@ public class HoodieTestDataGenerator implements AutoCloseable {
   private final String[] partitionPaths;
   //maintains the count of existing keys schema wise
   private Map<String, Integer> numKeysBySchema;
+  //schema used for data generation - defaults to TRIP_EXAMPLE_SCHEMA for backward compatibility
+  private String dataGenerationSchema;
 
   public HoodieTestDataGenerator(long seed) {
     this(seed, DEFAULT_PARTITION_PATHS, new HashMap<>());
@@ -212,6 +214,7 @@ public class HoodieTestDataGenerator implements AutoCloseable {
     this.existingKeysBySchema.put(schema, keyPartitionMap);
     this.numKeysBySchema = new HashMap<>();
     this.numKeysBySchema.put(schema, keyPartitionMap.size());
+    this.dataGenerationSchema = schema;
 
     logger.info(String.format("Test DataGenerator's seed (%s)", seed));
   }
@@ -245,6 +248,7 @@ public class HoodieTestDataGenerator implements AutoCloseable {
   public HoodieTestDataGenerator(boolean makeDatesAmbiguous) {
     this();
     this.makeDatesAmbiguous = makeDatesAmbiguous;
+    this.dataGenerationSchema = TRIP_EXAMPLE_SCHEMA;
   }
 
   @Deprecated
@@ -1105,9 +1109,41 @@ Generate random record using TRIP_ENCODED_DECIMAL_SCHEMA
         genPseudoRandomUUID(rand).toString(), genPseudoRandomUUID(rand).toString(), rand.nextLong());
   }
 
+  /**
+   * Generates a generic record based on the provided schema string.
+   * 
+   * @param schemaStr the schema string to use for record generation
+   * @return a GenericRecord conforming to the specified schema
+   */
+  private GenericRecord generateGenericRecordForSchema(String schemaStr) {
+    if (TRIP_EXAMPLE_SCHEMA.equals(schemaStr)) {
+      return generateGenericRecord();
+    } else if (TRIP_ENCODED_DECIMAL_SCHEMA.equals(schemaStr)) {
+      return generateRecordForTripEncodedDecimalSchema(genPseudoRandomUUID(rand).toString(), 
+          "rider-" + genPseudoRandomUUID(rand).toString(), 
+          "driver-" + genPseudoRandomUUID(rand).toString(), rand.nextLong());
+    } else if (TRIP_SCHEMA.equals(schemaStr)) {
+      return generateRecordForTripSchema(genPseudoRandomUUID(rand).toString(), 
+          "rider-" + genPseudoRandomUUID(rand).toString(), 
+          "driver-" + genPseudoRandomUUID(rand).toString(), rand.nextLong());
+    } else if (SHORT_TRIP_SCHEMA.equals(schemaStr)) {
+      return generateRecordForShortTripSchema(genPseudoRandomUUID(rand).toString(), 
+          "rider-" + genPseudoRandomUUID(rand).toString(), 
+          "driver-" + genPseudoRandomUUID(rand).toString(), rand.nextLong());
+    } else if (TRIP_NESTED_EXAMPLE_SCHEMA.equals(schemaStr)) {
+      return generateNestedExampleGenericRecord(genPseudoRandomUUID(rand).toString(), "0",
+          "rider-" + genPseudoRandomUUID(rand).toString(), 
+          "driver-" + genPseudoRandomUUID(rand).toString(), rand.nextLong(), false);
+    }
+    
+    // Default fallback to TRIP_EXAMPLE_SCHEMA for backward compatibility
+    return generateGenericRecord();
+  }
+
   public List<GenericRecord> generateGenericRecords(int numRecords) {
     List<GenericRecord> list = new ArrayList<>();
-    IntStream.range(0, numRecords).forEach(i -> list.add(generateGenericRecord()));
+    String schemaToUse = dataGenerationSchema != null ? dataGenerationSchema : TRIP_EXAMPLE_SCHEMA;
+    IntStream.range(0, numRecords).forEach(i -> list.add(generateGenericRecordForSchema(schemaToUse)));
     return list;
   }
 

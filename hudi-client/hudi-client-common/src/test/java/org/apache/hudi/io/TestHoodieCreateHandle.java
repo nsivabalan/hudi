@@ -42,11 +42,15 @@ import org.apache.hudi.common.model.HoodiePartitionMetadata;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 
 import java.io.IOException;
 import java.util.Collections;
@@ -126,6 +130,11 @@ public class TestHoodieCreateHandle extends HoodieCommonTestHarness {
     mockMethodsNeededByConstructor();
   }
 
+  @AfterEach
+  public void cleanUp() {
+    cleanMetaClient();
+  }
+
   @Test
   public void testConstructorWithBasicParameters() {
     HoodieCreateHandle createHandle = new HoodieTestCreateHandle(
@@ -161,7 +170,6 @@ public class TestHoodieCreateHandle extends HoodieCommonTestHarness {
     HoodieCreateHandle createHandle = new HoodieCreateHandle<>(
         writeConfig, TEST_INSTANT_TIME, mockHoodieTable,
         TEST_PARTITION_PATH, TEST_FILE_ID, taskContextSupplier);
-
     assertNotNull(createHandle);
 
     FileSystem fs = metaClient.getFs();
@@ -169,16 +177,13 @@ public class TestHoodieCreateHandle extends HoodieCommonTestHarness {
     // Verify partition metadata file exists under the target partition
     Path partitionPath = new Path(basePath, TEST_PARTITION_PATH);
     String metaExt = HoodieFileFormat.PARQUET.getFileExtension();
-    // Alternative representation of ".hoodie_partition_metadata" + ext
     Path partitionMetaPath = new Path(partitionPath, HoodiePartitionMetadata.HOODIE_PARTITION_METAFILE_PREFIX + metaExt);
     assertTrue(fs.exists(partitionMetaPath));
+    validatePartitionMetaPathExistence(fs, true);
 
     // Verify marker file exists with expected name
-    String writeToken = FSUtils.makeWriteToken(0, 0, 0L);
-    String expectedBaseFileName = FSUtils.makeBaseFileName(TEST_INSTANT_TIME, writeToken, TEST_FILE_ID, ".parquet");
-    Path expectedMarkerPath = new Path(new Path(metaClient.getMarkerFolderPath(TEST_INSTANT_TIME), TEST_PARTITION_PATH),
-        expectedBaseFileName + HoodieTableMetaClient.MARKER_EXTN + "." + IOType.CREATE.name());
-    assertTrue(fs.exists(expectedMarkerPath));
+    String expectedBaseFileName = getExpectedBaseFileName();
+    validateMarkerFileExistence(fs, expectedBaseFileName, true);
 
     // Verify the base file path exists
     Path expectedBaseFilePath = new Path(partitionPath, expectedBaseFileName);
@@ -652,6 +657,49 @@ public class TestHoodieCreateHandle extends HoodieCommonTestHarness {
   }
 
   @Test
+  @MockitoSettings(strictness = Strictness.LENIENT)
+  public void testNoMarkerFileCreatedWhenFileWriterFails() throws Exception {
+    mockMetaClientTimelineMarker();
+    
+    // Create a custom HoodieCreateHandle that simulates file writer initialization failure
+    class FailingFileWriterCreateHandle extends HoodieCreateHandle<Object, Object, Object, Object> {
+      public FailingFileWriterCreateHandle(HoodieWriteConfig config, String instantTime, 
+                                           HoodieTable<Object, Object, Object, Object> hoodieTable,
+                                           String partitionPath, String fileId, 
+                                           TaskContextSupplier taskContextSupplier) {
+        super(config, instantTime, hoodieTable, partitionPath, fileId, taskContextSupplier);
+      }
+      
+      @Override
+      protected HoodieFileWriter initializeFileWriter() throws IOException {
+        throw new IOException("Simulated file writer initialization failure");
+      }
+      
+      @Override
+      protected void createMarkerFile(String partitionPath, String dataFileName) {
+        // Track if marker file creation was attempted
+        throw new AssertionError("Marker file should not be created when file writer fails");
+      }
+    }
+    
+    // Verify that HoodieInsertException is thrown when file writer initialization fails
+    HoodieInsertException exception = assertThrows(HoodieInsertException.class, () ->
+      new FailingFileWriterCreateHandle(writeConfig, TEST_INSTANT_TIME, mockHoodieTable,
+          TEST_PARTITION_PATH, TEST_FILE_ID, taskContextSupplier));
+    assertEquals("Failed to initialize HoodieStorageWriter for path "
+        + String.format("%s/%s/%s", basePath, TEST_PARTITION_PATH, getExpectedBaseFileName()), exception.getMessage());
+
+    FileSystem fs = metaClient.getFs();
+
+    // Verify no partition meta path
+    validatePartitionMetaPathExistence(fs, false);
+
+    // Verify that no marker file exists in the file system
+    String expectedBaseFileName = getExpectedBaseFileName();
+    validateMarkerFileExistence(fs, expectedBaseFileName, false);
+  }
+
+  @Test
   public void testWritePerformanceMetrics() throws IOException {
     mockMetaClientTimelineMarker();
     
@@ -733,5 +781,28 @@ public class TestHoodieCreateHandle extends HoodieCommonTestHarness {
   private void mockGetOperationAndMetadata() {
     when(mockRecord.getOperation()).thenReturn(HoodieOperation.INSERT);
     when(mockRecord.getMetadata()).thenReturn(Option.empty());
+  }
+
+  private String getExpectedBaseFileName() {
+    String writeToken = FSUtils.makeWriteToken(0, 0, 0L);
+    return FSUtils.makeBaseFileName(TEST_INSTANT_TIME, writeToken, TEST_FILE_ID, ".parquet");
+  }
+
+  private void validateMarkerFileExistence(FileSystem fs, String expectedBaseFileName, boolean shouldExist) throws IOException {
+    Path expectedMarkerPath = new Path(new Path(metaClient.getMarkerFolderPath(TEST_INSTANT_TIME), TEST_PARTITION_PATH),
+        expectedBaseFileName + HoodieTableMetaClient.MARKER_EXTN + "." + IOType.CREATE.name());
+    
+    if (shouldExist) {
+      assertTrue(fs.exists(expectedMarkerPath));
+    } else {
+      assertFalse(fs.exists(expectedMarkerPath));
+    }
+  }
+
+  private void validatePartitionMetaPathExistence(FileSystem fs, boolean shouldExist) throws IOException {
+    Path partitionPath = new Path(basePath, TEST_PARTITION_PATH);
+    String metaExt = HoodieFileFormat.PARQUET.getFileExtension();
+    Path partitionMetaPath = new Path(partitionPath, HoodiePartitionMetadata.HOODIE_PARTITION_METAFILE_PREFIX + metaExt);
+    assertEquals(shouldExist, fs.exists(partitionMetaPath));
   }
 }

@@ -24,6 +24,7 @@ import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.engine.TaskContextSupplier;
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.HoodieOperation;
+import org.apache.hudi.common.model.HoodiePartitionMetadata;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieWriteStat;
 import org.apache.hudi.common.model.IOType;
@@ -70,10 +71,34 @@ public abstract class AbstractHoodieCreateHandle<T, I, K, O> extends HoodieWrite
     writeStatus.setPartitionPath(partitionPath);
     writeStatus.setStat(new HoodieWriteStat());
     this.path = makeNewPath(partitionPath);
+
+    try {
+      this.fileWriter = initializeFileWriter();
+    } catch (Exception e) {
+      throw new HoodieInsertException("Failed to initialize HoodieStorageWriter for path " + path, e);
+    }
+    logger.info("New CreateHandle for partition {} with fileId {}", partitionPath, fileId);
   }
 
   /**
-   * Writes all records passed.
+   * Initializes the file writer (e.g. HoodieAvroParquetWriter) to use for CreateHandle.
+   */
+  protected abstract HoodieFileWriter initializeFileWriter() throws IOException;
+
+  /**
+   * Creates partition metadata and marker file for tracking the write operation.
+   */
+  protected void createPartitionMetadataAndMarkerFile() {
+    HoodiePartitionMetadata partitionMetadata = new HoodiePartitionMetadata(fs, instantTime,
+        new Path(config.getBasePath()), FSUtils.getPartitionPath(config.getBasePath(), partitionPath),
+            hoodieTable.getPartitionMetafileFormat());
+    partitionMetadata.trySave(getPartitionId());
+    createMarkerFile(partitionPath, FSUtils.makeBaseFileName(this.instantTime,
+        this.writeToken,this.fileId, hoodieTable.getBaseFileExtension()));
+  }
+
+  /**
+   * Writes all records stored in the record map.
    */
   public void write() {
     Iterator<String> keyIterator;
@@ -90,6 +115,12 @@ public abstract class AbstractHoodieCreateHandle<T, I, K, O> extends HoodieWrite
     }
   }
 
+  /**
+   * Checks if the given record can be written to this handle.
+   *
+   * @param record The record to check
+   * @return true if the record can be written to this handle, false otherwise
+   */
   @Override
   public boolean canWrite(HoodieRecord record) {
     return (fileWriter.canWrite() && record.getPartitionPath().equals(writeStatus.getPartitionPath()))
@@ -102,7 +133,11 @@ public abstract class AbstractHoodieCreateHandle<T, I, K, O> extends HoodieWrite
   }
 
   /**
-   * Perform the actual writing of the given record into the backing file.
+   * Performs the actual writing of the given record into the current file.
+   *
+   * @param record The record to write
+   * @param schema The schema to use for writing
+   * @param props  Additional properties for writing
    */
   @Override
   protected void doWrite(HoodieRecord record, Schema schema, TypedProperties props) {
@@ -113,15 +148,7 @@ public abstract class AbstractHoodieCreateHandle<T, I, K, O> extends HoodieWrite
           return;
         }
 
-        MetadataValues metadataValues = new MetadataValues().setFileName(path.getName());
-        HoodieRecord populatedRecord = record.prependMetaFields(
-            schema, writeSchemaWithMetaFields, metadataValues, config.getProps());
-
-        if (preserveMetadata) {
-          fileWriter.write(record.getRecordKey(), populatedRecord, writeSchemaWithMetaFields);
-        } else {
-          fileWriter.writeWithMetadata(record.getKey(), populatedRecord, writeSchemaWithMetaFields);
-        }
+        writeRecordToFile(record, schema, config.getProps());
 
         // Update the new location of record, so we know where to find it next
         record.unseal();
@@ -147,7 +174,29 @@ public abstract class AbstractHoodieCreateHandle<T, I, K, O> extends HoodieWrite
   }
 
   /**
-   * Performs actions to durably, persist the current changes and returns a WriteStatus object.
+   * Writes a single record to the file with appropriate metadata.
+   *
+   * @param record The record to write
+   * @param schema The schema to use for writing
+   * @param props  Additional properties for writing
+   * @throws IOException if an error occurs during writing
+   */
+  protected void writeRecordToFile(HoodieRecord record, Schema schema, TypedProperties props) throws IOException {
+    MetadataValues metadataValues = new MetadataValues().setFileName(path.getName());
+    HoodieRecord preparedRecord = record.prependMetaFields(schema, writeSchemaWithMetaFields, metadataValues, props);
+
+    if (preserveMetadata) {
+      fileWriter.write(record.getRecordKey(), preparedRecord, writeSchemaWithMetaFields);
+    } else {
+      fileWriter.writeWithMetadata(record.getKey(), preparedRecord, writeSchemaWithMetaFields);
+    }
+  }
+
+  /**
+   * Closes the handle and conducts any post-processing
+   *
+   * @return A singleton list containing the WriteStatus for this handle
+   * @throws HoodieInsertException if an error occurs during closing
    */
   @Override
   public List<WriteStatus> close() {
@@ -178,9 +227,10 @@ public abstract class AbstractHoodieCreateHandle<T, I, K, O> extends HoodieWrite
   }
 
   /**
-   * Set up the write status.
+   * Sets up the write status with statistics about the write operation.
+   * Includes information about records written, deleted, file size, and runtime metrics.
    *
-   * @throws IOException if error occurs
+   * @throws IOException if an error occurs while gathering file statistics
    */
   protected void setupWriteStatus() throws IOException {
     HoodieWriteStat stat = writeStatus.getStat();
