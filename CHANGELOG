@@ -967,3 +967,8 @@ f5824e51ca7 [ENG-28779][INTERNAL] Add parallelism configs to AwsGlueSync (#1428)
 --- [2025-08-22 16:04:01] [release-v1.166.0] ---
 [ENG-30726][HUDI-9735] Add abstractions to HoodieCreateHandle to make it more pluggable (#1487)
 [AUDIT-1071]: Changelog for release-v1.165.0 (#1495)
+
+--- [2025-08-23 06:32:21] [release-v1.167.0] ---
+[ENG-31305][HUDI-9735] Add abstractions to HoodieCreateHandle to make it more pluggable (#1500)
+[ENG-31471][INTERNAL] Remove INTERNAL label for hudi-internal repo (#1499)
+[AUDIT-1071]: Changelog for release-v1.166.0 (#1501)
