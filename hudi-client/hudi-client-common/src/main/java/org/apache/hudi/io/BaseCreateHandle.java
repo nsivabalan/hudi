@@ -18,7 +18,6 @@
 
 package org.apache.hudi.io;
 
-import org.apache.hadoop.fs.Path;
 import org.apache.hudi.client.WriteStatus;
 import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.engine.TaskContextSupplier;
@@ -35,6 +34,7 @@ import org.apache.hudi.exception.HoodieInsertException;
 import org.apache.hudi.io.storage.HoodieFileWriter;
 import org.apache.hudi.table.HoodieTable;
 
+import org.apache.hadoop.fs.Path;
 import org.apache.avro.Schema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,8 +45,23 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
-public abstract class AbstractCreateHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O> {
-  protected Logger logger;
+/**
+ * Abstract base class for CreateHandle
+ * <p>
+ * This class provides common functionality used by CreateHandle.
+ * It manages the lifecycle of file creation including:
+ * <ul>
+ *   <li>File writer initialization and management</li>
+ *   <li>Record writing and validation</li>
+ *   <li>Partition metadata and marker file creation</li>
+ *   <li>Write statistics tracking (records written, deleted, file size, ...)</li>
+ * </ul>
+ * <p>
+ * Concrete implementations should extend this class and implement table format-specific
+ * details for file creation and record writing.
+ */
+public abstract class BaseCreateHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O> {
+  private static final Logger LOG = LoggerFactory.getLogger(BaseCreateHandle.class);
 
   protected HoodieTable hoodieTable;
   protected HoodieFileWriter fileWriter;
@@ -59,12 +74,10 @@ public abstract class AbstractCreateHandle<T, I, K, O> extends HoodieWriteHandle
   protected Map<String, HoodieRecord<T>> recordMap;
   protected boolean useWriterSchema = false;
 
-  public AbstractCreateHandle(HoodieWriteConfig config, String instantTime, HoodieTable<T, I, K, O> hoodieTable,
-                                    String partitionPath, String fileId, Option<Schema> overriddenSchema,
-                                    TaskContextSupplier taskContextSupplier, boolean preserveMetadata) {
+  public BaseCreateHandle(HoodieWriteConfig config, String instantTime, HoodieTable<T, I, K, O> hoodieTable,
+                          String partitionPath, String fileId, Option<Schema> overriddenSchema,
+                          TaskContextSupplier taskContextSupplier, boolean preserveMetadata) {
     super(config, instantTime, partitionPath, fileId, hoodieTable, overriddenSchema, taskContextSupplier);
-    this.logger = LoggerFactory.getLogger(AbstractCreateHandle.class);
-
     this.hoodieTable = hoodieTable;
     this.preserveMetadata = preserveMetadata;
     writeStatus.setFileId(fileId);
@@ -157,7 +170,7 @@ public abstract class AbstractCreateHandle<T, I, K, O> extends HoodieWriteHandle
       // Not throwing exception from here, since we don't want to fail the entire job
       // for a single record
       writeStatus.markFailure(record, t, recordMetadata);
-      logger.error("Error writing record {}", record, t);
+      LOG.error("Error writing record {}", record, t);
     }
   }
 
@@ -188,7 +201,7 @@ public abstract class AbstractCreateHandle<T, I, K, O> extends HoodieWriteHandle
    */
   @Override
   public List<WriteStatus> close() {
-    logger.info("Closing the file {} as we are done with all the records {}", writeStatus.getFileId(), recordsWritten);
+    LOG.info("Closing the file {} as we are done with all the records {}", writeStatus.getFileId(), recordsWritten);
     try {
       if (isClosed()) {
         // Handle has already been closed
@@ -204,7 +217,7 @@ public abstract class AbstractCreateHandle<T, I, K, O> extends HoodieWriteHandle
 
       setupWriteStatus();
 
-      logger.info("CreateHandle for partitionPath {} fileID {}, took {} ms.",
+      LOG.info("CreateHandle for partitionPath {} fileID {}, took {} ms.",
           writeStatus.getStat().getPartitionPath(), writeStatus.getStat().getFileId(),
           writeStatus.getStat().getRuntimeStats().getTotalCreateTime());
 

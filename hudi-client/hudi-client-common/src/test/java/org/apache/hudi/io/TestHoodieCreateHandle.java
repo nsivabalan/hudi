@@ -658,7 +658,7 @@ public class TestHoodieCreateHandle extends HoodieCommonTestHarness {
 
   @Test
   @MockitoSettings(strictness = Strictness.LENIENT)
-  public void testNoMarkerFileCreatedWhenFileWriterFails() throws Exception {
+  public void testMarkerFileCreatedWhenFileWriterFails() throws Exception {
     mockMetaClientTimelineMarker();
     
     // Create a custom HoodieCreateHandle that simulates file writer initialization failure
@@ -675,11 +675,6 @@ public class TestHoodieCreateHandle extends HoodieCommonTestHarness {
         // Simulate file writer initialization failure
         throw new IOException("Simulated file writer initialization failure");
       }
-
-      protected void createMarkerFile(String partitionPath, String dataFileName) {
-        // Track if marker file creation was attempted
-        throw new AssertionError("Marker file should not be created when file writer fails");
-      }
     }
 
     // Verify that HoodieInsertException is thrown when file writer initialization fails
@@ -691,12 +686,12 @@ public class TestHoodieCreateHandle extends HoodieCommonTestHarness {
 
     FileSystem fs = metaClient.getFs();
 
-    // Verify no partition meta path
-    validatePartitionMetaPathExistence(fs, false);
+    // Verify partition meta path exists
+    validatePartitionMetaPathExistence(fs, true);
 
-    // Verify that no marker file exists in the file system
+    // Verify that marker file exists in the file system
     String expectedBaseFileName = getExpectedBaseFileName();
-    validateMarkerFileExistence(fs, expectedBaseFileName, false);
+    validateMarkerFileExistence(fs, expectedBaseFileName, true);
   }
 
   @Test

@@ -30,6 +30,7 @@ import org.apache.hudi.metadata.HoodieTableMetadata;
 import org.apache.hudi.table.HoodieTable;
 
 import org.apache.avro.Schema;
+import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.annotation.concurrent.NotThreadSafe;
@@ -38,7 +39,8 @@ import java.io.IOException;
 import java.util.Map;
 
 @NotThreadSafe
-public class HoodieCreateHandle<T, I, K, O> extends AbstractCreateHandle<T, I, K, O> {
+public class HoodieCreateHandle<T, I, K, O> extends BaseCreateHandle<T, I, K, O> {
+  private static final Logger LOG = LoggerFactory.getLogger(HoodieCreateHandle.class);
 
   public HoodieCreateHandle(HoodieWriteConfig config, String instantTime, HoodieTable<T, I, K, O> hoodieTable,
                             String partitionPath, String fileId, TaskContextSupplier taskContextSupplier) {
@@ -64,14 +66,15 @@ public class HoodieCreateHandle<T, I, K, O> extends AbstractCreateHandle<T, I, K
                             TaskContextSupplier taskContextSupplier, boolean preserveMetadata) {
     super(config, instantTime, hoodieTable, partitionPath, fileId, overriddenSchema,
         taskContextSupplier, preserveMetadata);
-    this.logger = LoggerFactory.getLogger(HoodieCreateHandle.class);
+    // IMPORTANT: marker needs to created before file writer is initialized because
+    // a file writer (e.g. local & HDFS) may create a parquet file at initialization causing lingering files in storage
+    createPartitionMetadataAndMarkerFile();
     try {
       this.fileWriter = initializeFileWriter();
     } catch (Exception e) {
       throw new HoodieInsertException("Failed to initialize HoodieStorageWriter for path " + path, e);
     }
-    createPartitionMetadataAndMarkerFile();
-    logger.info("New HoodieCreateHandle for partition {} with fileId {}", partitionPath, fileId);
+    LOG.info("New HoodieCreateHandle for partition {} with fileId {}", partitionPath, fileId);
   }
 
   @VisibleForTesting
