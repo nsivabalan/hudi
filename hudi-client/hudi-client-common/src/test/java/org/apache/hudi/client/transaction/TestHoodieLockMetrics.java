@@ -22,8 +22,8 @@ package org.apache.hudi.client.transaction;
 import org.apache.hudi.client.transaction.lock.metrics.HoodieLockMetrics;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.config.metrics.HoodieMetricsConfig;
-import org.apache.hudi.metrics.MetricsReporterType;
 import org.apache.hudi.metrics.Metrics;
+import org.apache.hudi.metrics.MetricsReporterType;
 
 import com.codahale.metrics.Counter;
 import com.codahale.metrics.Gauge;
@@ -265,6 +265,87 @@ public class TestHoodieLockMetrics {
         "updateLockExpirationDeadlineMetric should not throw when locking metrics disabled");
     assertDoesNotThrow(lockMetrics::updateLockDanglingMetric,
         "updateLockDanglingMetric should not throw when locking metrics disabled");
+    assertDoesNotThrow(lockMetrics::updateLockReleaseSuccessMetric,
+        "updateLockReleaseSuccessMetric should not throw when locking metrics disabled");
+  }
+
+  @Test
+  public void testLockReleaseSuccessMetric() {
+    // Test that lock release success metric is properly tracked
+    HoodieMetricsConfig metricsConfig = HoodieMetricsConfig.newBuilder().withPath("/test")
+        .withReporterType(MetricsReporterType.INMEMORY.name()).withLockingMetrics(true).build();
+    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
+        .forTable("testTable").withPath("/test/path")
+        .withMetricsConfig(metricsConfig)
+        .build();
+    HoodieLockMetrics lockMetrics = new HoodieLockMetrics(writeConfig);
+
+    // Get the metrics registry to verify counter values
+    Metrics metrics = Metrics.getInstance(metricsConfig);
+    MetricRegistry registry = metrics.getRegistry();
+
+    // Verify the lock release success counter exists
+    String metricName = writeConfig.getMetricReporterMetricsNamePrefix() + "." + HoodieLockMetrics.LOCK_RELEASE_SUCCESS_COUNTER_NAME;
+    Counter lockReleaseSuccessCounter = registry.getCounters().get(metricName);
+    assertNotNull(lockReleaseSuccessCounter, "Lock release success counter should exist");
+    
+    long initialCount = lockReleaseSuccessCounter.getCount();
+
+    // Simulate successful lock release
+    lockMetrics.updateLockReleaseSuccessMetric();
+    assertEquals(initialCount + 1, lockReleaseSuccessCounter.getCount(), "Lock release success counter should increment by 1");
+
+    // Simulate multiple successful lock releases
+    lockMetrics.updateLockReleaseSuccessMetric();
+    lockMetrics.updateLockReleaseSuccessMetric();
+    assertEquals(initialCount + 3, lockReleaseSuccessCounter.getCount(), "Lock release success counter should increment by 3 total");
+  }
+
+  @Test
+  public void testLockLifecycleWithReleaseSuccess() {
+    // Test complete lock lifecycle including acquisition and successful release
+    HoodieMetricsConfig metricsConfig = HoodieMetricsConfig.newBuilder().withPath("/test")
+        .withReporterType(MetricsReporterType.INMEMORY.name()).withLockingMetrics(true).build();
+    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
+        .forTable("testTable").withPath("/test/path")
+        .withMetricsConfig(metricsConfig)
+        .build();
+    HoodieLockMetrics lockMetrics = new HoodieLockMetrics(writeConfig);
+
+    // Get the metrics registry to verify counter values
+    Metrics metrics = Metrics.getInstance(metricsConfig);
+    MetricRegistry registry = metrics.getRegistry();
+
+    String acquireMetricName = writeConfig.getMetricReporterMetricsNamePrefix() + "." + HoodieLockMetrics.LOCK_ACQUIRE_SUCCESS_COUNTER_NAME;
+    String releaseMetricName = writeConfig.getMetricReporterMetricsNamePrefix() + "." + HoodieLockMetrics.LOCK_RELEASE_SUCCESS_COUNTER_NAME;
+    Counter lockAcquiredCounter = registry.getCounters().get(acquireMetricName);
+    Counter lockReleaseSuccessCounter = registry.getCounters().get(releaseMetricName);
+    
+    long initialAcquireCount = lockAcquiredCounter.getCount();
+    long initialReleaseCount = lockReleaseSuccessCounter.getCount();
+    
+    // Simulate complete lock lifecycle
+    lockMetrics.startLockApiTimerContext();
+    lockMetrics.updateLockAcquiredMetric();
+    assertEquals(initialAcquireCount + 1, lockAcquiredCounter.getCount(), "Lock acquired counter should increment by 1");
+    assertEquals(initialReleaseCount, lockReleaseSuccessCounter.getCount(), "Lock release success counter should not change yet");
+
+    // Now release the lock successfully
+    lockMetrics.updateLockReleaseSuccessMetric();
+    lockMetrics.updateLockHeldTimerMetrics();
+    assertEquals(initialAcquireCount + 1, lockAcquiredCounter.getCount(), "Lock acquired counter should still be incremented by 1");
+    assertEquals(initialReleaseCount + 1, lockReleaseSuccessCounter.getCount(), "Lock release success counter should increment by 1");
+
+    // Verify metrics balance for multiple cycles
+    for (int i = 0; i < 5; i++) {
+      lockMetrics.startLockApiTimerContext();
+      lockMetrics.updateLockAcquiredMetric();
+      lockMetrics.updateLockReleaseSuccessMetric();
+      lockMetrics.updateLockHeldTimerMetrics();
+    }
+    
+    assertEquals(initialAcquireCount + 6, lockAcquiredCounter.getCount(), "Lock acquired counter should increment by 6 total");
+    assertEquals(initialReleaseCount + 6, lockReleaseSuccessCounter.getCount(), "Lock release success counter should increment by 6 total");
   }
 
 }

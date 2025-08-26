@@ -38,6 +38,7 @@ public class HoodieLockMetrics {
   public static final String LOCK_ACQUIRE_ATTEMPTS_COUNTER_NAME = "lock.acquire.attempts";
   public static final String LOCK_ACQUIRE_SUCCESS_COUNTER_NAME = "lock.acquire.success";
   public static final String LOCK_ACQUIRE_FAILURES_COUNTER_NAME = "lock.acquire.failure";
+  public static final String LOCK_RELEASE_SUCCESS_COUNTER_NAME = "lock.release.success";
   public static final String LOCK_ACQUIRE_DURATION_TIMER_NAME = "lock.acquire.duration";
   public static final String LOCK_REQUEST_LATENCY_TIMER_NAME = "lock.request.latency";
   public static final String LOCK_ACQUIRED_BY_OTHERS_ERROR = "lock_acquired_others_error";
@@ -61,6 +62,7 @@ public class HoodieLockMetrics {
   private transient Counter lockAcquirePreconditionFailure;
   private transient Counter lockProviderFatalError;
   private transient Counter lockReleaseFailure;
+  private transient Counter lockReleaseSuccess;
   private transient Counter lockDangling;
   private transient Counter lockInterrupted;
   private transient Timer lockDuration;
@@ -84,6 +86,7 @@ public class HoodieLockMetrics {
       lockAcquirePreconditionFailure = registry.counter(getMetricsName(LOCK_ACQUIRE_PRECONDITION_FAILURE));
       lockProviderFatalError = registry.counter(getMetricsName(LOCK_PROVIDER_FATAL_ERROR));
       lockReleaseFailure = registry.counter(getMetricsName(LOCK_RELEASE_FAILURE));
+      lockReleaseSuccess = registry.counter(getMetricsName(LOCK_RELEASE_SUCCESS_COUNTER_NAME));
       lockDangling = registry.counter(getMetricsName(LOCK_DANGLING));
       lockInterrupted = registry.counter(getMetricsName(LOCK_INTERRUPTED));
       lockDuration = createTimerForMetrics(registry, LOCK_ACQUIRE_DURATION_TIMER_NAME);
@@ -179,6 +182,12 @@ public class HoodieLockMetrics {
   public void updateLockReleaseFailureMetric() {
     if (isMetricsEnabled) {
       lockReleaseFailure.inc();
+    }
+  }
+
+  public void updateLockReleaseSuccessMetric() {
+    if (isMetricsEnabled) {
+      lockReleaseSuccess.inc();
     }
   }
 
