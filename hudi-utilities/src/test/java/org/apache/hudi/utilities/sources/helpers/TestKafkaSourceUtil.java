@@ -77,10 +77,10 @@ public class TestKafkaSourceUtil {
 
     assertEquals(kafkaParams, KafkaSourceUtil.removeIgnorePrefixConfigs(kafkaParams, props));
 
-    props.put(KafkaSourceConfig.IGNORE_PREFIX_CONFIG_LIST.key(), "custom3;custom4");
+    props.put(KafkaSourceConfig.IGNORE_PREFIX_CONFIG_LIST.key(), "custom3,custom4");
     assertEquals(kafkaParams, KafkaSourceUtil.removeIgnorePrefixConfigs(kafkaParams, props));
 
-    props.put(KafkaSourceConfig.IGNORE_PREFIX_CONFIG_LIST.key(), "custom1;custom2");
+    props.put(KafkaSourceConfig.IGNORE_PREFIX_CONFIG_LIST.key(), "custom1,custom2");
 
     Map<String, Object> filteredParams = KafkaSourceUtil.removeIgnorePrefixConfigs(kafkaParams, props);
     Map<String, Object> expectedParams = new HashMap<>();

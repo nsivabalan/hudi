@@ -36,6 +36,7 @@ import static org.apache.hudi.utilities.config.KafkaSourceConfig.KAFKA_VALUE_DES
 
 public class KafkaSourceUtil {
 
+  private static final String COMMA_DELIMITER = ",";
   public static final String NATIVE_KAFKA_CONSUMER_GROUP_ID = "group.id";
   public static final int GROUP_ID_MAX_BYTES_LENGTH = 255;
 
@@ -59,7 +60,7 @@ public class KafkaSourceUtil {
       return kafkaParams;
     }
 
-    String[] prefixes = prefixConfigList.split(";");
+    String[] prefixes = prefixConfigList.split(COMMA_DELIMITER);
 
     Map<String, Object> filteredInParams = new HashMap<>();
 
