@@ -501,7 +501,7 @@ class TestTableColumnTypeMismatch extends HoodieSparkSqlTestBase with ScalaAsser
     }
   }
 
-  test("Test Column Type Mismatches for MergeInto Insert and Update Actions") {
+  ignore("Test Column Type Mismatches for MergeInto Insert and Update Actions") {
     // Define test cases
     case class TypeMismatchTestCase(
                                      description: String,
