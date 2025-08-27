@@ -977,3 +977,10 @@ f5824e51ca7 [ENG-28779][INTERNAL] Add parallelism configs to AwsGlueSync (#1428)
 06d3969e66bc [ENG-31199][HUDI-9742] Add lock release metrics (#1503)
 397519469227 [ENG-31305][HUDI-9735] Add abstractions to HoodieCreateHandle to make it more pluggable (#1505)
 1183f9040c38 [ENG-31558][HUDI-9633] Implement ability to filter configs based on custom prefixes before passing down to the kafka consumer (#1504)
+
+--- [2025-08-27 16:04:19] [release-v1.168.0] ---
+[AUDIT-1707]: Changelog for release-v1.167.1 (#1508)
+[ENG-31199][HUDI-9742] Add lock release metrics (#1503)
+[ENG-31305][HUDI-9735] Add abstractions to HoodieCreateHandle to make it more pluggable (#1505)
+[ENG-31558][HUDI-9633] Implement ability to filter configs based on custom prefixes before passing down to the kafka consumer (#1504)
+[AUDIT-1707]: Changelog for release-v1.167.0 (#1502)
