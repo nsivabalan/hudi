@@ -27,6 +27,7 @@ import org.apache.hudi.common.table.{HoodieTableConfig, HoodieTableVersion}
 import org.apache.hudi.common.util.StringUtils
 import org.apache.hudi.common.util.StringUtils.isNullOrEmpty
 import org.apache.hudi.config.HoodieWriteConfig.{RECORD_MERGE_MODE, SPARK_SQL_MERGE_INTO_PREPPED_KEY}
+import org.apache.hudi.config.HoodieWriteConfig.FREEZE_WRITE_CONFIGS
 import org.apache.hudi.exception.HoodieException
 import org.apache.hudi.hive.HiveSyncConfigHolder
 import org.apache.hudi.keygen.{NonpartitionedKeyGenerator, SimpleKeyGenerator}
@@ -85,7 +86,47 @@ object HoodieWriterUtils {
     hoodieConfig.setDefaultValue(RECONCILE_SCHEMA)
     hoodieConfig.setDefaultValue(DROP_PARTITION_COLUMNS)
     hoodieConfig.setDefaultValue(KEYGENERATOR_CONSISTENT_LOGICAL_TIMESTAMP_ENABLED)
-    Map() ++ hoodieConfig.getProps.asScala ++ globalProps ++ DataSourceOptionsHelper.translateConfigurations(parameters)
+
+    // Allow for freezing configs.
+    // 99.9% of the time, this will be an empty set
+    val freezeList: Set[String] = {
+      // Attempt to read the raw comma‐list from SQL/DF options or globalProps
+      parameters
+        .get(FREEZE_WRITE_CONFIGS.key)
+        .orElse(globalProps.get(FREEZE_WRITE_CONFIGS.key))
+        .map(_.trim)
+        .filter(_.nonEmpty)
+        .map { raw =>
+          // Only split() if raw is non‐empty
+          raw.split(",").iterator.map(_.trim).filter(_.nonEmpty).toSet
+        }
+        .getOrElse(Set.empty)
+    }
+
+    val translated = DataSourceOptionsHelper.translateConfigurations(parameters)
+    val filteredSpark =
+      if (freezeList.isEmpty) {
+        translated
+      } else {
+        translated.filterNot {
+          case (k, _) =>
+            if (freezeList.contains(k)) {
+              log.warn(s"Config key: $k is frozen. Value: ${parameters.get(k)} will not take effect.")
+              true
+            } else {
+              false
+            }
+        }
+      }
+
+    // final merge order: code defaults -> global defaults -> spark.conf -> SQL OPTIONS
+    val merged =
+      Map() ++
+      hoodieConfig.getProps.asScala.toMap ++
+      globalProps ++
+      filteredSpark
+
+    merged
   }
 
   /**

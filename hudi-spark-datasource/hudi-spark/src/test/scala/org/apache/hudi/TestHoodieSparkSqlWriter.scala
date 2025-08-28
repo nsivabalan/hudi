@@ -17,9 +17,11 @@
 
 package org.apache.hudi
 
-import org.apache.hudi.DataSourceWriteOptions.{DROP_INSERT_DUP_POLICY, FAIL_INSERT_DUP_POLICY, INSERT_DROP_DUPS, INSERT_DUP_POLICY}
+import org.apache.hudi.DataSourceWriteOptions.{DROP_INSERT_DUP_POLICY, FAIL_INSERT_DUP_POLICY, INSERT_DROP_DUPS, INSERT_DUP_POLICY, INSERT_OPERATION_OPT_VAL}
 import org.apache.hudi.client.SparkRDDWriteClient
 import org.apache.hudi.common.config.{HoodieConfig, HoodieMetadataConfig}
+import org.apache.hudi.common.config.DFSPropertiesConfiguration
+import org.apache.hudi.common.model._
 import org.apache.hudi.common.model.{DefaultHoodieRecordPayload, HoodieFileFormat, HoodieRecord, HoodieRecordPayload, HoodieReplaceCommitMetadata, HoodieTableType, WriteOperationType}
 import org.apache.hudi.common.table.{HoodieTableConfig, HoodieTableMetaClient, TableSchemaResolver}
 import org.apache.hudi.common.table.timeline.TimelineUtils
@@ -132,6 +134,63 @@ class TestHoodieSparkSqlWriter extends HoodieSparkWriterTestBase {
       case (`rhsKey`, _) => matcher(rhsKey, rhsVal)
       case (k, v) => matcher(k, v)
     }
+  }
+
+  /**
+   * Ensures the freeze list is picked up from the static global props
+   * (DFSPropertiesConfiguration.GLOBAL_PROPS) rather than from SQL/DF options.
+   */
+  @Test
+  def testParametersWithWriteDefaultsUsesFreezeKeyFromGlobalProps(): Unit = {
+    val FREEZE_KEY    = "hoodie.write.config.freeze"
+    val CANONICAL_KEY = DataSourceWriteOptions.OPERATION.key
+    val ALIAS_KEY     = "operation"
+    val canonicalVal  = "bulk_insert"
+    val aliasVal      = INSERT_OPERATION_OPT_VAL
+
+    val previousVal = Option(DFSPropertiesConfiguration.getGlobalProps.getProperty(FREEZE_KEY))
+    DFSPropertiesConfiguration.addToGlobalProps(FREEZE_KEY, CANONICAL_KEY)
+
+    try {
+      val parameters = Map(
+        CANONICAL_KEY -> canonicalVal,
+        ALIAS_KEY     -> aliasVal
+      )
+
+      val merged = HoodieWriterUtils.parametersWithWriteDefaults(parameters)
+
+      merged(CANONICAL_KEY) should be (canonicalVal)
+
+    } finally {
+      previousVal match {
+        case Some(v) => DFSPropertiesConfiguration.addToGlobalProps(FREEZE_KEY, v)
+        case None    => DFSPropertiesConfiguration.refreshGlobalProps()
+      }
+    }
+  }
+
+  /**
+   * Verifies that keys listed under `hoodie.write.config.freeze`
+   * are **not** overridden by alternate/alias options that would
+   * normally be translated by `DataSourceOptionsHelper`.
+   */
+  @Test
+  def testParametersWithWriteDefaultsUsesFreezeKey(): Unit = {
+    val FREEZE_KEY       = "hoodie.write.config.freeze"
+    val CANONICAL_KEY    = DataSourceWriteOptions.OPERATION.key
+    val ALIAS_KEY        = "operation"
+    val canonicalValue   = "upsert"
+    val aliasValue       = INSERT_OPERATION_OPT_VAL
+
+    val parameters = Map(
+      CANONICAL_KEY -> canonicalValue,
+      ALIAS_KEY     -> aliasValue,
+      FREEZE_KEY    -> CANONICAL_KEY
+    )
+
+    val merged = HoodieWriterUtils.parametersWithWriteDefaults(parameters)
+
+    merged(CANONICAL_KEY) should be (canonicalValue)
   }
 
   /**
