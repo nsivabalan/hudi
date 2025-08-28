@@ -463,6 +463,18 @@ case class ResolveImplementations(sparkSession: SparkSession) extends Rule[Logic
 
         // Convert to HoodieCallProcedureCommand
         case c @ CallCommand(_, _) =>
+          sparkSession.conf.getOption("spark.allowed.hudi.procedures.prefix") match {
+            case Some(allowedProceduresStr) =>
+              val procedureName = c.name.lastOption.getOrElse("")
+              val allowedProcedures = allowedProceduresStr.split(",").map(_.trim.toLowerCase).toSet
+              val isAllowed = allowedProcedures.contains(procedureName.toLowerCase)
+              if (!isAllowed) {
+                throw new AnalysisException(s"Calling procedure '${procedureName}' is not allowed. Allowed procedures: ${allowedProcedures.mkString(", ")}")
+              }
+            case None =>
+              // No configuration set, allow all procedures by default
+          }
+
           val procedure: Option[Procedure] = loadProcedure(c.name)
           val input = buildProcedureArgs(c.args)
           if (procedure.nonEmpty) {
