@@ -246,6 +246,7 @@ public class BootstrapExecutorUtils implements Serializable {
         .setBaseFileFormat(cfg.baseFileFormat)
         .setTableFormat(props.getString(HoodieTableConfig.TABLE_FORMAT.key(),
                 HoodieTableConfig.TABLE_FORMAT.defaultValue()))
+        .setBootstrapIndexEnable(true)
         .setBootstrapIndexClass(cfg.bootstrapIndexClass)
         .setBootstrapBasePath(bootstrapBasePath)
         .setCDCEnabled(props.getBoolean(HoodieTableConfig.CDC_ENABLED.key(),
