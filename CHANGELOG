@@ -984,3 +984,7 @@ f5824e51ca7 [ENG-28779][INTERNAL] Add parallelism configs to AwsGlueSync (#1428)
 [ENG-31305][HUDI-9735] Add abstractions to HoodieCreateHandle to make it more pluggable (#1505)
 [ENG-31558][HUDI-9633] Implement ability to filter configs based on custom prefixes before passing down to the kafka consumer (#1504)
 [AUDIT-1707]: Changelog for release-v1.167.0 (#1502)
+
+--- [2025-08-28 16:04:22] [release-v1.169.0] ---
+[ENG-31589][HUDI-9770] During hive/glue sync, ensure drop partition events are generated when partition is present in the metastore (#1506)
+[AUDIT-1071]: Changelog for release-v1.168.0 (#1511)
