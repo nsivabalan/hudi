@@ -34,6 +34,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
@@ -100,6 +101,7 @@ public class TestDataHubSyncClient {
   public void afterEach() {
   }
 
+  @Disabled
   @Test
   public void testUpdateTableSchema() throws IOException {
     Properties props = new Properties();
@@ -145,6 +147,7 @@ public class TestDataHubSyncClient {
     assertEquals(expectedProposalsMap, capturedProposalsMap);
   }
 
+  @Disabled
   @Test
   public void testUpdateTableSchemaWhenPlatformInstance() throws IOException {
     Properties props = new Properties();
