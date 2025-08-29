@@ -22,7 +22,7 @@ import org.apache.hudi.avro.HoodieAvroUtils;
 import org.apache.hudi.avro.model.HoodieClusteringPlan;
 import org.apache.hudi.client.WriteStatus;
 import org.apache.hudi.client.common.HoodieSparkEngineContext;
-import org.apache.hudi.client.utils.ConcatenatingIterator;
+import org.apache.hudi.client.utils.LazyConcatenatingIterator;
 import org.apache.hudi.common.config.SerializableSchema;
 import org.apache.hudi.common.data.HoodieData;
 import org.apache.hudi.common.engine.HoodieEngineContext;
@@ -60,6 +60,7 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
@@ -141,10 +142,10 @@ public abstract class SingleSparkJobExecutionStrategy<T>
    * Read records from baseFiles and get iterator.
    */
   private Iterator<HoodieRecord<T>> readRecordsForGroupBaseFiles(List<ClusteringOperation> clusteringOps) {
-    List<Iterator<HoodieRecord<T>>> iteratorsForPartition = clusteringOps.stream().map(clusteringOp -> {
+    List<Supplier<ClosableIterator<HoodieRecord<T>>>> iteratorsForPartition = clusteringOps.stream().map(clusteringOp -> {
 
       Schema readerSchema = HoodieAvroUtils.addMetadataFields(new Schema.Parser().parse(getWriteConfig().getSchema()));
-      Iterable<HoodieRecord<T>> indexedRecords = () -> {
+      Supplier<ClosableIterator<HoodieRecord<T>>> supplier = () -> {
         try {
           HoodieFileReader baseFileReader = HoodieFileReaderFactory.getReaderFactory(recordType).getFileReader(getHoodieTable().getHadoopConf(), new Path(clusteringOp.getDataFilePath()));
           Option<BaseKeyGenerator> keyGeneratorOp =
@@ -152,19 +153,17 @@ public abstract class SingleSparkJobExecutionStrategy<T>
           // NOTE: Record have to be cloned here to make sure if it holds low-level engine-specific
           //       payload pointing into a shared, mutable (underlying) buffer we get a clean copy of
           //       it since these records will be shuffled later.
-          CloseableMappingIterator mappingIterator = new CloseableMappingIterator((ClosableIterator<HoodieRecord>) baseFileReader.getRecordIterator(readerSchema),
+          return new CloseableMappingIterator<>((ClosableIterator<HoodieRecord>) baseFileReader.getRecordIterator(readerSchema),
               rec -> ((HoodieRecord) rec).copy().wrapIntoHoodieRecordPayloadWithKeyGen(readerSchema,
                   getWriteConfig().getProps(), keyGeneratorOp));
-          return mappingIterator;
         } catch (IOException e) {
           throw new HoodieClusteringException("Error reading input data for " + clusteringOp.getDataFilePath()
               + " and " + clusteringOp.getDeltaFilePaths(), e);
         }
       };
-
-      return StreamSupport.stream(indexedRecords.spliterator(), false).iterator();
+      return supplier;
     }).collect(Collectors.toList());
 
-    return new ConcatenatingIterator<>(iteratorsForPartition);
+    return new LazyConcatenatingIterator<>(iteratorsForPartition);
   }
 }

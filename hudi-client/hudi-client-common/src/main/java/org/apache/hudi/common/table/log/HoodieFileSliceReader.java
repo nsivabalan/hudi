@@ -24,6 +24,7 @@ import org.apache.hudi.common.model.HoodiePayloadProps;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieRecordMerger;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.common.util.collection.ClosableIterator;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.exception.HoodieClusteringException;
 import org.apache.hudi.io.storage.HoodieFileReader;
@@ -31,23 +32,20 @@ import org.apache.hudi.io.storage.HoodieFileReader;
 import org.apache.avro.Schema;
 
 import java.io.IOException;
-import java.util.Iterator;
-import java.util.Map;
 import java.util.Properties;
 
-public class HoodieFileSliceReader<T> extends LogFileIterator<T> {
-  private Option<Iterator<HoodieRecord>> baseFileIterator;
+public class HoodieFileSliceReader<T> extends LogFileIterator<T> implements ClosableIterator<HoodieRecord<T>> {
+  private Option<ClosableIterator<HoodieRecord>> baseFileIterator;
   private HoodieMergedLogRecordScanner scanner;
   private Schema schema;
   private Properties props;
 
   private TypedProperties payloadProps = new TypedProperties();
   private Option<Pair<String, String>> simpleKeyGenFieldsOpt;
-  Map<String, HoodieRecord> records;
   HoodieRecordMerger merger;
 
   public HoodieFileSliceReader(Option<HoodieFileReader> baseFileReader,
-                                   HoodieMergedLogRecordScanner scanner, Schema schema, String preCombineField, HoodieRecordMerger merger,
+                               HoodieMergedLogRecordScanner scanner, Schema schema, String preCombineField, HoodieRecordMerger merger,
                                Properties props, Option<Pair<String, String>> simpleKeyGenFieldsOpt) throws IOException {
     super(scanner);
     if (baseFileReader.isPresent()) {
@@ -63,7 +61,6 @@ public class HoodieFileSliceReader<T> extends LogFileIterator<T> {
     }
     this.props = props;
     this.simpleKeyGenFieldsOpt = simpleKeyGenFieldsOpt;
-    this.records = scanner.getRecords();
   }
 
   private boolean hasNextInternal() {
@@ -95,4 +92,9 @@ public class HoodieFileSliceReader<T> extends LogFileIterator<T> {
     return hasNextInternal();
   }
 
+  @Override
+  public void close() {
+    scanner.close();
+    baseFileIterator.ifPresent(ClosableIterator::close);
+  }
 }
