@@ -988,3 +988,9 @@ f5824e51ca7 [ENG-28779][INTERNAL] Add parallelism configs to AwsGlueSync (#1428)
 --- [2025-08-28 16:04:22] [release-v1.169.0] ---
 [ENG-31589][HUDI-9770] During hive/glue sync, ensure drop partition events are generated when partition is present in the metastore (#1506)
 [AUDIT-1071]: Changelog for release-v1.168.0 (#1511)
+
+--- [2025-08-29 16:04:04] [release-v1.170.0] ---
+[ENG-31635][HUDI-9772] Fix MySqlDebeziumAvroPayload to handle event seq during preCombine (#1533)
+[ENG-31748][CHERRYPICK] Fix memory leak in clustering (#1512)
+[ENG-31635][HUDI-9772] Fix MySqlDebeziumAvroPayload to handle event seq during preCombine (#1517)
+[AUDIT-1071]: Changelog for release-v1.169.0 (#1518)
