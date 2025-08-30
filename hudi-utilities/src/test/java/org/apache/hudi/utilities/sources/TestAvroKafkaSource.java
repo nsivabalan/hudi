@@ -50,10 +50,10 @@ import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.streaming.kafka010.KafkaTestUtils;
-import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -87,21 +87,17 @@ public class TestAvroKafkaSource extends SparkClientFunctionalTestHarness {
 
   protected SchemaProvider schemaProvider;
 
-  protected KafkaTestUtils testUtils;
+  protected static KafkaTestUtils testUtils;
 
   @BeforeAll
   public static void initClass() {
-    dataGen = new HoodieTestDataGenerator(0xDEED);
-  }
-
-  @BeforeEach
-  public void setup() {
     testUtils = new KafkaTestUtils();
+    dataGen = new HoodieTestDataGenerator(0xDEED);
     testUtils.setup();
   }
 
-  @AfterEach
-  public void tearDown() {
+  @AfterAll
+  public static void tearDown() {
     testUtils.teardown();
   }
 
@@ -163,14 +159,15 @@ public class TestAvroKafkaSource extends SparkClientFunctionalTestHarness {
     return props;
   }
 
-  @Test
-  void testKafkaSource_InvalidHostException() throws IOException {
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void testKafkaSource_InvalidHostException(boolean useSparkSqlKafkaConsumer) throws IOException {
     UtilitiesTestBase.Helpers.saveStringsToDFS(
         new String[] {dataGen.generateGenericRecord().getSchema().toString()}, hoodieStorage(),
         SCHEMA_PATH);
-    final String topic = TEST_TOPIC_PREFIX + "testKafkaOffsetAppend";
+    final String topic = TEST_TOPIC_PREFIX + "testKafkaOffsetAppend" + UUID.randomUUID().toString().substring(0,8);
     TypedProperties props = createPropsForKafkaSource(topic, null, "earliest");
-
+    props.put(KafkaSourceConfig.USE_SPARK_SQL_CONSUMER.key(), String.valueOf(useSparkSqlKafkaConsumer));
     props.put("hoodie.streamer.schemaprovider.source.schema.file", SCHEMA_PATH);
     SchemaProvider schemaProvider = UtilHelpers.wrapSchemaProviderWithPostProcessor(
         UtilHelpers.createSchemaProvider(FilebasedSchemaProvider.class.getName(), props, jsc()), props, jsc(), new ArrayList<>());
@@ -187,18 +184,20 @@ public class TestAvroKafkaSource extends SparkClientFunctionalTestHarness {
     assertThrows(HoodieReadFromSourceException.class, () -> avroSourceWithKafkaConfiException.readFromCheckpoint(Option.empty(), Long.MAX_VALUE));
   }
 
-  @Test
-  public void testAppendKafkaOffsets() throws IOException {
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  public void testAppendKafkaOffsets(boolean useSparkSqlKafkaConsumer) throws IOException {
     UtilitiesTestBase.Helpers.saveStringsToDFS(
         new String[] {dataGen.generateGenericRecord().getSchema().toString()}, hoodieStorage(),
         SCHEMA_PATH);
+    String topicName = "test" + UUID.randomUUID().toString().substring(0,8);
     ConsumerRecord<Object, Object> recordConsumerRecord =
-        new ConsumerRecord<Object, Object>("test", 0, 1L,
-            "test", dataGen.generateGenericRecord());
+        new ConsumerRecord<Object, Object>(topicName, 0, 1L, topicName, dataGen.generateGenericRecord());
     JavaRDD<ConsumerRecord<Object, Object>> rdd =
         jsc().parallelize(Arrays.asList(recordConsumerRecord));
     TypedProperties props = new TypedProperties();
-    props.put("hoodie.streamer.source.kafka.topic", "test");
+    props.put(KafkaSourceConfig.USE_SPARK_SQL_CONSUMER.key(), String.valueOf(useSparkSqlKafkaConsumer));
+    props.put("hoodie.streamer.source.kafka.topic", topicName);
     props.put("hoodie.streamer.schemaprovider.source.schema.file", SCHEMA_PATH);
     SchemaProvider schemaProvider = UtilHelpers.wrapSchemaProviderWithPostProcessor(
         UtilHelpers.createSchemaProvider(FilebasedSchemaProvider.class.getName(), props, jsc()),
@@ -217,11 +216,11 @@ public class TestAvroKafkaSource extends SparkClientFunctionalTestHarness {
     GenericRecord withKafkaOffsets = avroKafkaSource.maybeAppendKafkaOffsets(rdd).collect().get(0);
     assertEquals(4, withKafkaOffsets.getSchema().getFields().size()
         - withoutKafkaOffsets.getSchema().getFields().size());
-    assertEquals("test", withKafkaOffsets.get("_hoodie_kafka_source_key").toString());
+    assertEquals(topicName, withKafkaOffsets.get("_hoodie_kafka_source_key").toString());
 
     // scenario with null kafka key
     ConsumerRecord<Object, Object> recordConsumerRecordNullKafkaKey =
-        new ConsumerRecord<Object, Object>("test", 0, 1L,
+        new ConsumerRecord<Object, Object>(topicName, 0, 1L,
             null, dataGen.generateGenericRecord());
     JavaRDD<ConsumerRecord<Object, Object>> rddNullKafkaKey =
         jsc().parallelize(Arrays.asList(recordConsumerRecordNullKafkaKey));
@@ -231,14 +230,15 @@ public class TestAvroKafkaSource extends SparkClientFunctionalTestHarness {
     assertNull(withKafkaOffsetsAndNullKafkaKey.get("_hoodie_kafka_source_key"));
   }
 
-  @Test
-  public void testAppendKafkaOffsetsSourceFormatAdapter() throws IOException {
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  public void testAppendKafkaOffsetsSourceFormatAdapter(boolean useSparkSqlKafkaConsumer) throws IOException {
     UtilitiesTestBase.Helpers.saveStringsToDFS(
         new String[] {dataGen.generateGenericRecord().getSchema().toString()}, hoodieStorage(),
         SCHEMA_PATH);
-    final String topic = TEST_TOPIC_PREFIX + "testKafkaOffsetAppend";
+    final String topic = TEST_TOPIC_PREFIX + "testKafkaOffsetAppend" + UUID.randomUUID().toString().substring(0,8);
     TypedProperties props = createPropsForKafkaSource(topic, null, "earliest");
-
+    props.put(KafkaSourceConfig.USE_SPARK_SQL_CONSUMER.key(), String.valueOf(useSparkSqlKafkaConsumer));
     props.put("hoodie.streamer.schemaprovider.source.schema.file", SCHEMA_PATH);
     SchemaProvider schemaProvider = UtilHelpers.wrapSchemaProviderWithPostProcessor(
         UtilHelpers.createSchemaProvider(FilebasedSchemaProvider.class.getName(), props, jsc()),
@@ -283,11 +283,12 @@ public class TestAvroKafkaSource extends SparkClientFunctionalTestHarness {
     assertEquals(numMessages, nullKafkaKeyDataset.toDF().filter("_hoodie_kafka_source_key is null").count());
   }
 
-  @Test
-  void testConfigureSchemaDeserializer() throws IOException {
-    final String topic = TEST_TOPIC_PREFIX + "testAvroSchemaDeserializer";
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void testConfigureSchemaDeserializer(boolean useSparkSqlKafkaConsumer) throws IOException {
+    final String topic = TEST_TOPIC_PREFIX + "testAvroSchemaDeserializer" + UUID.randomUUID().toString().substring(0,8);
     TypedProperties props = createPropsForKafkaSource(topic, null, "earliest");
-
+    props.put(KafkaSourceConfig.USE_SPARK_SQL_CONSUMER.key(), String.valueOf(useSparkSqlKafkaConsumer));
     props.put("hoodie.streamer.source.kafka.value.deserializer.class",
         KafkaAvroSchemaDeserializer.class.getName());
     assertThrows(HoodieReadFromSourceException.class, () -> new AvroKafkaSource(props, jsc(), spark(), schemaProvider, metrics));

@@ -168,6 +168,7 @@
     <spark33.version>3.3.4</spark33.version>
     <spark34.version>3.4.3</spark34.version>
     <spark35.version>3.5.5</spark35.version>
+    <spark35.internal.version>3.5.2-onehouse-0.29</spark35.internal.version>
     <hudi.spark.module>hudi-spark3.5.x</hudi.spark.module>
     <avro.version>1.11.4</avro.version>
     <bijection-avro.version>0.9.8</bijection-avro.version>
@@ -1840,6 +1841,11 @@
     <repository>
       <id>confluent</id>
       <url>https://packages.confluent.io/maven/</url>
+    </repository>
+    <repository>
+      <id>codeartifact</id>
+      <name>codeartifact</name>
+      <url>https://onehouse-194159489498.d.codeartifact.us-west-2.amazonaws.com/maven/onehouse-internal/</url>
     </repository>
   </repositories>
 

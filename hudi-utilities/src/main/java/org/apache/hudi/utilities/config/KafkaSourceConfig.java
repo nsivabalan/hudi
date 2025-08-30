@@ -184,6 +184,12 @@ public class KafkaSourceConfig extends HoodieConfig {
       .sinceVersion("1.1.0")
       .withDocumentation("Comma-separated list of prefixes for config keys that should be dropped from the configs when passed to the Kafka consumer.");
 
+  public static final ConfigProperty<Boolean> USE_SPARK_SQL_CONSUMER = ConfigProperty
+      .key(PREFIX + "spark.sql.consumer.enable")
+      .defaultValue(false)
+      .markAdvanced()
+      .sinceVersion("1.1.0")
+      .withDocumentation("If enabled, use spark sql kafka consumer instead of spark streaming consumer.");
   /**
    * Kafka reset offset strategies.
    */

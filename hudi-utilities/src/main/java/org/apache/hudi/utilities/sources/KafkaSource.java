@@ -56,7 +56,9 @@ import static org.apache.hudi.common.util.ConfigUtils.getLongWithAltKeys;
 public abstract class KafkaSource<T> extends Source<T> {
   private static final Logger LOG = LoggerFactory.getLogger(KafkaSource.class);
   private static final String COMMA_DELIMITER = ",";
-  // these are native kafka's config. do not change the config names.
+  // Timeout in milliseconds when polling for next batch from kafka consumer
+  private static final String DEFAULT_POLL_KAFKA_TIMEOUT_MS = "30000";
+  // Timeout in milliseconds when polling for next batch from kafka consumer
   protected static final String NATIVE_KAFKA_KEY_DESERIALIZER_PROP = "key.deserializer";
   protected static final String NATIVE_KAFKA_VALUE_DESERIALIZER_PROP = "value.deserializer";
   protected static final String METRIC_NAME_KAFKA_MESSAGE_IN_COUNT = "kafkaMessageInCount";
@@ -150,13 +152,18 @@ public abstract class KafkaSource<T> extends Source<T> {
    * @return JavaRDD containing Kafka ConsumerRecord entries with deserialized key-value pairs.
    */
   public static <K, V> JavaRDD<ConsumerRecord<K, V>> createKafkaRDD(
-      TypedProperties props,
-      JavaSparkContext sparkContext,
-      KafkaOffsetGen offsetGen,
-      OffsetRange[] offsetRanges) {
+          TypedProperties props,
+          JavaSparkContext sparkContext,
+          KafkaOffsetGen offsetGen,
+          OffsetRange[] offsetRanges) {
     Map<String, Object> kafkaParams =
-        filterKafkaParameters(offsetGen.getKafkaParams(), ConfigUtils.getStringWithAltKeys(props, KafkaSourceConfig.IGNORE_PREFIX_CONFIG_LIST, true));
+            filterKafkaParameters(offsetGen.getKafkaParams(), ConfigUtils.getStringWithAltKeys(props, KafkaSourceConfig.IGNORE_PREFIX_CONFIG_LIST, true));
     LOG.debug("Original kafka params " + offsetGen.getKafkaParams() + "\n After filtering kafka params " + kafkaParams);
+    if (ConfigUtils.getBooleanWithAltKeys(props, KafkaSourceConfig.USE_SPARK_SQL_CONSUMER)) {
+      long pollTimeoutMs = Long.parseLong(sparkContext.getConf().get("spark.streaming.kafka.consumer.poll.ms", DEFAULT_POLL_KAFKA_TIMEOUT_MS));
+      boolean failOnDataLoss = ConfigUtils.getBooleanWithAltKeys(props, KafkaSourceConfig.ENABLE_FAIL_ON_DATA_LOSS);
+      return org.apache.spark.sql.kafka010.KafkaUtils.createRDD(sparkContext, kafkaParams, offsetGen.toKafkaOffsetRanges(offsetRanges), pollTimeoutMs, failOnDataLoss);
+    }
     return KafkaUtils.createRDD(sparkContext, kafkaParams, offsetRanges, LocationStrategies.PreferConsistent());
   }
 

@@ -41,14 +41,17 @@ import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.streaming.kafka010.KafkaTestUtils;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.UUID;
 
 import static org.apache.hudi.utilities.config.KafkaSourceConfig.ENABLE_KAFKA_COMMIT_OFFSET;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -71,16 +74,16 @@ public abstract class BaseTestKafkaSource extends SparkClientFunctionalTestHarne
   protected final Option<SourceProfileSupplier> sourceProfile = Option.of(mock(SourceProfileSupplier.class));
 
   protected SchemaProvider schemaProvider;
-  protected KafkaTestUtils testUtils;
+  public static KafkaTestUtils testUtils;
 
-  @BeforeEach
-  public void initClass() {
+  @BeforeAll
+  public static void initClass() {
     testUtils = new KafkaTestUtils();
     testUtils.setup();
   }
 
-  @AfterEach
-  public void cleanupClass() {
+  @AfterAll
+  public static void cleanupClass() {
     testUtils.teardown();
   }
 
@@ -102,13 +105,14 @@ public abstract class BaseTestKafkaSource extends SparkClientFunctionalTestHarne
     assertEquals(0, jsc().getPersistentRDDs().size());
   }
 
-  @Test
-  public void testKafkaSource() {
-
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  public void testKafkaSource(boolean useSparkSqlKafkaConsumer) {
     // topic setup.
-    final String topic = TEST_TOPIC_PREFIX + "testKafkaSource";
+    final String topic = TEST_TOPIC_PREFIX + "testKafkaSource" + UUID.randomUUID().toString().substring(0,8);
     testUtils.createTopic(topic, 2);
     TypedProperties props = createPropsForKafkaSource(topic, null, "earliest");
+    props.put(KafkaSourceConfig.USE_SPARK_SQL_CONSUMER.key(), String.valueOf(useSparkSqlKafkaConsumer));
     SourceFormatAdapter kafkaSource = createSource(props);
 
     // 1. Extract without any checkpoint => get all the data, respecting sourceLimit
@@ -149,16 +153,19 @@ public abstract class BaseTestKafkaSource extends SparkClientFunctionalTestHarne
   }
 
   // test case with kafka offset reset strategy
-  @Test
-  public void testKafkaSourceResetStrategy() {
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  public void testKafkaSourceResetStrategy(boolean useSparkSqlKafkaConsumer) {
     // topic setup.
-    final String topic = TEST_TOPIC_PREFIX + "testKafkaSourceResetStrategy";
+    final String topic = TEST_TOPIC_PREFIX + "testKafkaSourceResetStrategy" + UUID.randomUUID().toString().substring(0,8);
     testUtils.createTopic(topic, 2);
 
     TypedProperties earliestProps = createPropsForKafkaSource(topic, null, "earliest");
+    earliestProps.put(KafkaSourceConfig.USE_SPARK_SQL_CONSUMER.key(), String.valueOf(useSparkSqlKafkaConsumer));
     SourceFormatAdapter earliestKafkaSource = createSource(earliestProps);
 
     TypedProperties latestProps = createPropsForKafkaSource(topic, null, "latest");
+    earliestProps.put(KafkaSourceConfig.USE_SPARK_SQL_CONSUMER.key(), String.valueOf(useSparkSqlKafkaConsumer));
     SourceFormatAdapter latestKafkaSource = createSource(latestProps);
 
     // 1. Extract with a none data kafka checkpoint
@@ -179,12 +186,14 @@ public abstract class BaseTestKafkaSource extends SparkClientFunctionalTestHarne
     assertEquals(earFetch1.getCheckpointForNextBatch(), latFetch1.getCheckpointForNextBatch());
   }
 
-  @Test
-  public void testProtoKafkaSourceInsertRecordsLessSourceLimit() {
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  public void testProtoKafkaSourceInsertRecordsLessSourceLimit(boolean useSparkSqlKafkaConsumer) {
     // topic setup.
-    final String topic = TEST_TOPIC_PREFIX + "testKafkaSourceInsertRecordsLessSourceLimit";
+    final String topic = TEST_TOPIC_PREFIX + "testKafkaSourceInsertRecordsLessSourceLimit" + UUID.randomUUID().toString().substring(0,8);
     testUtils.createTopic(topic, 2);
     TypedProperties props = createPropsForKafkaSource(topic, Long.MAX_VALUE, "earliest");
+    props.put(KafkaSourceConfig.USE_SPARK_SQL_CONSUMER.key(), String.valueOf(useSparkSqlKafkaConsumer));
     SourceFormatAdapter kafkaSource = createSource(props);
     props.setProperty("hoodie.streamer.kafka.source.maxEvents", "500");
 
@@ -206,10 +215,11 @@ public abstract class BaseTestKafkaSource extends SparkClientFunctionalTestHarne
     assertEquals(300, fetch2.getBatch().get().count());
   }
 
-  @Test
-  public void testCommitOffsetToKafka() {
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  public void testCommitOffsetToKafka(boolean useSparkSqlKafkaConsumer) {
     // topic setup.
-    final String topic = TEST_TOPIC_PREFIX + "testCommitOffsetToKafka";
+    final String topic = TEST_TOPIC_PREFIX + "testCommitOffsetToKafka" + UUID.randomUUID().toString().substring(0,8);
     testUtils.createTopic(topic, 2);
     List<TopicPartition> topicPartitions = new ArrayList<>();
     TopicPartition topicPartition0 = new TopicPartition(topic, 0);
@@ -219,6 +229,7 @@ public abstract class BaseTestKafkaSource extends SparkClientFunctionalTestHarne
 
     TypedProperties props = createPropsForKafkaSource(topic, null, "earliest");
     props.put(ENABLE_KAFKA_COMMIT_OFFSET.key(), "true");
+    props.put(KafkaSourceConfig.USE_SPARK_SQL_CONSUMER.key(), String.valueOf(useSparkSqlKafkaConsumer));
     SourceFormatAdapter kafkaSource = createSource(props);
 
     // 1. Extract without any checkpoint => get all the data, respecting sourceLimit
@@ -299,7 +310,7 @@ public abstract class BaseTestKafkaSource extends SparkClientFunctionalTestHarne
   @Test
   public void testKafkaSourceWithOffsetsFromSourceProfile() {
     // topic setup.
-    final String topic = TEST_TOPIC_PREFIX + "testKafkaSourceWithOffsetRanges";
+    final String topic = TEST_TOPIC_PREFIX + "testKafkaSourceWithOffsetRanges" + UUID.randomUUID().toString().substring(0,8);
     testUtils.createTopic(topic, 2);
     TypedProperties props = createPropsForKafkaSource(topic, null, "earliest");
 

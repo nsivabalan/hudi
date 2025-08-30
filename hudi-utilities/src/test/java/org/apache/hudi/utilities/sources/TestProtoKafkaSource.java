@@ -58,6 +58,7 @@ import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.Arrays;
@@ -106,11 +107,17 @@ public class TestProtoKafkaSource extends BaseTestKafkaSource {
   }
 
   @ParameterizedTest
-  @ValueSource(booleans = {true, false})
-  public void testProtoKafkaSourceWithConfluentProtoDeserialization(boolean persistSourceRdd) {
-    final String topic = TEST_TOPIC_PREFIX + "testProtoKafkaSourceWithConfluentDeserializer_" + persistSourceRdd;
+  @CsvSource({
+      "true, true",
+      "true, false",
+      "false, true",
+      "false, false"
+  })
+  public void testProtoKafkaSourceWithConfluentProtoDeserialization(boolean persistSourceRdd, boolean useSparkSqlKafkaConsumer) {
+    final String topic = TEST_TOPIC_PREFIX + "testProtoKafkaSourceWithConfluentDeserializer_" + persistSourceRdd + UUID.randomUUID().toString().substring(0,8);
     testUtils.createTopic(topic, 2);
     TypedProperties props = createPropsForKafkaSource(topic, null, "earliest");
+    props.setProperty(KafkaSourceConfig.USE_SPARK_SQL_CONSUMER.key(), String.valueOf(useSparkSqlKafkaConsumer));
     props.put(KAFKA_PROTO_VALUE_DESERIALIZER_CLASS.key(),
         "io.confluent.kafka.serializers.protobuf.KafkaProtobufDeserializer");
     props.put("schema.registry.url", MOCK_REGISTRY_URL);
