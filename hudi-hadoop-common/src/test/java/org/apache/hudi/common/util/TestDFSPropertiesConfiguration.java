@@ -39,9 +39,12 @@ import org.junit.jupiter.api.Test;
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.lang.reflect.Field;
 
+import static org.apache.hudi.common.util.ReflectionUtils.ENABLE_THREAD_CONTEXT_REFLECTION_KEY;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -229,5 +232,142 @@ public class TestDFSPropertiesConfiguration {
     assertThrows(IllegalStateException.class, () -> {
       cfg.addPropsFromFile(new StoragePath(dfsBasePath + "/t4.props"));
     });
+  }
+
+  @Test
+  void testReflectionUtilsLoadConfigValueWithTrueSetting() throws Exception {
+    DFSPropertiesConfiguration.addToGlobalProps(ENABLE_THREAD_CONTEXT_REFLECTION_KEY, "true");
+    // Verify the property is actually set in global props
+    TypedProperties globalProps = DFSPropertiesConfiguration.getGlobalProps();
+    assertTrue(globalProps.getBoolean(ENABLE_THREAD_CONTEXT_REFLECTION_KEY, false),
+        "Property should be set to true in global props");
+    // Reset the cached value in ReflectionUtils
+    Field useThreadContextField = ReflectionUtils.class.getDeclaredField("useThreadContextClassLoader");
+    useThreadContextField.setAccessible(true);
+    useThreadContextField.set(null, null);
+    // Clear the class cache
+    Field cacheField = ReflectionUtils.class.getDeclaredField("CLAZZ_CACHE");
+    cacheField.setAccessible(true);
+    @SuppressWarnings("unchecked")
+    java.util.Map<String, Class<?>> cache = (java.util.Map<String, Class<?>>) cacheField.get(null);
+    cache.clear();
+    // Test that ReflectionUtils can load a class using thread context class loader
+    Class<?> clazz = ReflectionUtils.getClass("java.lang.String");
+    assertNotNull(clazz);
+    assertEquals(String.class, clazz);
+    // Verify that the thread context class loader setting is working
+    assertTrue(ReflectionUtils.shouldUseThreadContextClassLoader());
+  }
+
+  @Test
+  void testReflectionUtilsLoadConfigValueWithFalseSetting() throws Exception {
+    DFSPropertiesConfiguration.addToGlobalProps(ENABLE_THREAD_CONTEXT_REFLECTION_KEY, "false");
+    
+    // Reset the cached value in ReflectionUtils
+    Field useThreadContextField = ReflectionUtils.class.getDeclaredField("useThreadContextClassLoader");
+    useThreadContextField.setAccessible(true);
+    useThreadContextField.set(null, null);
+    // Clear the class cache
+    Field cacheField = ReflectionUtils.class.getDeclaredField("CLAZZ_CACHE");
+    cacheField.setAccessible(true);
+    @SuppressWarnings("unchecked")
+    java.util.Map<String, Class<?>> cache = (java.util.Map<String, Class<?>>) cacheField.get(null);
+    cache.clear();
+    // Test that ReflectionUtils can still load a class using system class loader
+    Class<?> clazz = ReflectionUtils.getClass("java.lang.String");
+    assertNotNull(clazz);
+    assertEquals(String.class, clazz);
+    // Verify that the thread context class loader setting is working
+    assertFalse(ReflectionUtils.shouldUseThreadContextClassLoader());
+  }
+
+  @Test
+  void testReflectionUtilsLoadConfigValueWithDefaultSetting() throws Exception {
+    DFSPropertiesConfiguration.clearGlobalProps();
+    // Reset the cached value in ReflectionUtils
+    Field useThreadContextField = ReflectionUtils.class.getDeclaredField("useThreadContextClassLoader");
+    useThreadContextField.setAccessible(true);
+    useThreadContextField.set(null, null);
+    // Clear the class cache
+    Field cacheField = ReflectionUtils.class.getDeclaredField("CLAZZ_CACHE");
+    cacheField.setAccessible(true);
+    @SuppressWarnings("unchecked")
+    java.util.Map<String, Class<?>> cache = (java.util.Map<String, Class<?>>) cacheField.get(null);
+    cache.clear();
+    // Test that ReflectionUtils can load a class using system class loader
+    Class<?> clazz = ReflectionUtils.getClass("java.lang.String");
+    assertNotNull(clazz);
+    assertEquals(String.class, clazz);
+    // Verify that the thread context class loader setting defaults to false
+    assertFalse(ReflectionUtils.shouldUseThreadContextClassLoader());
+  }
+
+  @Test
+  void testReflectionUtilsLoadConfigValueWithInvalidSetting() throws Exception {
+    DFSPropertiesConfiguration.addToGlobalProps(ENABLE_THREAD_CONTEXT_REFLECTION_KEY, "invalid");
+    // Reset the cached value in ReflectionUtils
+    Field useThreadContextField = ReflectionUtils.class.getDeclaredField("useThreadContextClassLoader");
+    useThreadContextField.setAccessible(true);
+    useThreadContextField.set(null, null);
+    // Clear the class cache
+    Field cacheField = ReflectionUtils.class.getDeclaredField("CLAZZ_CACHE");
+    cacheField.setAccessible(true);
+    @SuppressWarnings("unchecked")
+    java.util.Map<String, Class<?>> cache = (java.util.Map<String, Class<?>>) cacheField.get(null);
+    cache.clear();
+    // Test that ReflectionUtils can still load a class using system class loader
+    Class<?> clazz = ReflectionUtils.getClass("java.lang.String");
+    assertNotNull(clazz);
+    assertEquals(String.class, clazz);
+    // Verify that the thread context class loader setting defaults to false for invalid values
+    assertFalse(ReflectionUtils.shouldUseThreadContextClassLoader());
+  }
+
+  @Test
+  void testReflectionUtilsLoadConfigValueCaching() throws Exception {
+    DFSPropertiesConfiguration.addToGlobalProps(ENABLE_THREAD_CONTEXT_REFLECTION_KEY, "true");
+    // Reset the cached value in ReflectionUtils
+    Field useThreadContextField = ReflectionUtils.class.getDeclaredField("useThreadContextClassLoader");
+    useThreadContextField.setAccessible(true);
+    useThreadContextField.set(null, null);
+    // Clear the class cache
+    Field cacheField = ReflectionUtils.class.getDeclaredField("CLAZZ_CACHE");
+    cacheField.setAccessible(true);
+    @SuppressWarnings("unchecked")
+    java.util.Map<String, Class<?>> cache = (java.util.Map<String, Class<?>>) cacheField.get(null);
+    cache.clear();
+    // First call should load the config value
+    boolean firstResult = ReflectionUtils.shouldUseThreadContextClassLoader();
+    assertTrue(firstResult);
+    // Change the config value
+    DFSPropertiesConfiguration.addToGlobalProps(ENABLE_THREAD_CONTEXT_REFLECTION_KEY, "false");
+    // Second call should return cached value (not the new value)
+    boolean secondResult = ReflectionUtils.shouldUseThreadContextClassLoader();
+    assertTrue(secondResult);
+    // Reset cache and test again
+    useThreadContextField.set(null, null);
+    boolean thirdResult = ReflectionUtils.shouldUseThreadContextClassLoader();
+    assertFalse(thirdResult);
+  }
+
+  @Test
+  void testReflectionUtilsLoadConfigValueWithDFSPropertiesConfigurationAvailable() throws Exception {
+    DFSPropertiesConfiguration.addToGlobalProps(ENABLE_THREAD_CONTEXT_REFLECTION_KEY, "true");
+    // Reset the cached value in ReflectionUtils
+    Field useThreadContextField = ReflectionUtils.class.getDeclaredField("useThreadContextClassLoader");
+    useThreadContextField.setAccessible(true);
+    useThreadContextField.set(null, null);
+    // Clear the class cache
+    Field cacheField = ReflectionUtils.class.getDeclaredField("CLAZZ_CACHE");
+    cacheField.setAccessible(true);
+    @SuppressWarnings("unchecked")
+    java.util.Map<String, Class<?>> cache = (java.util.Map<String, Class<?>>) cacheField.get(null);
+    cache.clear();
+    // Test that the reflection-based config loading works
+    boolean result = ReflectionUtils.shouldUseThreadContextClassLoader();
+    assertTrue(result);
+    // Verify that the method can access DFSPropertiesConfiguration.getGlobalProps()
+    TypedProperties globalProps = DFSPropertiesConfiguration.getGlobalProps();
+    assertTrue(globalProps.getBoolean(ENABLE_THREAD_CONTEXT_REFLECTION_KEY, false));
   }
 }

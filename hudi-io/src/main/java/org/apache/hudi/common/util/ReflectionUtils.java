@@ -47,10 +47,61 @@ public class ReflectionUtils {
 
   private static final Map<String, Class<?>> CLAZZ_CACHE = new ConcurrentHashMap<>();
 
+  public static final String ENABLE_THREAD_CONTEXT_REFLECTION_KEY = "hoodie.reflection.usethreadcontext";
+  // The properties must be on the classpath for this to evaluate to true.
+  // This allows us to use the thread context class loader in cases
+  // where the jars are dynamically added to the classpath.
+  private static volatile Boolean useThreadContextClassLoader = null;
+
+  /**
+   * Protected method that can be mocked in tests.
+   * This method is called to determine whether to use thread context class loader.
+   */
+  protected static boolean shouldUseThreadContextClassLoader() {
+    if (useThreadContextClassLoader == null) {
+      synchronized (ReflectionUtils.class) {
+        if (useThreadContextClassLoader == null) {
+          useThreadContextClassLoader = loadConfigValue();
+        }
+      }
+    }
+    return useThreadContextClassLoader;
+  }
+
+  protected static boolean loadConfigValue() {
+    // Try to load via reflection with full DFS support
+    try {
+      Class<?> dfsConfigClass = Class.forName(
+          "org.apache.hudi.common.config.DFSPropertiesConfiguration",
+          true,
+          Thread.currentThread().getContextClassLoader());
+      
+      Method getGlobalPropsMethod = dfsConfigClass.getMethod("getGlobalProps");
+      Object typedProps = getGlobalPropsMethod.invoke(null);
+      
+      Method getBooleanMethod = typedProps.getClass()
+          .getMethod("getBoolean", String.class, boolean.class);
+      
+      return (Boolean) getBooleanMethod.invoke(typedProps, 
+          ENABLE_THREAD_CONTEXT_REFLECTION_KEY, false);
+      
+    } catch (ClassNotFoundException e) {
+      LOG.info("DFSPropertiesConfiguration not available in classpath, "
+               + "using default value (false) for " + ENABLE_THREAD_CONTEXT_REFLECTION_KEY);
+    } catch (Exception e) {
+      LOG.warn("Failed to load config via reflection, using default value (false)", e);
+    }
+    
+    // If reflection fails, use default value
+    return false;
+  }
+
   public static Class<?> getClass(String clazzName) {
     return CLAZZ_CACHE.computeIfAbsent(clazzName, c -> {
       try {
-        return Class.forName(c);
+        return shouldUseThreadContextClassLoader()
+            ? Class.forName(clazzName, true, Thread.currentThread().getContextClassLoader())
+            : Class.forName(c);
       } catch (ClassNotFoundException e) {
         throw new HoodieException("Unable to load class", e);
       }
