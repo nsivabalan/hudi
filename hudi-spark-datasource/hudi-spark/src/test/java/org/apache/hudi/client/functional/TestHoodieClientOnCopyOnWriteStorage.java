@@ -48,10 +48,13 @@ import org.apache.hudi.common.model.HoodieFileGroupId;
 import org.apache.hudi.common.model.HoodieKey;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieRecordPayload;
+import org.apache.hudi.common.model.HoodieReplaceCommitMetadata;
 import org.apache.hudi.common.model.HoodieWriteStat;
 import org.apache.hudi.common.model.WriteConcurrencyMode;
 import org.apache.hudi.common.model.WriteOperationType;
+import org.apache.hudi.common.table.HoodieTableConfig;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.common.table.HoodieTableVersion;
 import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.InstantGenerator;
@@ -1135,6 +1138,76 @@ public class TestHoodieClientOnCopyOnWriteStorage extends HoodieClientTestBase {
   }
 
   @ParameterizedTest
+  @ValueSource(ints = {6, 9})
+  void testCancellationOfPendingClusteringInstant(int tableVersion) throws Exception {
+    boolean populateMetaFields = true;
+    Properties props = getPropertiesForKeyGen(populateMetaFields);
+    props.put(HoodieTableConfig.VERSION.key(), String.valueOf(tableVersion));
+    initMetaClient(props);
+    // setup clustering config.
+    HoodieClusteringConfig clusteringConfig = HoodieClusteringConfig.newBuilder().withClusteringMaxNumGroups(10)
+        .withClusteringTargetPartitions(0).withInlineClusteringNumCommits(1).withInlineClustering(true)
+        .fromProperties(getDisabledRowWriterProperties()).build();
+
+    // start clustering, but don't commit
+    List<HoodieRecord> allRecords = testInsertAndClustering(
+        tableVersion, clusteringConfig, populateMetaFields, false, false, "", "", "");
+    HoodieTableMetaClient metaClient = HoodieTableMetaClient.builder().setConf(storageConf).setBasePath(basePath).build();
+    assertEquals(tableVersion, metaClient.getTableConfig().getTableVersion().versionCode());
+    List<Pair<HoodieInstant, HoodieClusteringPlan>> pendingClusteringPlans =
+        ClusteringUtils.getAllPendingClusteringPlans(metaClient).collect(Collectors.toList());
+    assertEquals(1, pendingClusteringPlans.size());
+    HoodieInstant pendingClusteringInstant = pendingClusteringPlans.get(0).getLeft();
+    // lets also validate that that there are data files written matching the clustering instant of interest
+    try {
+      assertTrue(storage.listFiles(new StoragePath(basePath + "/" + DEFAULT_SECOND_PARTITION_PATH)).stream()
+          .anyMatch(fileStatus -> fileStatus.getPath().getName().contains(pendingClusteringInstant.requestedTime())));
+    } catch (IOException e) {
+      throw new HoodieException("Failed to validate uncommitted clustering data");
+    }
+
+    // complete another commit after pending clustering which will fail mid-way bcoz of overlap.
+    HoodieWriteConfig.Builder cfgBuilder = getConfigBuilder(EAGER);
+    addConfigsForPopulateMetaFields(cfgBuilder, populateMetaFields);
+    cfgBuilder.withWriteTableVersion(tableVersion);
+    HoodieWriteConfig config = cfgBuilder.build();
+    SparkRDDWriteClient client = getHoodieWriteClient(config);
+    String commitTime = client.startCommit();
+    try (HoodieTestDataGenerator dataGen = new HoodieTestDataGenerator(0xDEED)) {
+      allRecords.addAll(dataGen.generateInserts(commitTime, 100));
+      assertThrows(HoodieUpsertException.class, () -> writeAndVerifyBatch(client, allRecords, commitTime, populateMetaFields));
+
+      // cancel and nuke pending clustering instant.
+      client.cancelAndNukeClusteringWithEmptyReplaceCommit(pendingClusteringInstant.requestedTime());
+      metaClient.reloadActiveTimeline();
+      // verify there are no pending clustering instants
+      assertEquals(0, ClusteringUtils.getAllPendingClusteringPlans(metaClient).count());
+      // validate the completed replace commit is empty
+      validateEmptyCompletedReplaceCommit(pendingClusteringInstant.requestedTime(), metaClient);
+      // validate that no new data files are committed w/ the clustering instant. This is to ensure cancelAndNukeClusteringWithEmptyReplaceCommit properly cleaned up all corres data files.
+      assertFalse(HoodieClientTestUtils.getLatestBaseFiles(basePath, storage,
+              String.format("%s/%s/*", basePath, DEFAULT_FIRST_PARTITION_PATH),
+              String.format("%s/%s/*", basePath, DEFAULT_SECOND_PARTITION_PATH),
+              String.format("%s/%s/*", basePath, DEFAULT_THIRD_PARTITION_PATH))
+          .stream().anyMatch(baseFile -> baseFile.getCommitTime().equals(pendingClusteringInstant.requestedTime())));
+
+      // re-attempt a new upsert which should succeed.
+      String commitTime2 = client.startCommit();
+      allRecords.addAll(dataGen.generateInserts(commitTime, 100));
+      JavaRDD<HoodieRecord> allRecordsRDD = jsc.parallelize(allRecords, 2);
+      client.commit(commitTime2, client.upsert(allRecordsRDD, commitTime2), Option.empty(), COMMIT_ACTION, Collections.emptyMap(), Option.empty());
+    }
+  }
+
+  void validateEmptyCompletedReplaceCommit(String clusteringInstant, HoodieTableMetaClient metaClient) throws IOException {
+    HoodieInstant instant = metaClient.reloadActiveTimeline().filterCompletedInstants().getLastClusteringInstant().get();
+    assertEquals(instant.requestedTime(), clusteringInstant);
+    HoodieReplaceCommitMetadata replaceCommitMetadata = metaClient.getActiveTimeline().readReplaceCommitMetadata(instant);
+    assertTrue(replaceCommitMetadata.getPartitionToWriteStats().isEmpty());
+    assertTrue(replaceCommitMetadata.getPartitionToReplaceFileIds().isEmpty());
+  }
+
+  @ParameterizedTest
   @ValueSource(booleans = {true, false})
   public void testInflightClusteringRollbackWhenUpdatesAllowed(boolean rollbackPendingClustering) throws Exception {
     // setup clustering config with update strategy to allow updates during ingestion
@@ -1226,10 +1299,18 @@ public class TestHoodieClientOnCopyOnWriteStorage extends HoodieClientTestBase {
   private List<HoodieRecord> testInsertAndClustering(HoodieClusteringConfig clusteringConfig, boolean populateMetaFields,
                                                      boolean completeClustering, boolean assertSameFileIds, String validatorClasses,
                                                      String sqlQueryForEqualityValidation, String sqlQueryForSingleResultValidation) throws Exception {
+    return testInsertAndClustering(HoodieTableVersion.current().versionCode(), clusteringConfig, populateMetaFields,
+        completeClustering, assertSameFileIds, validatorClasses, sqlQueryForEqualityValidation, sqlQueryForSingleResultValidation);
+  }
+
+  private List<HoodieRecord> testInsertAndClustering(int tableVersion, HoodieClusteringConfig clusteringConfig, boolean populateMetaFields,
+                                                     boolean completeClustering, boolean assertSameFileIds, String validatorClasses,
+                                                     String sqlQueryForEqualityValidation, String sqlQueryForSingleResultValidation) throws Exception {
     Pair<Pair<List<HoodieRecord>, List<String>>, Set<HoodieFileGroupId>> allRecords = testInsertTwoBatches(
-        populateMetaFields, createBrokenClusteringClient(new HoodieException(CLUSTERING_FAILURE)));
-    testClustering(clusteringConfig, populateMetaFields, completeClustering, assertSameFileIds, validatorClasses, sqlQueryForEqualityValidation,
-            sqlQueryForSingleResultValidation, allRecords, clusteringMetadataRdd2List, createKeyGenerator);
+        populateMetaFields, tableVersion, "2015/03/16", createBrokenClusteringClient(new HoodieException(CLUSTERING_FAILURE)));
+    testClustering(tableVersion, clusteringConfig, populateMetaFields, completeClustering,
+        assertSameFileIds, validatorClasses, sqlQueryForEqualityValidation,
+        sqlQueryForSingleResultValidation, allRecords, clusteringMetadataRdd2List, createKeyGenerator);
     return allRecords.getLeft().getLeft();
   }
 

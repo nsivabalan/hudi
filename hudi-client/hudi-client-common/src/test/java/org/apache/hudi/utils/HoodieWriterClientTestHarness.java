@@ -882,15 +882,17 @@ public abstract class HoodieWriterClientTestHarness extends HoodieCommonTestHarn
     return clusterMetadata;
   }
 
-  protected void testClustering(HoodieClusteringConfig clusteringConfig, boolean populateMetaFields, boolean completeClustering, boolean assertSameFileIds,
+  protected void testClustering(int tableVersion, HoodieClusteringConfig clusteringConfig,
+                                boolean populateMetaFields, boolean completeClustering, boolean assertSameFileIds,
                                 String validatorClasses, String sqlQueryForEqualityValidation, String sqlQueryForSingleResultValidation,
                                 Pair<Pair<List<HoodieRecord>, List<String>>, Set<HoodieFileGroupId>> allRecords,
                                 Function<HoodieWriteMetadata, HoodieWriteMetadata<List<WriteStatus>>> transformWriteMetadataFn,
                                 Function<HoodieWriteConfig, KeyGenerator> createKeyGeneratorFn) {
 
     HoodieWriteConfig config = getConfigBuilder(HoodieFailedWritesCleaningPolicy.LAZY)
-            .withClusteringConfig(clusteringConfig)
-            .withProps(getPropertiesForKeyGen()).build();
+        .withClusteringConfig(clusteringConfig)
+        .withWriteTableVersion(tableVersion)
+        .withProps(getPropertiesForKeyGen()).build();
     HoodieWriteMetadata<List<WriteStatus>> clusterMetadata =
             performClustering(clusteringConfig, populateMetaFields, completeClustering, validatorClasses, sqlQueryForEqualityValidation,
                     sqlQueryForSingleResultValidation, allRecords.getLeft(), transformWriteMetadataFn, createKeyGeneratorFn);
@@ -901,20 +903,18 @@ public abstract class HoodieWriterClientTestHarness extends HoodieCommonTestHarn
       assertEquals(insertedFileIds, replacedFileIds);
     }
     if (completeClustering) {
-      String clusteringCommitTime = createMetaClient().reloadActiveTimeline().getCompletedReplaceTimeline()
-              .getReverseOrderedInstants().findFirst().get().requestedTime();
+      String clusteringCommitTime = createMetaClient().reloadActiveTimeline().getLastClusteringInstant().get().requestedTime();
       verifyRecordsWritten(clusteringCommitTime, populateMetaFields, allRecords.getLeft().getLeft(),
               clusterMetadata.getWriteStatuses(), config, createKeyGeneratorFn.apply(config));
     }
   }
 
-  protected Pair<Pair<List<HoodieRecord>, List<String>>, Set<HoodieFileGroupId>> testInsertTwoBatches(boolean populateMetaFields, Function createBrokenClusteringClientFn) throws IOException {
-    return testInsertTwoBatches(populateMetaFields, "2015/03/16", createBrokenClusteringClientFn);
-  }
-
-  protected Pair<Pair<List<HoodieRecord>, List<String>>, Set<HoodieFileGroupId>> testInsertTwoBatches(boolean populateMetaFields, String partitionPath,
-                                                                                                      Function createBrokenClusteringClientFn) throws IOException {
-    return testInsertTwoBatches(populateMetaFields, partitionPath, getPropertiesForKeyGen(populateMetaFields), false, createBrokenClusteringClientFn);
+  protected Pair<Pair<List<HoodieRecord>, List<String>>, Set<HoodieFileGroupId>> testInsertTwoBatches(
+      boolean populateMetaFields, int tableVersion, String partitionPath,
+      Function createBrokenClusteringClientFn) throws IOException {
+    Properties props = getPropertiesForKeyGen(populateMetaFields);
+    props.put(HoodieWriteConfig.WRITE_TABLE_VERSION.key(), String.valueOf(tableVersion));
+    return testInsertTwoBatches(populateMetaFields, partitionPath, props, false, createBrokenClusteringClientFn);
   }
 
   protected Pair<Pair<List<HoodieRecord>, List<String>>, Set<HoodieFileGroupId>> testInsertTwoBatches(boolean populateMetaFields, String partitionPath, Properties props, boolean failInlineClustering,
@@ -1041,7 +1041,7 @@ public abstract class HoodieWriterClientTestHarness extends HoodieCommonTestHarn
 
   protected void testInlineScheduleClustering(Function createBrokenClusteringClientFn, HoodieClusteringConfig clusteringConfig,
                                               Function transformInputFn, Function transformOutputFn) throws IOException {
-    testInsertTwoBatches(true, createBrokenClusteringClientFn);
+    testInsertTwoBatches(true, HoodieTableVersion.current().versionCode(), "2015/03/16", createBrokenClusteringClientFn);
     HoodieWriteConfig config = getConfigBuilder(HoodieFailedWritesCleaningPolicy.LAZY)
         .withClusteringConfig(clusteringConfig)
         .withProps(getPropertiesForKeyGen()).build();
@@ -1054,7 +1054,7 @@ public abstract class HoodieWriterClientTestHarness extends HoodieCommonTestHarn
   protected void testAndValidateClusteringOutputFiles(Function createBrokenClusteringClientFn, HoodieClusteringConfig clusteringConfig,
                                               Function transformInputFn, Function transformOutputFn) throws IOException {
     String partitionPath = "2015/03/16";
-    testInsertTwoBatches(true, partitionPath, createBrokenClusteringClientFn);
+    testInsertTwoBatches(true, HoodieTableVersion.current().versionCode(), partitionPath, createBrokenClusteringClientFn);
     // Trigger clustering
     HoodieWriteConfig config = getConfigBuilder().withEmbeddedTimelineServerEnabled(false)
         .withClusteringConfig(clusteringConfig).build();
