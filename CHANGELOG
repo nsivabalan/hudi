@@ -994,3 +994,7 @@ f5824e51ca7 [ENG-28779][INTERNAL] Add parallelism configs to AwsGlueSync (#1428)
 [ENG-31748][CHERRYPICK] Fix memory leak in clustering (#1512)
 [ENG-31635][HUDI-9772] Fix MySqlDebeziumAvroPayload to handle event seq during preCombine (#1517)
 [AUDIT-1071]: Changelog for release-v1.169.0 (#1518)
+
+--- [2025-09-04 16:04:10] [release-v1.171.0] ---
+[ENG-31193][HUDI-9757]: hudi internal change to support TLS authentication (#1489)
+[AUDIT-1071]: Changelog for release-v1.170.0 (#1535)
