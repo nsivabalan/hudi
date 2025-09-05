@@ -998,3 +998,7 @@ f5824e51ca7 [ENG-28779][INTERNAL] Add parallelism configs to AwsGlueSync (#1428)
 --- [2025-09-04 16:04:10] [release-v1.171.0] ---
 [ENG-31193][HUDI-9757]: hudi internal change to support TLS authentication (#1489)
 [AUDIT-1071]: Changelog for release-v1.170.0 (#1535)
+
+--- [2025-09-05 16:03:51] [release-v1.172.0] ---
+[ENG-31656][HUDI-9784] Adding mysql binlog validation for debezium (#1543)
+[AUDIT-1071]: Changelog for release-v1.171.0 (#1550)
