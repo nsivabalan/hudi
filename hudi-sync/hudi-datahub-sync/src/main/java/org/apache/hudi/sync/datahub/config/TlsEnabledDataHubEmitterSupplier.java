@@ -34,6 +34,7 @@ import java.nio.file.Paths;
 import java.security.KeyStore;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
+import java.util.Collection;
 
 /**
  * Custom DataHub emitter supplier that supports TLS configuration with CA certificates.
@@ -144,8 +145,13 @@ public class TlsEnabledDataHubEmitterSupplier implements DataHubEmitterSupplier 
 
         CertificateFactory certificateFactory = CertificateFactory.getInstance("X.509");
         try (FileInputStream certInputStream = new FileInputStream(caCertPath)) {
-          Certificate caCert = certificateFactory.generateCertificate(certInputStream);
-          trustStore.setCertificateEntry("ca-cert", caCert);
+          Collection<? extends Certificate> caCerts = certificateFactory.generateCertificates(certInputStream);
+          int certIndex = 0;
+          for (Certificate caCert : caCerts) {
+            trustStore.setCertificateEntry("ca-cert-" + certIndex, caCert);
+            certIndex++;
+          }
+          LOG.info("Loaded {} CA certificate(s) from: {}", caCerts.size(), caCertPath);
         }
         sslContextBuilder.loadTrustMaterial(trustStore, null);
       }
