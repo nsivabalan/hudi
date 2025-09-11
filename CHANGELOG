@@ -1006,3 +1006,7 @@ f5824e51ca7 [ENG-28779][INTERNAL] Add parallelism configs to AwsGlueSync (#1428)
 --- [2025-09-06 16:03:35] [release-v1.173.0] ---
 [ENG-31821][HUDI-8390] Optimizing file slice pruning with col stats lookup (#1555)
 [AUDIT-1071]: Changelog for release-v1.172.0 (#1554)
+
+--- [2025-09-11 16:04:02] [release-v1.174.0] ---
+[ENG-32251][HUDI-9757]: support TLS authentication for Datahub (#1562)
+[AUDIT-1071]: Changelog for release-v1.173.0 (#1561)
