@@ -34,7 +34,7 @@ concurrency:
 
 jobs:
   skip-check:
-    runs-on: arc-4-cores-spot-staging
+    runs-on: arc-4-cores-spot-staging-arm
     outputs:
       skip: ${{ steps.determine-skip.outputs.skip }}
     steps:
@@ -71,7 +71,7 @@ jobs:
 
   utilities:
     needs: skip-check
-    runs-on: arc-16-cores-ondemand-staging
+    runs-on: arc-16-cores-ondemand-staging-arm
     strategy:
       matrix:
         include:
@@ -97,7 +97,7 @@ jobs:
             17
             8
           distribution: 'adopt'
-          architecture: x64
+          architecture: aarch64
           server-id: codeartifact
           server-username: AWS
           server-password: CODEARTIFACT_AUTH_TOKEN
@@ -137,7 +137,7 @@ jobs:
           SCALA_PROFILE: ${{ matrix.scalaProfile }}
           SPARK_PROFILE: ${{ matrix.sparkProfile }}
         run: |  
-          export JAVA_HOME="${{env.JAVA_HOME_17_X64}}"
+          export JAVA_HOME="${{env.JAVA_HOME_17_AARCH64}}"
           jacoco_xml_report_files=$(find $PWD -name 'jacoco.xml' | awk '{printf "%s%s",sep,$0; sep=","} END{print ""}')
           echo "Jacoco xml reports: ${jacoco_xml_report_files}"
           if [ ${{ github.event_name }} == 'pull_request' ]; then
@@ -158,7 +158,7 @@ jobs:
           fi
   utilities_bundle_misc:
     needs: skip-check
-    runs-on: arc-16-cores-ondemand-staging
+    runs-on: arc-16-cores-ondemand-staging-arm
     strategy:
       matrix:
         include:
@@ -184,7 +184,7 @@ jobs:
             17
             8
           distribution: 'adopt'
-          architecture: x64
+          architecture: aarch64
           server-id: codeartifact
           server-username: AWS
           server-password: CODEARTIFACT_AUTH_TOKEN
@@ -217,7 +217,7 @@ jobs:
           SCALA_PROFILE: ${{ matrix.scalaProfile }}
           SPARK_PROFILE: ${{ matrix.sparkProfile }}
         run: |
-          export JAVA_HOME="${{env.JAVA_HOME_17_X64}}"
+          export JAVA_HOME="${{env.JAVA_HOME_17_AARCH64}}"
           jacoco_xml_report_files=$(find $PWD -name 'jacoco.xml' | awk '{printf "%s%s",sep,$0; sep=","} END{print ""}')
           echo "Jacoco xml reports: ${jacoco_xml_report_files}"
           if [ ${{ github.event_name }} == 'pull_request' ]; then
@@ -318,7 +318,7 @@ jobs:
           fi
   spark-tests:
     needs: skip-check
-    runs-on: arc-16-cores-ondemand-staging
+    runs-on: arc-16-cores-ondemand-staging-arm
     strategy:
       matrix:
         include:
@@ -344,7 +344,7 @@ jobs:
             17
             8
           distribution: 'adopt'
-          architecture: x64
+          architecture: aarch64
           server-id: codeartifact
           server-username: AWS
           server-password: CODEARTIFACT_AUTH_TOKEN
@@ -374,7 +374,7 @@ jobs:
           SCALA_PROFILE: ${{ matrix.scalaProfile }}
           SPARK_PROFILE: ${{ matrix.sparkProfile }}
         run: |
-          export JAVA_HOME="${{env.JAVA_HOME_17_X64}}"
+          export JAVA_HOME="${{env.JAVA_HOME_17_AARCH64}}"
           jacoco_xml_report_files=$(find $PWD -name 'jacoco.xml' | awk '{printf "%s%s",sep,$0; sep=","} END{print ""}')
           echo "Jacoco xml reports: ${jacoco_xml_report_files}"
           if [ ${{ github.event_name }} == 'pull_request' ]; then
