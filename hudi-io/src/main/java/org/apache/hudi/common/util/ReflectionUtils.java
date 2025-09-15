@@ -47,7 +47,7 @@ public class ReflectionUtils {
 
   private static final Map<String, Class<?>> CLAZZ_CACHE = new ConcurrentHashMap<>();
 
-  public static final String ENABLE_THREAD_CONTEXT_REFLECTION_KEY = "hoodie.reflection.usethreadcontext";
+  public static final String ENABLE_THREAD_CONTEXT_REFLECTION_KEY = "hoodie_reflection_usethreadcontext";
   // The properties must be on the classpath for this to evaluate to true.
   // This allows us to use the thread context class loader in cases
   // where the jars are dynamically added to the classpath.
@@ -61,39 +61,16 @@ public class ReflectionUtils {
     if (useThreadContextClassLoader == null) {
       synchronized (ReflectionUtils.class) {
         if (useThreadContextClassLoader == null) {
-          useThreadContextClassLoader = loadConfigValue();
+          String property = loadConfigValue();
+          useThreadContextClassLoader = Option.ofNullable(property).map(Boolean::parseBoolean).orElse(false);
         }
       }
     }
     return useThreadContextClassLoader;
   }
 
-  protected static boolean loadConfigValue() {
-    // Try to load via reflection with full DFS support
-    try {
-      Class<?> dfsConfigClass = Class.forName(
-          "org.apache.hudi.common.config.DFSPropertiesConfiguration",
-          true,
-          Thread.currentThread().getContextClassLoader());
-      
-      Method getGlobalPropsMethod = dfsConfigClass.getMethod("getGlobalProps");
-      Object typedProps = getGlobalPropsMethod.invoke(null);
-      
-      Method getBooleanMethod = typedProps.getClass()
-          .getMethod("getBoolean", String.class, boolean.class);
-      
-      return (Boolean) getBooleanMethod.invoke(typedProps, 
-          ENABLE_THREAD_CONTEXT_REFLECTION_KEY, false);
-      
-    } catch (ClassNotFoundException e) {
-      LOG.info("DFSPropertiesConfiguration not available in classpath, "
-               + "using default value (false) for " + ENABLE_THREAD_CONTEXT_REFLECTION_KEY);
-    } catch (Exception e) {
-      LOG.warn("Failed to load config via reflection, using default value (false)", e);
-    }
-    
-    // If reflection fails, use default value
-    return false;
+  protected static String loadConfigValue() {
+    return System.getenv(ENABLE_THREAD_CONTEXT_REFLECTION_KEY);
   }
 
   public static Class<?> getClass(String clazzName) {

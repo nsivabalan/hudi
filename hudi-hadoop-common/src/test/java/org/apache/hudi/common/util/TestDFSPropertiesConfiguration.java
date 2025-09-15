@@ -41,7 +41,6 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.lang.reflect.Field;
 
-import static org.apache.hudi.common.util.ReflectionUtils.ENABLE_THREAD_CONTEXT_REFLECTION_KEY;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -59,7 +58,7 @@ public class TestDFSPropertiesConfiguration {
   private static DistributedFileSystem dfs;
 
   @Rule
-  public static final EnvironmentVariables ENVIRONMENT_VARIABLES
+  public final EnvironmentVariables environmentVariables
       = new EnvironmentVariables();
 
   @BeforeAll
@@ -185,7 +184,7 @@ public class TestDFSPropertiesConfiguration {
 
   @Test
   public void testNoGlobalConfFileConfigured() {
-    ENVIRONMENT_VARIABLES.clear(DFSPropertiesConfiguration.CONF_FILE_DIR_ENV_NAME);
+    environmentVariables.clear(DFSPropertiesConfiguration.CONF_FILE_DIR_ENV_NAME);
     DFSPropertiesConfiguration.refreshGlobalProps();
     try {
       if (!HoodieTestUtils.getStorage(DFSPropertiesConfiguration.DEFAULT_PATH)
@@ -201,7 +200,7 @@ public class TestDFSPropertiesConfiguration {
   public void testLoadGlobalConfFile() {
     // set HUDI_CONF_DIR
     String testPropsFilePath = new File("src/test/resources/external-config").getAbsolutePath();
-    ENVIRONMENT_VARIABLES.set(DFSPropertiesConfiguration.CONF_FILE_DIR_ENV_NAME, testPropsFilePath);
+    environmentVariables.set(DFSPropertiesConfiguration.CONF_FILE_DIR_ENV_NAME, testPropsFilePath);
 
     DFSPropertiesConfiguration.refreshGlobalProps();
     assertEquals(5, DFSPropertiesConfiguration.getGlobalProps().size());
@@ -236,11 +235,7 @@ public class TestDFSPropertiesConfiguration {
 
   @Test
   void testReflectionUtilsLoadConfigValueWithTrueSetting() throws Exception {
-    DFSPropertiesConfiguration.addToGlobalProps(ENABLE_THREAD_CONTEXT_REFLECTION_KEY, "true");
-    // Verify the property is actually set in global props
-    TypedProperties globalProps = DFSPropertiesConfiguration.getGlobalProps();
-    assertTrue(globalProps.getBoolean(ENABLE_THREAD_CONTEXT_REFLECTION_KEY, false),
-        "Property should be set to true in global props");
+    environmentVariables.set("hoodie_reflection_usethreadcontext", "true");
     // Reset the cached value in ReflectionUtils
     Field useThreadContextField = ReflectionUtils.class.getDeclaredField("useThreadContextClassLoader");
     useThreadContextField.setAccessible(true);
@@ -261,8 +256,8 @@ public class TestDFSPropertiesConfiguration {
 
   @Test
   void testReflectionUtilsLoadConfigValueWithFalseSetting() throws Exception {
-    DFSPropertiesConfiguration.addToGlobalProps(ENABLE_THREAD_CONTEXT_REFLECTION_KEY, "false");
-    
+    environmentVariables.set("hoodie_reflection_usethreadcontext", "false");
+
     // Reset the cached value in ReflectionUtils
     Field useThreadContextField = ReflectionUtils.class.getDeclaredField("useThreadContextClassLoader");
     useThreadContextField.setAccessible(true);
@@ -283,7 +278,7 @@ public class TestDFSPropertiesConfiguration {
 
   @Test
   void testReflectionUtilsLoadConfigValueWithDefaultSetting() throws Exception {
-    DFSPropertiesConfiguration.clearGlobalProps();
+    environmentVariables.clear("hoodie_reflection_usethreadcontext");
     // Reset the cached value in ReflectionUtils
     Field useThreadContextField = ReflectionUtils.class.getDeclaredField("useThreadContextClassLoader");
     useThreadContextField.setAccessible(true);
@@ -304,7 +299,7 @@ public class TestDFSPropertiesConfiguration {
 
   @Test
   void testReflectionUtilsLoadConfigValueWithInvalidSetting() throws Exception {
-    DFSPropertiesConfiguration.addToGlobalProps(ENABLE_THREAD_CONTEXT_REFLECTION_KEY, "invalid");
+    environmentVariables.set("hoodie_reflection_usethreadcontext", "invalid");
     // Reset the cached value in ReflectionUtils
     Field useThreadContextField = ReflectionUtils.class.getDeclaredField("useThreadContextClassLoader");
     useThreadContextField.setAccessible(true);
@@ -325,7 +320,7 @@ public class TestDFSPropertiesConfiguration {
 
   @Test
   void testReflectionUtilsLoadConfigValueCaching() throws Exception {
-    DFSPropertiesConfiguration.addToGlobalProps(ENABLE_THREAD_CONTEXT_REFLECTION_KEY, "true");
+    environmentVariables.set("hoodie_reflection_usethreadcontext", "true");
     // Reset the cached value in ReflectionUtils
     Field useThreadContextField = ReflectionUtils.class.getDeclaredField("useThreadContextClassLoader");
     useThreadContextField.setAccessible(true);
@@ -340,7 +335,7 @@ public class TestDFSPropertiesConfiguration {
     boolean firstResult = ReflectionUtils.shouldUseThreadContextClassLoader();
     assertTrue(firstResult);
     // Change the config value
-    DFSPropertiesConfiguration.addToGlobalProps(ENABLE_THREAD_CONTEXT_REFLECTION_KEY, "false");
+    environmentVariables.set("hoodie_reflection_usethreadcontext", "false");
     // Second call should return cached value (not the new value)
     boolean secondResult = ReflectionUtils.shouldUseThreadContextClassLoader();
     assertTrue(secondResult);
@@ -348,26 +343,5 @@ public class TestDFSPropertiesConfiguration {
     useThreadContextField.set(null, null);
     boolean thirdResult = ReflectionUtils.shouldUseThreadContextClassLoader();
     assertFalse(thirdResult);
-  }
-
-  @Test
-  void testReflectionUtilsLoadConfigValueWithDFSPropertiesConfigurationAvailable() throws Exception {
-    DFSPropertiesConfiguration.addToGlobalProps(ENABLE_THREAD_CONTEXT_REFLECTION_KEY, "true");
-    // Reset the cached value in ReflectionUtils
-    Field useThreadContextField = ReflectionUtils.class.getDeclaredField("useThreadContextClassLoader");
-    useThreadContextField.setAccessible(true);
-    useThreadContextField.set(null, null);
-    // Clear the class cache
-    Field cacheField = ReflectionUtils.class.getDeclaredField("CLAZZ_CACHE");
-    cacheField.setAccessible(true);
-    @SuppressWarnings("unchecked")
-    java.util.Map<String, Class<?>> cache = (java.util.Map<String, Class<?>>) cacheField.get(null);
-    cache.clear();
-    // Test that the reflection-based config loading works
-    boolean result = ReflectionUtils.shouldUseThreadContextClassLoader();
-    assertTrue(result);
-    // Verify that the method can access DFSPropertiesConfiguration.getGlobalProps()
-    TypedProperties globalProps = DFSPropertiesConfiguration.getGlobalProps();
-    assertTrue(globalProps.getBoolean(ENABLE_THREAD_CONTEXT_REFLECTION_KEY, false));
   }
 }
