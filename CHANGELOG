@@ -1018,3 +1018,7 @@ f5824e51ca7 [ENG-28779][INTERNAL] Add parallelism configs to AwsGlueSync (#1428)
 --- [2025-09-13 16:03:39] [release-v1.176.0] ---
 [ENG-32150][HUDI-9782] Add audit service implementation for storage based lock provider (#1567)
 [AUDIT-1071]: Changelog for release-v1.175.0 (#1569)
+
+--- [2025-09-17 16:04:15] [release-v1.178.0] ---
+[ENG-32561][HUDI-9757]: upgrade datahub and java client version (#1576)
+[AUDIT-1071]: Changelog for release-v1.176.0 (#1572)
