@@ -24,6 +24,8 @@ import org.apache.hudi.client.transaction.TransactionManager;
 import org.apache.hudi.common.engine.HoodieLocalEngineContext;
 import org.apache.hudi.common.model.HoodieCommitMetadata;
 import org.apache.hudi.common.model.HoodieTimelineTimeZone;
+import org.apache.hudi.common.model.WriteOperationType;
+import org.apache.hudi.common.table.HoodieTableConfig;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
@@ -35,27 +37,38 @@ import org.apache.hudi.common.table.view.FileSystemViewStorageConfig;
 import org.apache.hudi.common.table.view.FileSystemViewStorageType;
 import org.apache.hudi.common.table.view.SyncableFileSystemView;
 import org.apache.hudi.common.testutils.HoodieCommonTestHarness;
+import org.apache.hudi.common.testutils.HoodieTestUtils;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.index.HoodieIndex;
 import org.apache.hudi.index.simple.HoodieSimpleIndex;
+import org.apache.hudi.keygen.ComplexAvroKeyGenerator;
+import org.apache.hudi.keygen.constant.KeyGeneratorOptions;
 import org.apache.hudi.table.BulkInsertPartitioner;
 import org.apache.hudi.table.HoodieTable;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.InOrder;
 import org.mockito.Mockito;
 
 import java.io.IOException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.function.BiConsumer;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static org.apache.hudi.common.testutils.HoodieTestUtils.getDefaultStorageConf;
+import static org.apache.hudi.testutils.Assertions.assertComplexKeyGeneratorValidationThrows;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -106,6 +119,141 @@ class TestBaseHoodieWriteClient extends HoodieCommonTestHarness {
     // update the view config to simulate how the configs are updated when adding the embedded timeline service url and port
     writeConfig.setViewStorageConfig(FileSystemViewStorageConfig.newBuilder().withStorageType(viewStorageType).build());
     return writeConfig;
+  }
+
+  private static Stream<Arguments> testWithComplexKeyGeneratorValidation() {
+    List<Arguments> arguments = new ArrayList<>();
+
+    List<Arguments> keyAndPartitionFieldOptions = Arrays.asList(
+        Arguments.of("r1", "p1"),
+        Arguments.of("r1", "p1,p2"),
+        Arguments.of("r1", ""),
+        Arguments.of("r1,r2", "p1")
+    );
+
+    List<Arguments> booleanOptions = Arrays.asList(
+        Arguments.of(false, true),
+        Arguments.of(true, true),
+        Arguments.of(true, false)
+    );
+
+    List<Integer> tableVersionOptions = Arrays.asList(8, 9);
+
+    arguments.addAll(Stream.of("org.apache.hudi.keygen.ComplexAvroKeyGenerator",
+            "org.apache.hudi.keygen.ComplexKeyGenerator")
+        .flatMap(keyGenClass -> keyAndPartitionFieldOptions.stream()
+            .flatMap(keyAndPartitionField -> booleanOptions.stream()
+                .flatMap(booleans -> tableVersionOptions.stream()
+                    .map(tableVersion -> Arguments.of(
+                        keyGenClass,
+                        keyAndPartitionField.get()[0],
+                        keyAndPartitionField.get()[1],
+                        booleans.get()[0],
+                        booleans.get()[1],
+                        tableVersion
+                    ))
+                )
+            ))
+        .collect(Collectors.toList()));
+    arguments.addAll(Stream.of("org.apache.hudi.keygen.SimpleAvroKeyGenerator",
+            "org.apache.hudi.keygen.SimpleKeyGenerator",
+            "org.apache.hudi.keygen.TimestampBasedAvroKeyGenerator",
+            "org.apache.hudi.keygen.TimestampBasedKeyGenerator")
+        .flatMap(keyGenClass -> booleanOptions.stream()
+            .flatMap(booleans -> tableVersionOptions.stream()
+                .map(tableVersion -> Arguments.of(
+                    keyGenClass,
+                    "r1",
+                    "p1",
+                    booleans.get()[0],
+                    booleans.get()[1],
+                    tableVersion
+                ))
+            )
+        )
+        .collect(Collectors.toList()));
+    arguments.addAll(Stream.of("org.apache.hudi.keygen.NonpartitionedAvroKeyGenerator",
+            "org.apache.hudi.keygen.NonpartitionedKeyGenerator")
+        .flatMap(keyGenClass -> booleanOptions.stream()
+            .flatMap(booleans -> tableVersionOptions.stream()
+                .map(tableVersion -> Arguments.of(
+                    keyGenClass,
+                    "r1",
+                    "",
+                    booleans.get()[0],
+                    booleans.get()[1],
+                    tableVersion
+                ))
+            )
+        )
+        .collect(Collectors.toList()));
+    arguments.addAll(Stream.of("org.apache.hudi.keygen.CustomAvroKeyGenerator",
+            "org.apache.hudi.keygen.CustomKeyGenerator")
+        .flatMap(keyGenClass -> booleanOptions.stream()
+            .flatMap(booleans -> tableVersionOptions.stream()
+                .map(tableVersion -> Arguments.of(
+                    keyGenClass,
+                    "r1",
+                    "p1:SIMPLE",
+                    booleans.get()[0],
+                    booleans.get()[1],
+                    tableVersion
+                ))
+            )
+        )
+        .collect(Collectors.toList()));
+
+    return arguments.stream();
+  }
+
+  @ParameterizedTest
+  @MethodSource
+  void testWithComplexKeyGeneratorValidation(String keyGeneratorClass,
+                                                        String recordKeyFields,
+                                                        String partitionPathFields,
+                                                        boolean setComplexKeyGeneratorValidationConfig,
+                                                        boolean enableComplexKeyGeneratorValidation,
+                                                        int tableVersion) throws IOException {
+    if (basePath == null) {
+      initPath();
+    }
+    Properties tableProperties = new Properties();
+    tableProperties.put(HoodieTableConfig.KEY_GENERATOR_CLASS_NAME.key(), keyGeneratorClass);
+    tableProperties.put(HoodieTableConfig.RECORDKEY_FIELDS.key(), recordKeyFields);
+    tableProperties.put(HoodieTableConfig.PARTITION_FIELDS.key(), partitionPathFields);
+    tableProperties.put(HoodieTableConfig.VERSION.key(), String.valueOf(tableVersion));
+    Properties writeProperties = new Properties();
+    writeProperties.put(HoodieWriteConfig.KEYGENERATOR_CLASS_NAME.key(), keyGeneratorClass);
+    writeProperties.put(KeyGeneratorOptions.RECORDKEY_FIELD_NAME.key(), recordKeyFields);
+    writeProperties.put(KeyGeneratorOptions.PARTITIONPATH_FIELD_NAME.key(), partitionPathFields);
+    writeProperties.put(HoodieWriteConfig.WRITE_TABLE_VERSION.key(), String.valueOf(tableVersion));
+    if (setComplexKeyGeneratorValidationConfig) {
+      writeProperties.put(
+          HoodieWriteConfig.ENABLE_COMPLEX_KEYGEN_VALIDATION.key(), enableComplexKeyGeneratorValidation);
+    }
+    metaClient = HoodieTestUtils.init(
+        HoodieTestUtils.getDefaultStorageConf(), basePath, getTableType(), tableProperties);
+    HoodieWriteConfig.Builder writeConfigBuilder = HoodieWriteConfig.newBuilder()
+        .withPath(basePath)
+        .withProperties(writeProperties);
+    HoodieTable<String, String, String, String> table = mock(HoodieTable.class);
+    BaseHoodieTableServiceClient<String, String, String> tableServiceClient = mock(BaseHoodieTableServiceClient.class);
+    TestWriteClient writeClient = new TestWriteClient(writeConfigBuilder.build(), table, Option.empty(), tableServiceClient);
+
+    if (tableVersion <= 8 && enableComplexKeyGeneratorValidation
+        && (ComplexAvroKeyGenerator.class.getCanonicalName().equals(keyGeneratorClass)
+        || "org.apache.hudi.keygen.ComplexKeyGenerator".equals(keyGeneratorClass))
+        && recordKeyFields.split(",").length == 1) {
+      assertComplexKeyGeneratorValidationThrows(() -> writeClient.initTable(WriteOperationType.INSERT, Option.empty()), "ingestion");
+    } else {
+      writeClient.initTable(WriteOperationType.INSERT, Option.empty());
+      String requestedTime = writeClient.startCommit("commit");
+
+      HoodieTimeline writeTimeline = metaClient.getActiveTimeline().getWriteTimeline();
+      assertTrue(writeTimeline.lastInstant().isPresent());
+      assertEquals("commit", writeTimeline.lastInstant().get().getAction());
+      assertEquals(requestedTime, writeTimeline.lastInstant().get().requestedTime());
+    }
   }
 
   @Test
@@ -187,6 +335,8 @@ class TestBaseHoodieWriteClient extends HoodieCommonTestHarness {
       // table should only be made with remote view config for these tests
       FileSystemViewStorageType storageType = config.getViewStorageConfig().getStorageType();
       assertTrue(storageType == FileSystemViewStorageType.REMOTE_FIRST || storageType == FileSystemViewStorageType.REMOTE_ONLY);
+      // Ensure the returned table has the correct metaClient
+      when(table.getMetaClient()).thenReturn(metaClient);
       return table;
     }
 
