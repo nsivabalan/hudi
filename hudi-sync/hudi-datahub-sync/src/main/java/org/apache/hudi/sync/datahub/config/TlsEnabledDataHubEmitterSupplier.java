@@ -23,6 +23,7 @@ import datahub.client.rest.RestEmitter;
 import datahub.shaded.org.apache.hc.client5.http.ssl.ClientTlsStrategyBuilder;
 import datahub.shaded.org.apache.hc.client5.http.impl.nio.PoolingAsyncClientConnectionManagerBuilder;
 import org.apache.hudi.common.config.TypedProperties;
+import org.apache.hudi.common.util.ConfigUtils;
 import org.apache.hudi.sync.datahub.HoodieDataHubSyncException;
 import org.apache.http.ssl.SSLContextBuilder;
 import org.apache.http.ssl.SSLContexts;
@@ -56,18 +57,18 @@ public class TlsEnabledDataHubEmitterSupplier implements DataHubEmitterSupplier 
   @Override
   public RestEmitter get() {
     try {
-      String serverUrl = config.getString(DataHubSyncConfig.META_SYNC_DATAHUB_EMITTER_SERVER.key(), null);
+      String serverUrl = ConfigUtils.getStringWithAltKeys(config, DataHubSyncConfig.META_SYNC_DATAHUB_EMITTER_SERVER, true);
       if (serverUrl == null || serverUrl.isEmpty()) {
         throw new IllegalArgumentException(
             "DataHub server URL must be specified with " + DataHubSyncConfig.META_SYNC_DATAHUB_EMITTER_SERVER.key());
       }
 
-      String token = config.getString(DataHubSyncConfig.META_SYNC_DATAHUB_EMITTER_TOKEN.key(), null);
-      String caCertPath = config.getString(DataHubSyncConfig.META_SYNC_DATAHUB_TLS_CA_CERT_PATH.key(), null);
-      String keystorePath = config.getString(DataHubSyncConfig.META_SYNC_DATAHUB_TLS_KEYSTORE_PATH.key(), null);
-      String keystorePassword = config.getString(DataHubSyncConfig.META_SYNC_DATAHUB_TLS_KEYSTORE_PASSWORD.key(), null);
-      String truststorePath = config.getString(DataHubSyncConfig.META_SYNC_DATAHUB_TLS_TRUSTSTORE_PATH.key(), null);
-      String truststorePassword = config.getString(DataHubSyncConfig.META_SYNC_DATAHUB_TLS_TRUSTSTORE_PASSWORD.key(), null);
+      String token = ConfigUtils.getStringWithAltKeys(config, DataHubSyncConfig.META_SYNC_DATAHUB_EMITTER_TOKEN, true);
+      String caCertPath = ConfigUtils.getStringWithAltKeys(config, DataHubSyncConfig.META_SYNC_DATAHUB_TLS_CA_CERT_PATH, true);
+      String keystorePath = ConfigUtils.getStringWithAltKeys(config, DataHubSyncConfig.META_SYNC_DATAHUB_TLS_KEYSTORE_PATH, true);
+      String keystorePassword = ConfigUtils.getStringWithAltKeys(config, DataHubSyncConfig.META_SYNC_DATAHUB_TLS_KEYSTORE_PASSWORD, true);
+      String truststorePath = ConfigUtils.getStringWithAltKeys(config, DataHubSyncConfig.META_SYNC_DATAHUB_TLS_TRUSTSTORE_PATH, true);
+      String truststorePassword = ConfigUtils.getStringWithAltKeys(config, DataHubSyncConfig.META_SYNC_DATAHUB_TLS_TRUSTSTORE_PASSWORD, true);
 
       LOG.info("Creating DataHub RestEmitter with TLS configuration for server: {}", serverUrl);
 

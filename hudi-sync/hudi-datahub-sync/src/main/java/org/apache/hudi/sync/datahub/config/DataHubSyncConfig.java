@@ -193,10 +193,10 @@ public class DataHubSyncConfig extends HoodieSyncConfig {
   public RestEmitter getRestEmitter() {
     if (contains(META_SYNC_DATAHUB_EMITTER_SUPPLIER_CLASS)) {
       String supplierClass = getString(META_SYNC_DATAHUB_EMITTER_SUPPLIER_CLASS);
-      
+
       // Check if the supplier has a constructor that takes TypedProperties
       if (ReflectionUtils.hasConstructor(supplierClass, new Class<?>[] {TypedProperties.class})) {
-        return ((DataHubEmitterSupplier) ReflectionUtils.loadClass(supplierClass, 
+        return ((DataHubEmitterSupplier) ReflectionUtils.loadClass(supplierClass,
             new Class<?>[] {TypedProperties.class}, props)).get();
       } else {
         // Fall back to no-arg constructor for backward compatibility
