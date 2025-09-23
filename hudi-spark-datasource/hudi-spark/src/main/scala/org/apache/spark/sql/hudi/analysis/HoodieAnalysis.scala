@@ -21,7 +21,7 @@ import org.apache.hudi.{HoodieSchemaUtils, HoodieSparkUtils, SparkAdapterSupport
 import org.apache.hudi.common.util.{ReflectionUtils, ValidationUtils}
 import org.apache.hudi.common.util.ReflectionUtils.loadClass
 
-import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.{AnalysisException, SparkSession}
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
 import org.apache.spark.sql.catalyst.catalog.{CatalogStorageFormat, CatalogTable, HoodieCatalogTable}
