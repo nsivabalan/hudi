@@ -1026,3 +1026,7 @@ f5824e51ca7 [ENG-28779][INTERNAL] Add parallelism configs to AwsGlueSync (#1428)
 --- [2025-09-22 01:56:25] [release-v1.179.0] ---
 [ENG-32561][HUDI-9757]: upgrade datahub and java client version (#1586)
 [AUDIT-1071]: Changelog for release-v1.178.0 (#1582)
+
+--- [2025-09-23 02:15:35] [release-v1.180.0] ---
+[ENG-32835][HUDI-9757]: exclude Avro from Datahub-client-java8 (#1592)
+[AUDIT-1810]: Changelog for release-v1.179.0 (#1588)
