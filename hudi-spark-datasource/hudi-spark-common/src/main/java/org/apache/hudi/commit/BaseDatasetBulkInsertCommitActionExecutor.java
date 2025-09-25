@@ -108,6 +108,8 @@ public abstract class BaseDatasetBulkInsertCommitActionExecutor implements Seria
     Dataset<Row> hoodieDF = HoodieDatasetBulkInsertHelper.prepareForBulkInsert(records, writeConfig, table.getMetaClient().getTableConfig(), bulkInsertPartitionerRows, instantTime);
 
     HoodieWriteMetadata<JavaRDD<WriteStatus>> result = buildHoodieWriteMetadata(doExecute(hoodieDF, bulkInsertPartitionerRows.arePartitionRecordsSorted()));
+    //result.getWriteStatuses().persist("MEMORY_AND_DISK_SER", table.getContext(), HoodieData.HoodieDataCacheKey.of(table.getMetaClient().getBasePath().toString(), instantTime));
+
     afterExecute(result);
 
     return new HoodieWriteResult(result.getWriteStatuses(), result.getPartitionToReplaceFileIds());

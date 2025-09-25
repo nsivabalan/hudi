@@ -97,9 +97,17 @@ object HoodieDatasetBulkInsertHelper
 
       val prependedRdd: RDD[InternalRow] = {
         injectSQLConf(df.queryExecution.toRdd.mapPartitions { iter =>
+
+          val taskContext = TaskContext.get()
+          val taskPartitionId = taskContext.partitionId()
+          val taskAttemptId  = taskContext.taskAttemptId()
+          val stageId = taskContext.stageId()
+          val stageAttemptNumber = taskContext.stageAttemptNumber()
+          log.warn("Instantiating mapPartitions call to generate record keys for row writer with taskId " + taskPartitionId
+            + ", stageId " + stageId + ", taskAttempt number " + taskAttemptId + ", stage attempt id " + stageAttemptNumber)
           val typedProps = TypedProperties.copy(config.getProps)
           if (autoGenerateRecordKeys) {
-            typedProps.setProperty(KeyGenUtils.RECORD_KEY_GEN_PARTITION_ID_CONFIG, String.valueOf(TaskContext.getPartitionId()))
+            typedProps.setProperty(KeyGenUtils.RECORD_KEY_GEN_PARTITION_ID_CONFIG, String.valueOf(taskPartitionId))
             typedProps.setProperty(KeyGenUtils.RECORD_KEY_GEN_INSTANT_TIME_CONFIG, instantTime)
           }
           val sparkKeyGenerator =
@@ -119,6 +127,7 @@ object HoodieDatasetBulkInsertHelper
             metaFields(0) = UTF8String.EMPTY_UTF8
             metaFields(1) = UTF8String.EMPTY_UTF8
             metaFields(4) = UTF8String.EMPTY_UTF8
+            //log.warn("Generated record key " + metaFields(2))
 
             // TODO use mutable row, avoid re-allocating
             sparkAdapter.createInternalRow(metaFields, row, false)
@@ -163,7 +172,12 @@ object HoodieDatasetBulkInsertHelper
         val taskContextSupplier: TaskContextSupplier = table.getTaskContextSupplier
         val taskPartitionId = taskContextSupplier.getPartitionIdSupplier.get
         val taskId = taskContextSupplier.getStageIdSupplier.get.toLong
+        val taskAttemptId  = taskContextSupplier.getTaskAttemptNumberSupplier.get
+        val stageId = taskContextSupplier.getStageIdSupplier.get.toLong
         val taskEpochId = taskContextSupplier.getAttemptIdSupplier.get
+        val stageAttemptNumber = taskContextSupplier.getStageAttemptNumberSupplier.get
+        log.warn("Instantiating mapPartitions call for row writer with taskId " + taskPartitionId + ", stageId " + stageId
+          + ", taskAttempt number " + taskAttemptId + ", stage attempt id " + stageAttemptNumber)
 
         val writer = writeConfig.getIndexType match {
           case HoodieIndex.IndexType.BUCKET if writeConfig.getBucketIndexEngineType

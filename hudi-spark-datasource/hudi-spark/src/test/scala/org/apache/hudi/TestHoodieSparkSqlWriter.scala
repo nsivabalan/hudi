@@ -275,6 +275,11 @@ class TestHoodieSparkSqlWriter extends HoodieSparkWriterTestBase {
   }
 
   @Test
+  def testBulkInsertForSortModeInvestigate(): Unit = {
+    testBulkInsertWithSortMode(BulkInsertSortMode.NONE, populateMetaFields = true)
+  }
+
+  @Test
   def testBulkInsertForSortModeWithOCC(): Unit = {
     testBulkInsertWithSortMode(BulkInsertSortMode.GLOBAL_SORT, populateMetaFields = true, true)
   }

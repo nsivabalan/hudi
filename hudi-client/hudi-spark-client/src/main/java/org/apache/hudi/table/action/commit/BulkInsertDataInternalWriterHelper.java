@@ -56,7 +56,7 @@ public class BulkInsertDataInternalWriterHelper {
 
   protected final String instantTime;
   protected final int taskPartitionId;
-  protected final long taskId;
+  protected final long stageId;
   protected final long taskEpochId;
   protected final HoodieTable hoodieTable;
   protected final HoodieWriteConfig writeConfig;
@@ -87,19 +87,20 @@ public class BulkInsertDataInternalWriterHelper {
   }
 
   public BulkInsertDataInternalWriterHelper(HoodieTable hoodieTable, HoodieWriteConfig writeConfig,
-                                            String instantTime, int taskPartitionId, long taskId, long taskEpochId, StructType structType,
+                                            String instantTime, int taskPartitionId, long stageId, long taskEpochId, StructType structType,
                                             boolean populateMetaFields, boolean arePartitionRecordsSorted, boolean shouldPreserveHoodieMetadata) {
     this.hoodieTable = hoodieTable;
     this.writeConfig = writeConfig;
     this.instantTime = instantTime;
     this.taskPartitionId = taskPartitionId;
-    this.taskId = taskId;
+    this.stageId = stageId;
     this.taskEpochId = taskEpochId;
     this.structType = structType;
     this.populateMetaFields = populateMetaFields;
     this.shouldPreserveHoodieMetadata = shouldPreserveHoodieMetadata;
     this.arePartitionRecordsSorted = arePartitionRecordsSorted;
     this.fileIdPrefix = UUID.randomUUID().toString();
+    LOG.warn("Instantiating BulkInsertDataInternalWriterHelper with task id " + taskPartitionId + ", and stage Id " + stageId);
 
     if (!populateMetaFields) {
       this.keyGeneratorOpt = HoodieSparkKeyGeneratorFactory.getKeyGenerator(writeConfig.getProps());
@@ -216,7 +217,7 @@ public class BulkInsertDataInternalWriterHelper {
 
   private HoodieRowCreateHandle createHandle(String partitionPath) {
     return new HoodieRowCreateHandle(hoodieTable, writeConfig, partitionPath, getNextFileId(),
-        instantTime, taskPartitionId, taskId, taskEpochId, structType, shouldPreserveHoodieMetadata);
+        instantTime, taskPartitionId, stageId, taskEpochId, structType, shouldPreserveHoodieMetadata);
   }
 
   protected String getNextFileId() {

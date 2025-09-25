@@ -20,6 +20,7 @@ package org.apache.hudi.metadata;
 
 import org.apache.hudi.client.SecondaryIndexStats;
 import org.apache.hudi.client.WriteStatus;
+import org.apache.hudi.common.engine.TaskContextSupplier;
 import org.apache.hudi.common.function.SerializableFunction;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieRecordDelegate;
@@ -57,14 +58,18 @@ public class MetadataIndexGenerator implements Serializable {
   static class WriteStatusBasedMetadataIndexMapper implements SerializableFunction<WriteStatus, Iterator<HoodieRecord>> {
     private final List<MetadataPartitionType> enabledPartitionTypes;
     private final HoodieWriteConfig dataWriteConfig;
+    private final TaskContextSupplier taskContextSupplier;
 
-    public WriteStatusBasedMetadataIndexMapper(List<MetadataPartitionType> enabledPartitionTypes, HoodieWriteConfig dataWriteConfig) {
+    public WriteStatusBasedMetadataIndexMapper(List<MetadataPartitionType> enabledPartitionTypes, HoodieWriteConfig dataWriteConfig, TaskContextSupplier taskContextSupplier) {
       this.enabledPartitionTypes = enabledPartitionTypes;
       this.dataWriteConfig = dataWriteConfig;
+      this.taskContextSupplier = taskContextSupplier;
     }
 
     @Override
     public Iterator<HoodieRecord> apply(WriteStatus writeStatus) throws Exception {
+      LOG.warn("Generating MDT RLI records with partition id " + taskContextSupplier.getPartitionIdSupplier().get() + ", stagdId "
+          + taskContextSupplier.getStageIdSupplier().get());
       List<HoodieRecord> allRecords = new ArrayList<>();
       if (enabledPartitionTypes.contains(RECORD_INDEX)) {
         allRecords.addAll(processWriteStatusForRLI(writeStatus, dataWriteConfig));

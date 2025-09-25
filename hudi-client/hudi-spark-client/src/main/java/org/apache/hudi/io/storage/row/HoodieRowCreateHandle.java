@@ -55,10 +55,9 @@ import java.util.function.Function;
  * Create handle with InternalRow for datasource implementation of bulk insert.
  */
 public class HoodieRowCreateHandle implements Serializable {
+  private static final Logger LOG = LoggerFactory.getLogger(HoodieRowCreateHandle.class);
 
   private static final long serialVersionUID = 1L;
-
-  private static final Logger LOG = LoggerFactory.getLogger(HoodieRowCreateHandle.class);
   private static final AtomicLong GLOBAL_SEQ_NO = new AtomicLong(1);
 
   private final HoodieTable table;
@@ -101,10 +100,12 @@ public class HoodieRowCreateHandle implements Serializable {
                                String fileId,
                                String instantTime,
                                int taskPartitionId,
-                               long taskId,
+                               long stageId,
                                long taskEpochId,
                                StructType structType,
                                boolean shouldPreserveHoodieMetadata) {
+    LOG.warn("Instantiating row create handle for partition " + partitionPath + ", file Id " + fileId + ", with taskPartitionId " + taskPartitionId
+        + ", stageId " + stageId);
     this.partitionPath = partitionPath;
     this.table = table;
     this.writeConfig = writeConfig;
@@ -115,7 +116,7 @@ public class HoodieRowCreateHandle implements Serializable {
 
     HoodieStorage storage = table.getStorage();
 
-    String writeToken = getWriteToken(taskPartitionId, taskId, taskEpochId);
+    String writeToken = getWriteToken(taskPartitionId, stageId, taskEpochId);
     String fileName = FSUtils.makeBaseFileName(instantTime, writeToken, this.fileId,
         table.getBaseFileExtension());
     this.path = makeNewPath(storage, partitionPath, fileName, writeConfig);

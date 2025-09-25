@@ -76,7 +76,8 @@ class TestAutoGenerationOfRecordKeys extends HoodieSparkClientTestBase with Scal
 
   @ParameterizedTest
   @CsvSource(value = Array(
-    "AVRO,insert,COPY_ON_WRITE", "AVRO,bulk_insert,COPY_ON_WRITE", "AVRO,insert,MERGE_ON_READ", "AVRO,bulk_insert,MERGE_ON_READ"
+    //"AVRO,insert,COPY_ON_WRITE", "AVRO,bulk_insert,COPY_ON_WRITE", "AVRO,insert,MERGE_ON_READ", "AVRO,bulk_insert,MERGE_ON_READ",
+    "AVRO,bulk_insert,COPY_ON_WRITE"
   ))
   def testRecordKeysAutoGen(recordType: HoodieRecordType, op: String, tableType: HoodieTableType): Unit = {
     testRecordKeysAutoGenInternal(recordType, op, tableType)

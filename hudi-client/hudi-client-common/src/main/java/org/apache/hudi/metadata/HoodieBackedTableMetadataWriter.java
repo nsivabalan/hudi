@@ -1238,7 +1238,7 @@ public abstract class HoodieBackedTableMetadataWriter<I, O> implements HoodieTab
 
     maybeInitializeNewFileGroupsForPartitionedRLI(writeStatus, instantTime);
     HoodieData<HoodieRecord> untaggedRecords = writeStatus.flatMap(
-        new MetadataIndexGenerator.WriteStatusBasedMetadataIndexMapper(mdtPartitionsToTag, dataWriteConfig));
+        new MetadataIndexGenerator.WriteStatusBasedMetadataIndexMapper(mdtPartitionsToTag, dataWriteConfig, engineContext.getTaskContextSupplier()));
 
     // tag records w/ location
     Pair<List<HoodieFileGroupId>, HoodieData<HoodieRecord>> hoodieFileGroupsToUpdateAndTaggedMdtRecords = tagRecordsWithLocationForStreamingWrites(untaggedRecords,

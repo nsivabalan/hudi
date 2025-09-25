@@ -120,6 +120,7 @@ public class SparkRDDWriteClient<T> extends
     //
     // When streaming writes are enabled, data table's WriteStatus is expected to contain all stats required to generate metadata table records and so each object will be larger.
     // Here all additional stats and error records are dropped to retain only the required information and prevent collecting large objects on the driver.
+    LOG.warn("Going to trigger DT and MDT streaming writes");
     List<SlimWriteStats> slimWriteStatsList = SlimWriteStats.from(writeStatuses);
     // Compute stats for the data table writes and invoke callback
     AtomicLong totalRecords = new AtomicLong(0);
