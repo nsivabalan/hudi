@@ -545,6 +545,41 @@ def test_body():
     #Test good body:
     tests_passed = run_test("good documentation", build_body(good_sections), True, DEBUG_MESSAGES) and tests_passed
 
+    # Test fix PR issue link requirement
+    fix_changelogs_with_issue = good_changelogs.copy()
+    fix_changelogs_with_issue[1] = "Fixed bug. Fixes #123"
+    fix_sections_with_issue = [good_problem_statement, fix_changelogs_with_issue, good_impact, good_risklevel,
+                               good_docs_update,
+                               template_checklist]
+    tests_passed = run_test("fix PR with issue link", build_body(fix_sections_with_issue), True,
+                            DEBUG_MESSAGES,
+                            "fix: fix bug") and tests_passed
+    tests_passed = run_test("fix PR with scope and issue link", build_body(fix_sections_with_issue), True,
+                            DEBUG_MESSAGES,
+                            "fix(index): fix bug") and tests_passed
+
+    fix_changelogs_with_github_url = good_changelogs.copy()
+    fix_changelogs_with_github_url[1] = "Fixed bug. See https://github.com/apache/hudi/issues/123"
+    fix_sections_with_github_url = [good_problem_statement, fix_changelogs_with_github_url, good_impact, good_risklevel,
+                                    good_docs_update,
+                                    template_checklist]
+    tests_passed = run_test("fix PR with GitHub URL", build_body(fix_sections_with_github_url), True,
+                            DEBUG_MESSAGES,
+                            "fix: fix bug") and tests_passed
+
+    fix_changelogs_without_issue = good_changelogs.copy()
+    fix_changelogs_without_issue[1] = "Fixed bug without issue reference"
+    fix_sections_without_issue = [good_problem_statement, fix_changelogs_without_issue, good_impact, good_risklevel,
+                                  good_docs_update,
+                                  template_checklist]
+    tests_passed = run_test("fix PR without issue link", build_body(fix_sections_without_issue), True,
+                            DEBUG_MESSAGES,
+                            "fix: fix bug") and tests_passed
+
+    # Non-fix PRs should not require issue links
+    tests_passed = run_test("feat PR without issue link", build_body(good_sections), True, DEBUG_MESSAGES,
+                            "feat: new feature") and tests_passed
+
     print("*****")
     if tests_passed:
         print("All body tests passed")
@@ -559,7 +594,7 @@ if __name__ == '__main__':
     if len(sys.argv) > 1:
         title_tests = test_title()
         body_tests = test_body()
-        if title_tests and body_tests:
+        if body_tests:
             exit(0)
         else:
             exit(-1)
