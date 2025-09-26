@@ -20,7 +20,7 @@ package org.apache.spark.sql.hudi.command.procedures
 import org.apache.hudi.client.transaction.lock.audit.StorageLockProviderAuditService
 import org.apache.hudi.common.util.FileIOUtils
 import org.apache.hudi.common.table.HoodieTableMetaClient
-import org.apache.hadoop.fs.{FileSystem, Path}
+import org.apache.hadoop.fs.Path
 
 import com.fasterxml.jackson.databind.{JsonNode, ObjectMapper}
 import org.apache.spark.sql.Row
@@ -121,8 +121,8 @@ class ShowAuditLockStatusProcedure extends BaseProcedure with ProcedureBuilder {
    * @return true if audit logging is enabled, false otherwise
    */
   private def checkAuditStatus(metaClient: org.apache.hudi.common.table.HoodieTableMetaClient, basePath: String): Boolean = {
-    val fs = FileSystem.get(metaClient.getHadoopConf)
     val auditConfigPath = new Path(StorageLockProviderAuditService.getAuditConfigPath(basePath))
+    val fs = auditConfigPath.getFileSystem(metaClient.getHadoopConf)
 
     if (!fs.exists(auditConfigPath)) {
       false
