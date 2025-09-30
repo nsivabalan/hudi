@@ -638,6 +638,9 @@ public class HoodieWrapperFileSystem extends FileSystem {
 
   @Override
   public RemoteIterator<LocatedFileStatus> listFiles(Path f, boolean recursive) throws IOException {
+    if (f.getParent().getName().equals("test_table")) {
+      System.out.println("Listing partition dir ");
+    }
     return executeFuncWithTimeMetrics(MetricName.listFiles.name(), f, () -> {
       return fileSystem.listFiles(convertToDefaultPath(f), recursive);
     });

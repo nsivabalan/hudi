@@ -474,7 +474,8 @@ public class HoodieTableMetadataUtil {
                                                                                String instantTime, HoodieTableMetaClient dataMetaClient, HoodieTableMetadata tableMetadata,
                                                                                HoodieMetadataConfig metadataConfig, Set<String> enabledPartitionTypes, String bloomFilterType,
                                                                                int bloomIndexParallelism, int writesFileIdEncoding, EngineType engineType,
-                                                                               Option<HoodieRecordType> recordTypeOpt, boolean enableOptimizeLogBlocksScan) {
+                                                                               Option<HoodieRecordType> recordTypeOpt, boolean enableOptimizeLogBlocksScan,
+                                                                               Lazy<List<Pair<String, FileSlice>>> lazyLatestMergedPartitionFileSliceList) {
     final Map<String, HoodieData<HoodieRecord>> partitionToRecordsMap = new HashMap<>();
     final HoodieData<HoodieRecord> filesPartitionRecordsRDD = context.parallelize(
         convertMetadataToFilesPartitionRecords(commitMetadata, instantTime), 1);
@@ -497,7 +498,7 @@ public class HoodieTableMetadataUtil {
       // Generate Hoodie Pair data of partition name and list of column range metadata for all the files in that partition
       boolean isDeletePartition = commitMetadata.getOperationType().equals(WriteOperationType.DELETE_PARTITION);
       final HoodieData<HoodieRecord> partitionStatsRDD = convertMetadataToPartitionStatRecords(commitMetadata, context,
-          dataMetaClient, tableMetadata, metadataConfig, recordTypeOpt, isDeletePartition);
+          dataMetaClient, tableMetadata, metadataConfig, recordTypeOpt, isDeletePartition, instantTime, lazyLatestMergedPartitionFileSliceList);
       partitionToRecordsMap.put(MetadataPartitionType.PARTITION_STATS.getPartitionPath(), partitionStatsRDD);
     }
     if (enabledPartitionTypes.contains(MetadataPartitionType.RECORD_INDEX.getPartitionPath())) {
@@ -2757,7 +2758,8 @@ public class HoodieTableMetadataUtil {
 
   public static HoodieData<HoodieRecord> convertMetadataToPartitionStatRecords(HoodieCommitMetadata commitMetadata, HoodieEngineContext engineContext, HoodieTableMetaClient dataMetaClient,
                                                                                HoodieTableMetadata tableMetadata, HoodieMetadataConfig metadataConfig,
-                                                                               Option<HoodieRecordType> recordTypeOpt, boolean isDeletePartition) {
+                                                                               Option<HoodieRecordType> recordTypeOpt, boolean isDeletePartition,
+                                                                               String instantTime, Lazy<List<Pair<String, FileSlice>>> lazyLatestMergedPartitionFileSliceList) {
     try {
       Option<Schema> writerSchema =
           Option.ofNullable(commitMetadata.getMetadata(HoodieCommitMetadata.SCHEMA_KEY))
@@ -2815,6 +2817,13 @@ public class HoodieTableMetadataUtil {
       int parallelism = Math.max(Math.min(partitionedWriteStats.size(), metadataConfig.getPartitionStatsIndexParallelism()), 1);
       boolean shouldScanColStatsForTightBound = isShouldScanColStatsForTightBound(dataMetaClient);
 
+      Map<String, List<StoragePathInfo>> latestStoragePathInfosPerPartition = new HashMap<>();
+      lazyLatestMergedPartitionFileSliceList.get().forEach(entry -> {
+        latestStoragePathInfosPerPartition.computeIfAbsent(entry.getKey(), k -> new ArrayList<>());
+        entry.getValue().getBaseFile().ifPresent(baseFile -> latestStoragePathInfosPerPartition.get(entry.getKey()).add(baseFile.getPathInfo()));
+        entry.getValue().getLogFiles().forEach(logFile -> latestStoragePathInfosPerPartition.get(entry.getKey()).add(logFile.getPathInfo()));
+      });
+
       HoodiePairData<String, List<HoodieColumnRangeMetadata<Comparable>>> columnRangeMetadata = engineContext.parallelize(partitionedWriteStats, parallelism).mapToPair(partitionedWriteStat -> {
         final String partitionName = partitionedWriteStat.get(0).getPartitionPath();
         // Step 1: Collect Column Metadata for Each File part of current commit metadata
@@ -2822,7 +2831,42 @@ public class HoodieTableMetadataUtil {
             .flatMap(writeStat -> translateWriteStatToFileStats(writeStat, dataMetaClient, colsToIndex, partitionStatsIndexVersion).stream()).collect(toList());
 
         if (shouldScanColStatsForTightBound) {
+          Pair<Set<String>, List<StoragePathInfo>> partitionFilesMeta = hoodieWriteStatsToStoragePathInfos(allWriteStats, dataMetaClient.getBasePath().toString());
+          List<StoragePathInfo> inflightFilesStoragePathInfos = partitionFilesMeta.getRight();
+          Set<String> partitionPathFileNames = partitionFilesMeta.getKey();
+
           checkState(tableMetadata != null, "tableMetadata should not be null when scanning metadata table");
+
+          // Fetch all StoragePathInfo from latest committed + inflight ones
+          List<StoragePathInfo> latestIncludingInflight = latestStoragePathInfosPerPartition.get(partitionName);
+          latestIncludingInflight.addAll(inflightFilesStoragePathInfos);
+          HoodieTableFileSystemView fileSystemView = new HoodieTableFileSystemView(dataMetaClient, dataMetaClient.getActiveTimeline().filterCompletedAndCompactionInstants(),
+              latestIncludingInflight);
+          // above FSV will help compute the latest file slice for a given partition. some files could be part of inflight commit metadata, while some could be from previous committed data.
+          // poll for latest file slice and lets poll col stats partition for column stats only for those files which are not part of inflight files.
+          // bcoz, for inflight, we already have the stats above and col stats from metadata may not have stats for inflight anyways.
+
+          List<ColumnStatsIndexRawKey> columnStatsIndexRawKeys = new ArrayList<>();
+          fileSystemView.getLatestMergedFileSlicesBeforeOrOn(partitionName, instantTime).forEach(fileSlice -> {
+            if (fileSlice.getBaseFile().isPresent()) {
+              String partitionPathFileName = fileSlice.getBaseFile().get().getPathInfo().toString();
+              if (!partitionPathFileNames.contains(partitionPathFileName)) {
+                columnStatsIndexRawKeys.addAll(generateColumnStatsKeys(colsToIndex, partitionName, fileSlice.getBaseFile().get().getFileName()));
+              }
+            }
+            // process log files
+            fileSlice.getLogFiles().forEach(logFile -> {
+              String partitionPathFileName = logFile.getPathInfo().toString();
+              if (!partitionPathFileNames.contains(partitionPathFileName)) {
+                columnStatsIndexRawKeys.addAll(generateColumnStatsKeys(colsToIndex, partitionName, logFile.getFileName()));
+              }
+            });
+          });
+
+          if (!columnStatsIndexRawKeys.isEmpty()) {
+            List<HoodieColumnRangeMetadata<Comparable>> partitionColumnMetadata = tableMetadata.getRecordsByKeyPrefixes()
+          }
+
           // Collect Column Metadata for Each File part of active file system view of latest snapshot
           // Get all file names, including log files, in a set from the file slices
           Set<String> fileNames = getPartitionLatestFileSlicesIncludingInflight(dataMetaClient, Option.empty(), partitionName).stream()
@@ -2856,6 +2900,18 @@ public class HoodieTableMetadataUtil {
     } catch (Exception e) {
       throw new HoodieException("Failed to generate column stats records for metadata table", e);
     }
+  }
+
+  private static Pair<Set<String>, List<StoragePathInfo>> hoodieWriteStatsToStoragePathInfos(List<HoodieWriteStat> writeStats, String basePath) {
+    List<StoragePathInfo> storagePathInfos = new ArrayList<>();
+    Set<String> partitionPathFileNames = new HashSet<>();
+    writeStats.stream().forEach(writeStat -> {
+      storagePathInfos.add(new StoragePathInfo(
+          new StoragePath(String.format("%s/%s", basePath, writeStat.getPath())),
+          writeStat.getFileSizeInBytes(), false, (short) 0, 0, 0));
+      partitionPathFileNames.add(writeStat.getPath());
+    });
+    return Pair.of(partitionPathFileNames, storagePathInfos);
   }
 
   public static boolean isShouldScanColStatsForTightBound(HoodieTableMetaClient dataMetaClient) {
@@ -2903,6 +2959,17 @@ public class HoodieTableMetadataUtil {
     List<ColumnStatsIndexPrefixRawKey> keys = new ArrayList<>();
     for (String columnName : columnsToIndex) {
       keys.add(new ColumnStatsIndexPrefixRawKey(columnName, partitionName));
+    }
+    return keys;
+  }
+
+  /**
+   * Generate column stats index keys for each combination of column name in {@param columnsToIndex}, {@param partitionName} and {@param fileName}.
+   */
+  public static List<ColumnStatsIndexRawKey> generateColumnStatsKeys(List<String> columnsToIndex, String partitionName, String fileName) {
+    List<ColumnStatsIndexRawKey> keys = new ArrayList<>();
+    for (String columnName : columnsToIndex) {
+      keys.add(new ColumnStatsIndexRawKey(partitionName, columnName, fileName));
     }
     return keys;
   }
