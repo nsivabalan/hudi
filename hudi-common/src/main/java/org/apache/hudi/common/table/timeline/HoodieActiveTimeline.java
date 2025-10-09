@@ -166,7 +166,7 @@ public class HoodieActiveTimeline extends HoodieDefaultTimeline implements Hoodi
     }
     this.metaClient = metaClient;
     this.instantReader = this;
-    LOG.info("Loaded instants upto : " + lastInstant());
+    LOG.debug("Loaded instants upto : " + lastInstant());
   }
 
   public HoodieActiveTimeline(HoodieTableMetaClient metaClient) {
