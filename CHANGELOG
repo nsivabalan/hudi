@@ -1034,3 +1034,7 @@ f5824e51ca7 [ENG-28779][INTERNAL] Add parallelism configs to AwsGlueSync (#1428)
 --- [2025-09-27 05:49:39] [release-v1.181.0] ---
 [ENG-32149][INTERNAL] Fix storage lock provider audit procedure fs client (#1597)
 [AUDIT-1810]: Changelog for release-v1.180.0 (#1593)
+
+--- [2025-10-10 16:04:27] [release-v1.182.0] ---
+[ENG-33019][CHERRYPICK] Reduce log volume by changing INFO to DEBUG (#1602)
+[AUDIT-1830]: Changelog for release-v1.181.0 (#1600)
