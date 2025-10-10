@@ -1038,3 +1038,6 @@ f5824e51ca7 [ENG-28779][INTERNAL] Add parallelism configs to AwsGlueSync (#1428)
 --- [2025-10-10 16:04:27] [release-v1.182.0] ---
 [ENG-33019][CHERRYPICK] Reduce log volume by changing INFO to DEBUG (#1602)
 [AUDIT-1830]: Changelog for release-v1.181.0 (#1600)
+
+--- [2025-10-10 21:38:07] [release-v1.183.0] ---
+[AUDIT-1071]: Changelog for release-v1.182.0 (#1609)
