@@ -314,11 +314,16 @@ public abstract class HoodieWriteHandle<T, I, K, O> extends HoodieIOHandle<T, I,
         Option<HoodieLogFile> latestLogFile = fileSliceOpt.isPresent()
             ? fileSliceOpt.get().getLatestLogFile()
             : Option.empty();
+        // Compute the next log file version: use latest version + 1 if available and append is not supported,
+        // otherwise start with the base version
+        int logFileVersion = latestLogFile
+            .map(logFile -> logFile.getLogVersion() + 1)
+            .orElse(HoodieLogFile.LOGFILE_BASE_VERSION);
         return HoodieLogFormat.newWriterBuilder()
             .onParentPath(FSUtils.constructAbsolutePath(hoodieTable.getMetaClient().getBasePath(), partitionPath))
             .withFileId(fileId)
             .withInstantTime(instantTime)
-            .withLogVersion(latestLogFile.map(HoodieLogFile::getLogVersion).orElse(HoodieLogFile.LOGFILE_BASE_VERSION))
+            .withLogVersion(logFileVersion)
             .withFileSize(latestLogFile.map(HoodieLogFile::getFileSize).orElse(0L))
             .withSizeThreshold(config.getLogFileMaxSize())
             .withStorage(storage)
