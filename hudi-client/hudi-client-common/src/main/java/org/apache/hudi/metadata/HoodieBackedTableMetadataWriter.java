@@ -1278,7 +1278,15 @@ public abstract class HoodieBackedTableMetadataWriter<I> implements HoodieTableM
                                 Option<BulkInsertPartitioner> bulkInsertPartitioner) {
     ValidationUtils.checkState(metadataMetaClient != null, "Metadata table is not fully initialized yet.");
     HoodieData<HoodieRecord> preppedRecords = prepRecords(partitionRecordsMap);
-    I preppedRecordInputs = convertHoodieDataToEngineSpecificData(preppedRecords);
+    HoodieData<HoodieRecord> coalescedPreppedRecords = preppedRecords;
+    if (!isInitializing) {
+      // When specified, reduce the parallelism of input record RDD to improve write performance.
+      int parallelism = dataWriteConfig.getMetadataConfig().getRecordPreparationParallelism();
+      if (parallelism > 0 && preppedRecords.getNumPartitions() > parallelism) {
+        coalescedPreppedRecords = preppedRecords.coalesce(parallelism);
+      }
+    }
+    I preppedRecordInputs = convertHoodieDataToEngineSpecificData(coalescedPreppedRecords);
 
     BaseHoodieWriteClient<?, I, ?, ?> writeClient = getWriteClient();
     // rollback partially failed writes if any.

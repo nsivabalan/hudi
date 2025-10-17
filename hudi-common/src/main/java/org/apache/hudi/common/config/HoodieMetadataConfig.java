@@ -356,6 +356,15 @@ public final class HoodieMetadataConfig extends HoodieConfig {
       .sinceVersion("0.14.2")
       .withDocumentation("An implementation of the FilePreFetcher to use to download the metadata files if size is below METADATA_FILE_PRE_FETCHER_THRESHOLD_SIZE_MB.");
 
+  public static final ConfigProperty<Integer> RECORD_PREPARATION_PARALLELISM = ConfigProperty
+      .key(METADATA_PREFIX + ".record.preparation.parallelism")
+      .defaultValue(0)
+      .markAdvanced()
+      .sinceVersion("0.14.2")
+      .withDocumentation("when set to positive number, metadata table record preparation stages "
+          + "honor the set value for number of tasks. If not, number of write status's from data "
+          + "table writes will be used for metadata table record preparation");
+
   public long getMaxLogFileSize() {
     return getLong(MAX_LOG_FILE_SIZE_BYTES_PROP);
   }
@@ -494,6 +503,10 @@ public final class HoodieMetadataConfig extends HoodieConfig {
 
   public int getRecordIndexMaxParallelism() {
     return getInt(RECORD_INDEX_MAX_PARALLELISM);
+  }
+
+  public int getRecordPreparationParallelism() {
+    return getIntOrDefault(RECORD_PREPARATION_PARALLELISM);
   }
 
   public boolean shouldAutoInitialize() {
