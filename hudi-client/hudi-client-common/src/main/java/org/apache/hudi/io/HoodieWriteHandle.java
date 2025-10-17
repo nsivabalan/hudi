@@ -23,6 +23,7 @@ import org.apache.hudi.client.WriteStatus;
 import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.engine.TaskContextSupplier;
 import org.apache.hudi.common.fs.FSUtils;
+import org.apache.hudi.common.fs.StorageSchemes;
 import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieAvroIndexedRecord;
 import org.apache.hudi.common.model.HoodieLogFile;
@@ -246,11 +247,18 @@ public abstract class HoodieWriteHandle<T, I, K, O> extends HoodieIOHandle<T, I,
         ? fileSlice.get().getLatestLogFile()
         : Option.empty();
 
+    // Compute the next log file version: use latest version + 1 if available and append is not supported,
+    // otherwise start with the base version
+    boolean appendSupported = StorageSchemes.isAppendSupported(fs.getScheme());
+    int logFileVersion = latestLogFile
+        .map(logFile -> logFile.getLogVersion() + (appendSupported ? 0 : 1))
+        .orElse(HoodieLogFile.LOGFILE_BASE_VERSION);
+
     return HoodieLogFormat.newWriterBuilder()
         .onParentPath(FSUtils.getPartitionPath(hoodieTable.getMetaClient().getBasePath(), partitionPath))
         .withFileId(fileId)
         .overBaseCommit(baseCommitTime)
-        .withLogVersion(latestLogFile.map(HoodieLogFile::getLogVersion).orElse(HoodieLogFile.LOGFILE_BASE_VERSION))
+        .withLogVersion(logFileVersion)
         .withFileSize(latestLogFile.map(HoodieLogFile::getFileSize).orElse(0L))
         .withSizeThreshold(config.getLogFileMaxSize())
         .withFs(fs)
