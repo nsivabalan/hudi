@@ -116,6 +116,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.BiFunction;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collector;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -1713,7 +1714,7 @@ public class HoodieTableMetadataUtil {
    * Estimates the file group count to use for a MDT partition.
    *
    * @param partitionType         Type of the partition for which the file group count is to be estimated.
-   * @param recordCount           The number of records expected to be written.
+   * @param recordCountSupplier   Supplies the number of records expected to be written.
    * @param averageRecordSize     Average size of each record to be writen.
    * @param minFileGroupCount     Minimum number of file groups to use.
    * @param maxFileGroupCount     Maximum number of file groups to use.
@@ -1721,14 +1722,16 @@ public class HoodieTableMetadataUtil {
    * @param maxFileGroupSizeBytes Maximum size of the file group.
    * @return The estimated number of file groups.
    */
-  public static int estimateFileGroupCount(MetadataPartitionType partitionType, long recordCount, int averageRecordSize, int minFileGroupCount,
+  public static int estimateFileGroupCount(MetadataPartitionType partitionType, Supplier<Long> recordCountSupplier, int averageRecordSize, int minFileGroupCount,
                                            int maxFileGroupCount, float growthFactor, int maxFileGroupSizeBytes) {
     int fileGroupCount;
 
+    long recordCount = -1;
     // If a fixed number of file groups are desired
     if ((minFileGroupCount == maxFileGroupCount) && (minFileGroupCount != 0)) {
       fileGroupCount = minFileGroupCount;
     } else {
+      recordCount = recordCountSupplier.get();
       // Number of records to estimate for
       final long expectedNumRecords = (long) Math.ceil((float) recordCount * growthFactor);
       // Maximum records that should be written to each file group so that it does not go over the size limit required
