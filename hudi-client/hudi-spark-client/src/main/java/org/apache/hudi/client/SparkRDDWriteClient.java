@@ -18,6 +18,7 @@
 
 package org.apache.hudi.client;
 
+import org.apache.hudi.callback.common.WriteStatusValidator;
 import org.apache.hudi.client.common.HoodieSparkEngineContext;
 import org.apache.hudi.client.embedded.EmbeddedTimelineService;
 import org.apache.hudi.client.utils.CommitMetadataUtils;
@@ -60,9 +61,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.io.Serializable;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
+import java.util.stream.Collectors;
 
 @SuppressWarnings("checkstyle:LineLength")
 public class SparkRDDWriteClient<T> extends
@@ -102,10 +106,33 @@ public class SparkRDDWriteClient<T> extends
   @Override
   public boolean commit(String instantTime, JavaRDD<WriteStatus> writeStatuses, Option<Map<String, String>> extraMetadata,
                         String commitActionType, Map<String, List<String>> partitionToReplacedFileIds,
-                        Option<BiConsumer<HoodieTableMetaClient, HoodieCommitMetadata>> extraPreCommitFunc) {
+                        Option<BiConsumer<HoodieTableMetaClient, HoodieCommitMetadata>> extraPreCommitFunc,
+                        Option<WriteStatusValidator> writeStatusValidatorOpt) {
     context.setJobStatus(this.getClass().getSimpleName(), "Committing stats: " + config.getTableName());
-    List<HoodieWriteStat> writeStats = writeStatuses.map(WriteStatus::getStat).collect();
-    return commitStats(instantTime, HoodieJavaRDD.of(writeStatuses), writeStats, extraMetadata, commitActionType, partitionToReplacedFileIds, extraPreCommitFunc);
+
+    // Triggering the dag for writes.
+    List<SlimWriteStats> slimWriteStatsList = SlimWriteStats.from(writeStatuses);
+    // Compute stats for the data table writes and invoke callback
+    AtomicLong totalRecords = new AtomicLong(0);
+    AtomicLong totalErrorRecords = new AtomicLong(0);
+    // collect record stats for data table
+    slimWriteStatsList.forEach(slimWriteStats -> {
+      totalRecords.getAndAdd(slimWriteStats.getTotalRecords());
+      totalErrorRecords.getAndAdd(slimWriteStats.getTotalErrorRecords());
+    });
+    // Why passing RDD<WriteStatus> to the WriteStatus validator:
+    // Just in case if there are errors, caller might be interested to fetch error records in the validator where
+    // a complete collection of RDD<WriteStatus> is required.
+    boolean canProceed = writeStatusValidatorOpt.map(callback -> callback.validate(totalRecords.get(), totalErrorRecords.get(),
+            totalErrorRecords.get() > 0 ? Option.of(HoodieJavaRDD.of(writeStatuses)) : Option.empty()))
+        .orElse(true);
+    if (canProceed) {
+      List<HoodieWriteStat> writeStats = slimWriteStatsList.stream().map(SlimWriteStats::getWriteStat).collect(Collectors.toList());
+      return commitStats(instantTime, HoodieJavaRDD.of(writeStatuses), writeStats, extraMetadata, commitActionType, partitionToReplacedFileIds, extraPreCommitFunc);
+    } else {
+      LOG.error("Exiting early due to errors with write operation ");
+      return false;
+    }
   }
 
   @Override
@@ -360,5 +387,57 @@ public class SparkRDDWriteClient<T> extends
   public void releaseResources(String instantTime) {
     super.releaseResources(instantTime);
     SparkReleaseResources.releaseCachedData(context, config, basePath, instantTime);
+  }
+
+  /**
+   * Slim WriteStatus to hold info like total records, total errored records, write stats.
+   */
+  public static class SlimWriteStats implements Serializable {
+    private static final long serialVersionUID = 1L;
+
+    private long totalRecords;
+    private long totalErrorRecords;
+    private HoodieWriteStat writeStat;
+
+    private SlimWriteStats(long totalRecords, long totalErrorRecords, HoodieWriteStat writeStat) {
+      this.totalRecords = totalRecords;
+      this.totalErrorRecords = totalErrorRecords;
+      this.writeStat = writeStat;
+    }
+
+    public static List<SlimWriteStats> from(JavaRDD<WriteStatus> writeStatuses) {
+      return writeStatuses.map(writeStatus -> new SlimWriteStats(writeStatus.getTotalRecords(), writeStatus.getTotalErrorRecords(),
+          writeStatus.getStat())).collect();
+    }
+
+    public long getTotalRecords() {
+      return totalRecords;
+    }
+
+    public long getTotalErrorRecords() {
+      return totalErrorRecords;
+    }
+
+    public HoodieWriteStat getWriteStat() {
+      return writeStat;
+    }
+
+    // setter for efficient serialization,
+    // please do not remove it even if it is not used.
+    public void setTotalRecords(long totalRecords) {
+      this.totalRecords = totalRecords;
+    }
+
+    // setter for efficient serialization,
+    // please do not remove it even if it is not used.
+    public void setTotalErrorRecords(long totalErrorRecords) {
+      this.totalErrorRecords = totalErrorRecords;
+    }
+
+    // setter for efficient serialization,
+    // please do not remove it even if it is not used.
+    public void setWriteStat(HoodieWriteStat writeStat) {
+      this.writeStat = writeStat;
+    }
   }
 }
