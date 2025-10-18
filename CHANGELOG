@@ -1048,3 +1048,7 @@ f5824e51ca7 [ENG-28779][INTERNAL] Add parallelism configs to AwsGlueSync (#1428)
 [ENG-33273][CHERRYPICK] File listing fix for Append handle on log file creation (#1604)
 [ENG-33271][CHERRYPICK] fix: Persist RLI index bootstrap records only if estimation is required and add unpersist (#1618)
 [AUDIT-1878]: Changelog for release-v1.183.0 (#1610)
+
+--- [2025-10-18 15:47:25] [release-v1.185.0] ---
+[ENG-33274][HUDI-9417] Add callback for handling write stats during commit (#1620)
+[AUDIT-1900]: Changelog for release-v1.184.0 (#1619)
