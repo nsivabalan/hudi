@@ -899,8 +899,8 @@ public class StreamSync implements Serializable, Closeable {
       Map<String, String> checkpointCommitMetadata = extractCheckpointMetadata(inputBatch, props, cfg);
       AtomicLong totalSuccessfulRecords = new AtomicLong(0);
       WriteStatusValidator writeStatusValidator = new HoodieStreamerWriteStatusValidator(cfg.commitOnErrors, instantTime,
-          cfg, errorTableWriter, errorTableWriteStatusRDDOpt, errorWriteFailureStrategy, isErrorTableWriteUnificationEnabled, writeClient, commitedInstantTime,
-          totalSuccessfulRecords);
+          cfg, errorTableWriter, errorTableWriteStatusRDDOpt, errorWriteFailureStrategy, isErrorTableWriteUnificationEnabled, errorTableInstantTime,
+          writeClient, commitedInstantTime, totalSuccessfulRecords);
       String commitActionType = CommitUtils.getCommitActionType(cfg.operation, HoodieTableType.valueOf(cfg.tableType));
 
       boolean success = writeClient.commit(instantTime, writeStatusRDD, Option.of(checkpointCommitMetadata), commitActionType, partitionToReplacedFileIds, Option.empty(),
@@ -1338,6 +1338,7 @@ public class StreamSync implements Serializable, Closeable {
     private final Option<JavaRDD<WriteStatus>> errorTableWriteStatusRDDOpt;
     private final HoodieErrorTableConfig.ErrorWriteFailureStrategy errorWriteFailureStrategy;
     private final boolean isErrorTableWriteUnificationEnabled;
+    private final String errorTableInstantTime;
     private final SparkRDDWriteClient writeClient;
     private final Option<String> latestCommittedInstant;
     private final AtomicLong totalSuccessfulRecords;
@@ -1349,6 +1350,7 @@ public class StreamSync implements Serializable, Closeable {
                                        Option<JavaRDD<WriteStatus>> errorTableWriteStatusRDDOpt,
                                        HoodieErrorTableConfig.ErrorWriteFailureStrategy errorWriteFailureStrategy,
                                        boolean isErrorTableWriteUnificationEnabled,
+                                       String errorTableInstantTime,
                                        SparkRDDWriteClient writeClient,
                                        Option<String> latestCommittedInstant,
                                        AtomicLong totalSuccessfulRecords) {
@@ -1359,6 +1361,7 @@ public class StreamSync implements Serializable, Closeable {
       this.errorTableWriteStatusRDDOpt = errorTableWriteStatusRDDOpt;
       this.errorWriteFailureStrategy = errorWriteFailureStrategy;
       this.isErrorTableWriteUnificationEnabled = isErrorTableWriteUnificationEnabled;
+      this.errorTableInstantTime = errorTableInstantTime;
       this.writeClient = writeClient;
       this.latestCommittedInstant = latestCommittedInstant;
       this.totalSuccessfulRecords = totalSuccessfulRecords;
@@ -1389,7 +1392,6 @@ public class StreamSync implements Serializable, Closeable {
       }
 
       if (errorTableWriter.isPresent()) {
-        String errorTableInstantTime = HoodieActiveTimeline.createNewInstantTime();
         boolean errorTableSuccess = true;
         // Commit the error events triggered so far to the error table
         if (isErrorTableWriteUnificationEnabled && errorTableWriteStatusRDDOpt.isPresent()) {
