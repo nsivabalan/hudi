@@ -1052,3 +1052,7 @@ f5824e51ca7 [ENG-28779][INTERNAL] Add parallelism configs to AwsGlueSync (#1428)
 --- [2025-10-18 15:47:25] [release-v1.185.0] ---
 [ENG-33274][HUDI-9417] Add callback for handling write stats during commit (#1620)
 [AUDIT-1900]: Changelog for release-v1.184.0 (#1619)
+
+--- [2025-10-25 00:09:50] [release-v1.186.0] ---
+[ENG-32150][HUDI-9782] Add validation and cleanup apis for storage LP audit validation (#1626)
+[AUDIT-1900]: Changelog for release-v1.185.0 (#1621)
