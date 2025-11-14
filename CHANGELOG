@@ -1056,3 +1056,7 @@ f5824e51ca7 [ENG-28779][INTERNAL] Add parallelism configs to AwsGlueSync (#1428)
 --- [2025-10-25 00:09:50] [release-v1.186.0] ---
 [ENG-32150][HUDI-9782] Add validation and cleanup apis for storage LP audit validation (#1626)
 [AUDIT-1900]: Changelog for release-v1.185.0 (#1621)
+
+--- [2025-11-14 22:06:33] [release-v1.187.0] ---
+[ENG-34413][14256] Add source path field in table created from S3/GCS source (#1631)
+[AUDIT-1915]: Changelog for release-v1.186.0 (#1627)
