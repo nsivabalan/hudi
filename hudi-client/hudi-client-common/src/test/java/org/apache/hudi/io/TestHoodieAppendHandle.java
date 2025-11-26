@@ -90,7 +90,7 @@ public class TestHoodieAppendHandle extends HoodieCommonTestHarness {
     when(mockFileSlice.getLatestLogFile()).thenReturn(Option.empty());
 
     // verify writer log version is 1 when there are no log files present
-    try (HoodieLogFormat.Writer writer = appendHandle.createLogWriter(Option.of(mockFileSlice), TEST_INSTANT_TIME)) {
+    try (HoodieLogFormat.Writer writer = appendHandle.createLogWriter(TEST_INSTANT_TIME, Option.of(mockFileSlice))) {
       assertEquals(1, writer.getLogFile().getLogVersion());
     }
 
@@ -99,7 +99,7 @@ public class TestHoodieAppendHandle extends HoodieCommonTestHarness {
     when(mockFileSlice.getLatestLogFile()).thenReturn(Option.of(mockLogFile));
 
     // verify writer log version is incremented when there log files are present.
-    try (HoodieLogFormat.Writer writer = appendHandle.createLogWriter(Option.of(mockFileSlice), TEST_INSTANT_TIME)) {
+    try (HoodieLogFormat.Writer writer = appendHandle.createLogWriter(TEST_INSTANT_TIME, Option.of(mockFileSlice))) {
       assertEquals(2, writer.getLogFile().getLogVersion());
     }
   }
