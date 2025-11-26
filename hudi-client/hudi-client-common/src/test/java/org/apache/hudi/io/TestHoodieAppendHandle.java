@@ -22,20 +22,26 @@ import org.apache.hudi.common.engine.LocalTaskContextSupplier;
 import org.apache.hudi.common.engine.TaskContextSupplier;
 import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieLogFile;
+import org.apache.hudi.common.table.HoodieTableVersion;
 import org.apache.hudi.common.table.log.HoodieLogFormat;
+import org.apache.hudi.common.table.view.SyncableFileSystemView;
 import org.apache.hudi.common.testutils.HoodieCommonTestHarness;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.config.HoodieWriteConfig;
+import org.apache.hudi.storage.HoodieStorageUtils;
 import org.apache.hudi.table.HoodieTable;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.io.IOException;
+import java.util.stream.Stream;
 
 import static org.apache.hudi.common.testutils.HoodieTestDataGenerator.TRIP_EXAMPLE_SCHEMA;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -81,13 +87,40 @@ public class TestHoodieAppendHandle extends HoodieCommonTestHarness {
     when(mockHoodieTable.getMetaClient()).thenReturn(metaClient);
   }
 
-  @Test
-  void testCreateLogFileWriterLogVersion() throws IOException {
+  private static Stream<Arguments> versionsSixAndAbove() {
+    return Stream.of(
+        Arguments.of(HoodieTableVersion.SIX),    // Hudi 0.14
+        Arguments.of(HoodieTableVersion.EIGHT),  // Hudi 1.0.2
+        Arguments.of(HoodieTableVersion.NINE)    // Hudi 1.1
+    );
+  }
+
+  @ParameterizedTest
+  @MethodSource("versionsSixAndAbove")
+  void testCreateLogFileWriterLogVersion(HoodieTableVersion tableVersion) throws IOException {
+    writeConfig = HoodieWriteConfig.newBuilder()
+        .withPath(basePath)
+        .withSchema(TRIP_EXAMPLE_SCHEMA)
+        .withMarkersType("DIRECT")
+        .withWriteTableVersion(tableVersion.versionCode())
+        .build();
+
+    storage = HoodieStorageUtils.getStorage(basePath, metaClient.getStorageConf());
+
+    when(mockHoodieTable.getStorage()).thenReturn(storage);
+    if (tableVersion.greaterThanOrEquals(HoodieTableVersion.EIGHT)) {
+      SyncableFileSystemView mockedFSView = mock(SyncableFileSystemView.class);
+      when(mockHoodieTable.getHoodieView()).thenReturn(mockedFSView);
+      when(mockedFSView.getLatestBaseFile(TEST_PARTITION_PATH, TEST_FILE_ID)).thenReturn(Option.empty());
+    }
+
     HoodieAppendHandle<Object, Object, Object, Object> appendHandle =
         new HoodieAppendHandle<>(writeConfig, TEST_INSTANT_TIME, mockHoodieTable, TEST_PARTITION_PATH, TEST_FILE_ID, taskContextSupplier);
 
     FileSlice mockFileSlice = mock(FileSlice.class);
-    when(mockFileSlice.getLatestLogFile()).thenReturn(Option.empty());
+    if (tableVersion.lesserThan(HoodieTableVersion.EIGHT)) {
+      when(mockFileSlice.getLatestLogFile()).thenReturn(Option.empty());
+    }
 
     // verify writer log version is 1 when there are no log files present
     try (HoodieLogFormat.Writer writer = appendHandle.createLogWriter(TEST_INSTANT_TIME, Option.of(mockFileSlice))) {
@@ -95,12 +128,14 @@ public class TestHoodieAppendHandle extends HoodieCommonTestHarness {
     }
 
     HoodieLogFile mockLogFile = mock(HoodieLogFile.class);
-    when(mockLogFile.getLogVersion()).thenReturn(1);
-    when(mockFileSlice.getLatestLogFile()).thenReturn(Option.of(mockLogFile));
+    if (tableVersion.lesserThan(HoodieTableVersion.EIGHT)) {
+      when(mockLogFile.getLogVersion()).thenReturn(1);
+      when(mockFileSlice.getLatestLogFile()).thenReturn(Option.of(mockLogFile));
+    }
 
     // verify writer log version is incremented when there log files are present.
     try (HoodieLogFormat.Writer writer = appendHandle.createLogWriter(TEST_INSTANT_TIME, Option.of(mockFileSlice))) {
-      assertEquals(2, writer.getLogFile().getLogVersion());
+      assertEquals(tableVersion.greaterThanOrEquals(HoodieTableVersion.EIGHT) ? 1 : 2, writer.getLogFile().getLogVersion());
     }
   }
 }
