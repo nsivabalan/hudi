@@ -25,19 +25,13 @@ import org.apache.hudi.common.table.HoodieTableVersion;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.ValidationUtils;
 import org.apache.hudi.common.util.VisibleForTesting;
-import org.apache.hudi.data.HoodieJavaRDD;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.metadata.HoodieTableMetadataWriter;
 import org.apache.hudi.table.HoodieTable;
 
-import org.apache.spark.api.java.function.Function;
-import org.apache.spark.api.java.function.PairFunction;
-
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
-import scala.Tuple2;
 
 /**
  * Class to assist with streaming writes to metadata table.
@@ -108,10 +102,11 @@ public class StreamingMetadataWriteHandler {
     //if (enforceCoalesceWithRepartition) {
     // with bulk insert and NONE sort mode, simple coalesce on datatable write statuses also impact record key generation stages.
     // and hence we are adding a partitioner to cut the chain so that coalesce(1) here does not impact record key generation stages.
-    coalescedDataWriteStatuses = HoodieJavaRDD.of(HoodieJavaRDD.getJavaRDD(dataTableWriteStatuses)
+    coalescedDataWriteStatuses = dataTableWriteStatuses.repartition(coalesceParallelism);
+    /*coalescedDataWriteStatuses = HoodieJavaRDD.of(HoodieJavaRDD.getJavaRDD(dataTableWriteStatuses)
         .mapToPair((PairFunction<WriteStatus, String, WriteStatus>) writeStatus -> new Tuple2(writeStatus.getStat().getPath(), writeStatus))
         .partitionBy(new CoalescingPartitioner(coalesceParallelism))
-        .map((Function<Tuple2<String, WriteStatus>, WriteStatus>) entry -> entry._2));
+        .map((Function<Tuple2<String, WriteStatus>, WriteStatus>) entry -> entry._2));*/
     /*} else {
       coalescedDataWriteStatuses = dataTableWriteStatuses.coalesce(coalesceParallelism);
     }*/
