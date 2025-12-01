@@ -105,16 +105,16 @@ public class StreamingMetadataWriteHandler {
     mdtWriteStatuses.persist("MEMORY_AND_DISK_SER", table.getContext(), HoodieData.HoodieDataCacheKey.of(table.getMetaClient().getBasePath().toString(), instantTime));
     HoodieData<WriteStatus> coalescedDataWriteStatuses;
     int coalesceParallelism = Math.max(1, dataTableWriteStatuses.getNumPartitions() / coalesceDivisorForDataTableWrites);
-    if (enforceCoalesceWithRepartition) {
-      // with bulk insert and NONE sort mode, simple coalesce on datatable write statuses also impact record key generation stages.
-      // and hence we are adding a partitioner to cut the chain so that coalesce(1) here does not impact record key generation stages.
-      coalescedDataWriteStatuses = HoodieJavaRDD.of(HoodieJavaRDD.getJavaRDD(dataTableWriteStatuses)
-          .mapToPair((PairFunction<WriteStatus, String, WriteStatus>) writeStatus -> new Tuple2(writeStatus.getStat().getPath(), writeStatus))
-          .partitionBy(new CoalescingPartitioner(coalesceParallelism))
-          .map((Function<Tuple2<String, WriteStatus>, WriteStatus>) entry -> entry._2));
-    } else {
+    //if (enforceCoalesceWithRepartition) {
+    // with bulk insert and NONE sort mode, simple coalesce on datatable write statuses also impact record key generation stages.
+    // and hence we are adding a partitioner to cut the chain so that coalesce(1) here does not impact record key generation stages.
+    coalescedDataWriteStatuses = HoodieJavaRDD.of(HoodieJavaRDD.getJavaRDD(dataTableWriteStatuses)
+        .mapToPair((PairFunction<WriteStatus, String, WriteStatus>) writeStatus -> new Tuple2(writeStatus.getStat().getPath(), writeStatus))
+        .partitionBy(new CoalescingPartitioner(coalesceParallelism))
+        .map((Function<Tuple2<String, WriteStatus>, WriteStatus>) entry -> entry._2));
+    /*} else {
       coalescedDataWriteStatuses = dataTableWriteStatuses.coalesce(coalesceParallelism);
-    }
+    }*/
     return coalescedDataWriteStatuses.union(mdtWriteStatuses);
   }
 
