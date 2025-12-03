@@ -18,18 +18,15 @@
 
 package org.apache.hudi.table.action.commit;
 
-import org.apache.hudi.HoodieDatasetBulkInsertHelper;
 import org.apache.hudi.client.WriteStatus;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.util.Option;
-import org.apache.hudi.common.util.StringUtils;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.io.storage.row.HoodieRowCreateHandle;
 import org.apache.hudi.keygen.BuiltinKeyGenerator;
 import org.apache.hudi.keygen.SimpleKeyGenerator;
 import org.apache.hudi.keygen.factory.HoodieSparkKeyGeneratorFactory;
 import org.apache.hudi.table.HoodieTable;
-import org.apache.hudi.util.JavaScalaConverters;
 
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.types.DataType;
@@ -41,10 +38,8 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -78,6 +73,7 @@ public class BulkInsertDataInternalWriterHelper {
   protected UTF8String lastKnownPartitionPath = null;
   protected HoodieRowCreateHandle handle;
   protected int numFilesWritten = 0;
+  private final boolean shouldDropPartitionColumns;
 
   public BulkInsertDataInternalWriterHelper(HoodieTable hoodieTable, HoodieWriteConfig writeConfig,
                                             String instantTime, int taskPartitionId, long taskId, long taskEpochId, StructType structType,
@@ -100,6 +96,7 @@ public class BulkInsertDataInternalWriterHelper {
     this.shouldPreserveHoodieMetadata = shouldPreserveHoodieMetadata;
     this.arePartitionRecordsSorted = arePartitionRecordsSorted;
     this.fileIdPrefix = UUID.randomUUID().toString();
+    this.shouldDropPartitionColumns = writeConfig.shouldDropPartitionColumns();
 
     if (!populateMetaFields) {
       this.keyGeneratorOpt = HoodieSparkKeyGeneratorFactory.getKeyGenerator(writeConfig.getProps());
@@ -128,15 +125,14 @@ public class BulkInsertDataInternalWriterHelper {
         lastKnownPartitionPath = partitionPath.clone();
       }*/
 
-      if (!handle.canWrite()) {
+      /*if (!handle.canWrite()) {
         handle = getRowCreateHandle(StringUtils.EMPTY_STRING);
         // NOTE: It's crucial to make a copy here, since [[UTF8String]] could be pointing into
         //       a mutable underlying buffer
         lastKnownPartitionPath = UTF8String.EMPTY_UTF8;
-      }
+      }*/
 
-      boolean shouldDropPartitionColumns = writeConfig.shouldDropPartitionColumns();
-      if (shouldDropPartitionColumns) {
+      /*if (shouldDropPartitionColumns) {
         // Drop the partition columns from the row
         // Using the deprecated JavaConversions to be compatible with scala versions < 2.12. Once hudi support for scala versions < 2.12 is
         // stopped, can move this to JavaConverters.seqAsJavaList(...)
@@ -159,9 +155,9 @@ public class BulkInsertDataInternalWriterHelper {
         }
         InternalRow newRow = InternalRow.fromSeq(JavaScalaConverters.<Object>convertJavaListToScalaSeq(newCols));
         handle.write(newRow);
-      } else {
-        handle.write(row);
-      }
+      } else {*/
+      handle.write(row);
+      //}
     } catch (Throwable t) {
       LOG.error("Global error thrown while trying to write records in HoodieRowCreateHandle ", t);
       throw t;
