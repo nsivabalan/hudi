@@ -21,7 +21,9 @@ package org.apache.hudi.table.action.commit;
 import org.apache.hudi.client.WriteStatus;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.common.util.StringUtils;
 import org.apache.hudi.config.HoodieWriteConfig;
+import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.io.storage.row.HoodieRowCreateHandle;
 import org.apache.hudi.keygen.BuiltinKeyGenerator;
 import org.apache.hudi.keygen.SimpleKeyGenerator;
@@ -112,6 +114,11 @@ public class BulkInsertDataInternalWriterHelper {
       this.simpleKeyGen = false;
       this.simplePartitionFieldIndex = -1;
       this.simplePartitionFieldDataType = null;
+    }
+    try {
+      handle = getRowCreateHandle(StringUtils.EMPTY_STRING);
+    } catch (IOException e) {
+      throw new HoodieException("Failed to create Row create handle ", e);
     }
   }
 
