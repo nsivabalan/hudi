@@ -51,15 +51,17 @@ in `onehouse-dataplane`.
 Here is the process for creating a `hudi-internal` PR. All PRs must have clickup task ID mentioned at the start in PR
 title, i.e., `[AUDIT-<ID>]`, `[ONHS-<ID>]`, or `[ENG-<ID>]`. There are four case for PR title check:
 
-- **Feature development and bug fixes**: create [Hudi JIRA](https://issues.apache.org/jira/projects/HUDI/issues),
+- **Feature development and bug fixes**: create [Hudi GitHub Issue](https://github.com/apache/hudi/issues/new/choose) by
+  following the open-source [contribution guide](https://hudi.apache.org/contribute/how-to-contribute#filing-issues),
   create a [Hudi OSS](https://github.com/apache/hudi) PR, get reviews and approval, and then cherry-pick the same
   changes into `hudi-internal` with the PR title included and OSS PR link `apache/hudi#<pr_id>` (or
   URL, `https://github.com/apache/hudi/pull/<pr_id>`) mentioned in the PR description (this is enforced by PR compliance
   check).
   - For example, for OSS PR, https://github.com/apache/hudi/pull/10923, with title
-    `[HUDI-7531] Consider pending clustering when scheduling a new clustering plan`, the internal PR should be titled
-    `[ENG-8056][HUDI-7531] Consider pending clustering when scheduling a new clustering plan`, with the Clickup task ID
-    at the beginning and the exact title content as OSS PR subsequently.
+    `fix: Lazily load the dfs properties configuration to avoid static initialization failures`, the internal PR should
+    be titled
+    `[ENG-35134] fix: Lazily load the dfs properties configuration to avoid static initialization failures`, with the
+    Clickup task ID at the beginning and the exact title content as OSS PR subsequently.
 - **Urgent feature and hotfix**: for urgent feature and hotfix for outage mitigation,
   create [Hudi JIRA](https://issues.apache.org/jira/projects/HUDI/issues), create a
   placeholder [Hudi OSS](https://github.com/apache/hudi) PR, then in parallel create a `hudi-internal` PR of the

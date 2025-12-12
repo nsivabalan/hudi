@@ -35,7 +35,7 @@ jobs:
         if: env.skip-title-extraction == 'false'
         run: |
           PR_TITLE="${{ github.event.pull_request.title }}"
-          HUDI_PR_TITLE=$(echo "$PR_TITLE" | cut -d ']' -f2-)
+          HUDI_PR_TITLE=$(echo "$PR_TITLE" | cut -d ']' -f2- | sed 's/^[[:space:]]*//')
           echo "Extracted title after the Clickup task ID: $HUDI_PR_TITLE"
           if [[ "$HUDI_PR_TITLE" == "[CHERRYPICK]"* ]]; then
             echo "skip-hudi-title-check=true" >> $GITHUB_ENV
@@ -49,7 +49,7 @@ jobs:
         run: |
           set -e
           export HUDI_OSS_PR_ID=$(echo "${{ github.event.pull_request.body }}" | grep -Eo 'apache/hudi#[0-9]+|https://github.com/apache/hudi/pull/[0-9]+' | head -n 1)
-          export TMP_HUDI_OSS_PR_TITLE=$(echo $HUDI_OSS_PR_ID | grep -Eo '[0-9]+' | xargs -I {} gh pr view {} --repo apache/hudi | head -n 1 | grep -Eo '\[.*')
+          export TMP_HUDI_OSS_PR_TITLE=$(echo $HUDI_OSS_PR_ID | grep -Eo '[0-9]+' | xargs -I {} gh pr view {} --repo apache/hudi --json title --jq '.title')
           echo "HUDI_OSS_PR_TITLE=$TMP_HUDI_OSS_PR_TITLE" >> $GITHUB_ENV
           ((([ -n "$HUDI_OSS_PR_ID" ] || (echo "Unable to find companion Hudi OSS PR based on the PR description. Please check Hudi internal PR process: https://github.com/onehouseinc/hudi-internal?tab=readme-ov-file#hudi-internal-pr-process" && exit 1)) &&
           [ -n "$TMP_HUDI_OSS_PR_TITLE" ] &&
