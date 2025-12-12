@@ -228,4 +228,74 @@ public class TestDFSPropertiesConfiguration {
       cfg.addPropsFromFile(new Path(dfsBasePath + "/t4.props"));
     });
   }
+
+  @Test
+  public void testLazyInitializationWithFailureAndRetry() {
+    DFSPropertiesConfiguration.clearGlobalProps();
+
+    ENVIRONMENT_VARIABLES.clear(DFSPropertiesConfiguration.CONF_FILE_DIR_ENV_NAME);
+    TypedProperties props1 = DFSPropertiesConfiguration.getGlobalProps();
+    assertTrue(props1 != null);
+
+    String testPropsFilePath = new File("src/test/resources/external-config").getAbsolutePath();
+    ENVIRONMENT_VARIABLES.set(DFSPropertiesConfiguration.CONF_FILE_DIR_ENV_NAME, testPropsFilePath);
+
+    DFSPropertiesConfiguration.clearGlobalProps();
+    DFSPropertiesConfiguration.refreshGlobalProps();
+
+    TypedProperties props2 = DFSPropertiesConfiguration.getGlobalProps();
+    assertEquals(5, props2.size());
+    assertEquals("jdbc:hive2://localhost:10000", props2.get("hoodie.datasource.hive_sync.jdbcurl"));
+
+    DFSPropertiesConfiguration.clearGlobalProps();
+    TypedProperties props3 = DFSPropertiesConfiguration.getGlobalProps();
+    assertEquals(0, props3.size());
+  }
+
+  @Test
+  public void testClassInitializationNeverThrows() {
+    DFSPropertiesConfiguration.clearGlobalProps();
+    ENVIRONMENT_VARIABLES.set(DFSPropertiesConfiguration.CONF_FILE_DIR_ENV_NAME, "/this/path/does/not/exist/at/all");
+
+    try {
+      DFSPropertiesConfiguration.getGlobalProps();
+    } catch (HoodieIOException e) {
+      // Expected for non-existent path
+    }
+
+    // Verify class is not poisoned - instance methods still work
+    DFSPropertiesConfiguration cfg = new DFSPropertiesConfiguration();
+    cfg.addPropsFromFile(new Path(dfsBasePath + "/t1.props"));
+    TypedProperties props = cfg.getProps();
+    assertEquals(5, props.size());
+  }
+
+  @Test
+  public void testAddToGlobalProps() {
+    DFSPropertiesConfiguration.clearGlobalProps();
+
+    String testPropsFilePath = new File("src/test/resources/external-config").getAbsolutePath();
+    ENVIRONMENT_VARIABLES.set(DFSPropertiesConfiguration.CONF_FILE_DIR_ENV_NAME, testPropsFilePath);
+    DFSPropertiesConfiguration.refreshGlobalProps();
+
+    TypedProperties result = DFSPropertiesConfiguration.addToGlobalProps("test.key1", "test.value1");
+    assertEquals("test.value1", result.get("test.key1"));
+    assertEquals(6, result.size());
+
+    TypedProperties globals = DFSPropertiesConfiguration.getGlobalProps();
+    assertEquals("test.value1", globals.get("test.key1"));
+
+    DFSPropertiesConfiguration.addToGlobalProps("test.key2", "test.value2");
+    globals = DFSPropertiesConfiguration.getGlobalProps();
+    assertEquals("test.value1", globals.get("test.key1"));
+    assertEquals("test.value2", globals.get("test.key2"));
+    assertEquals(7, globals.size());
+
+    DFSPropertiesConfiguration.clearGlobalProps();
+    ENVIRONMENT_VARIABLES.clear(DFSPropertiesConfiguration.CONF_FILE_DIR_ENV_NAME);
+
+    result = DFSPropertiesConfiguration.addToGlobalProps("test.key3", "test.value3");
+    assertEquals("test.value3", result.get("test.key3"));
+    assertEquals(1, result.size());
+  }
 }

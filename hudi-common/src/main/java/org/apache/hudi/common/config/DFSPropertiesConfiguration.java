@@ -43,6 +43,7 @@ import java.net.URISyntaxException;
 import java.net.URL;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * A simplified versions of Apache commons - PropertiesConfiguration, that supports limited field types and hierarchical
@@ -63,8 +64,13 @@ public class DFSPropertiesConfiguration {
   public static final String DEFAULT_CONF_FILE_DIR = "file:/etc/hudi/conf";
   public static final Path DEFAULT_PATH = new Path(DEFAULT_CONF_FILE_DIR + "/" + DEFAULT_PROPERTIES_FILE);
 
-  // props read from hudi-defaults.conf
-  private static TypedProperties GLOBAL_PROPS = loadGlobalProps();
+  /**
+   * Holder class for lazy initialization of global properties.
+   * Initialized on first access to avoid exceptions during class loading.
+   */
+  private static class GlobalPropsHolder {
+    static final AtomicReference<TypedProperties> INSTANCE = new AtomicReference<>(null);
+  }
 
   @Nullable
   private final Configuration hadoopConfig;
@@ -127,11 +133,12 @@ public class DFSPropertiesConfiguration {
   }
 
   public static void refreshGlobalProps() {
-    GLOBAL_PROPS = loadGlobalProps();
+    TypedProperties fresh = loadGlobalProps();
+    GlobalPropsHolder.INSTANCE.set(fresh);
   }
 
   public static void clearGlobalProps() {
-    GLOBAL_PROPS = new TypedProperties();
+    GlobalPropsHolder.INSTANCE.set(new TypedProperties());
   }
 
   /**
@@ -200,15 +207,32 @@ public class DFSPropertiesConfiguration {
   }
 
   public static TypedProperties getGlobalProps() {
-    final TypedProperties globalProps = new TypedProperties();
-    globalProps.putAll(GLOBAL_PROPS);
-    return globalProps;
+    TypedProperties props = GlobalPropsHolder.INSTANCE.get();
+
+    if (props == null) {
+      TypedProperties loaded = loadGlobalProps();
+      if (GlobalPropsHolder.INSTANCE.compareAndSet(null, loaded)) {
+        LOG.info("Loaded global properties from configuration");
+      }
+      props = GlobalPropsHolder.INSTANCE.get();
+    }
+
+    final TypedProperties copy = new TypedProperties();
+    copy.putAll(props);
+    return copy;
   }
 
   // test only
   public static TypedProperties addToGlobalProps(String key, String value) {
-    GLOBAL_PROPS.put(key, value);
-    return GLOBAL_PROPS;
+    if (GlobalPropsHolder.INSTANCE.get() == null) {
+      getGlobalProps();
+    }
+    TypedProperties current = GlobalPropsHolder.INSTANCE.get();
+    TypedProperties updated = new TypedProperties();
+    updated.putAll(current);
+    updated.put(key, value);
+    GlobalPropsHolder.INSTANCE.set(updated);
+    return updated;
   }
 
   public TypedProperties getProps() {
