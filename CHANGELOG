@@ -1064,3 +1064,10 @@ f5824e51ca7 [ENG-28779][INTERNAL] Add parallelism configs to AwsGlueSync (#1428)
 --- [2025-12-06 16:03:52] [release-v1.188.0] ---
 [ENG-33019][14357]  Reduce log volume by changing per-file and per-block logs to debug level (#1634)
 [AUDIT-1968]: Changelog for release-v1.187.0 (#1633)
+
+--- [2025-12-13 02:51:55] [release-v1.189.0] ---
+[ENG-35184][CHERRYPICK] Fix PR compliance check  (#1651)
+[ENG-34833] chore: Add SamplingLogger utility for reducing log volume while maintaining observability (#1637)
+[ENG-35134] fix: Lazily load the dfs properties configuration to avoid static initialization failures (#1649)
+[ENG-33019] Rename BaseInstantTime to LogFileInstantTime in log summary (#1650)
+[AUDIT-1071]: Changelog for release-v1.188.0 (#1647)
