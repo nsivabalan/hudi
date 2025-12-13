@@ -35,6 +35,7 @@ import org.apache.hudi.common.util.collection.Pair;
 
 import org.apache.hadoop.conf.Configuration;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
@@ -77,6 +78,13 @@ public final class HoodieLocalEngineContext extends HoodieEngineContext {
   @Override
   public <T> HoodieData<T> parallelize(List<T> data, int parallelism) {
     return HoodieListData.eager(data);
+  }
+
+  @Override
+  public <T> HoodieData<T> union(List<HoodieData<T>> dataList) {
+    List<T> allData = new ArrayList<>();
+    dataList.forEach(entry -> allData.addAll(entry.collectAsList()));
+    return HoodieListData.eager(allData);
   }
 
   @Override
