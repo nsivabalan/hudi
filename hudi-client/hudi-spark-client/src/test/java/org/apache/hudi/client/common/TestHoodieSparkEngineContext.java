@@ -105,6 +105,21 @@ class TestHoodieSparkEngineContext extends SparkClientFunctionalTestHarness {
     });
   }
 
+  @Test
+  public void testUnion() {
+    List<HoodieData<Integer>> dataList = new ArrayList<>();
+    for (int i = 0;i < 50;i++) {
+      dataList.add(context.parallelize(
+          IntStream.rangeClosed(i * 100, (i * 100) + 99).boxed().collect(Collectors.toList()), 6));
+    }
+
+    List<Integer> expected = context.parallelize(
+        IntStream.rangeClosed(0, 50 * 100 - 1).boxed().collect(Collectors.toList()), 6).collectAsList();
+
+    List<Integer> actual = context.union(dataList).collectAsList();
+    assertEquals(expected, actual);
+  }
+
   static class SerializablePairFlatMapTestFunc implements SerializablePairFlatMapFunction<Iterator<java.lang.Integer>, java.lang.Integer, java.lang.Integer> {
     @Override
     public Stream<Pair<Integer, Integer>> call(Iterator<Integer> t) throws Exception {

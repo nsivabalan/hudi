@@ -66,7 +66,7 @@ public class TestHoodieJavaRDD extends HoodieClientTestBase {
     rddData = rddData.coalesce(40);
     assertEquals(20, rddData.getNumPartitions());
   }
-  
+
   @Test
   void testMapPartitionsWithCloseable() {
     String partition1 = "partition1";
