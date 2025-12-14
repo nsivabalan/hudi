@@ -1071,3 +1071,7 @@ f5824e51ca7 [ENG-28779][INTERNAL] Add parallelism configs to AwsGlueSync (#1428)
 [ENG-35134] fix: Lazily load the dfs properties configuration to avoid static initialization failures (#1649)
 [ENG-33019] Rename BaseInstantTime to LogFileInstantTime in log summary (#1650)
 [AUDIT-1071]: Changelog for release-v1.188.0 (#1647)
+
+--- [2025-12-14 16:03:57] [release-v1.190.0] ---
+[ENG-35183] fix: Fixing unions for partitioned RLI bootstrap (#1653)
+[AUDIT-1071]: Changelog for release-v1.189.0 (#1652)
