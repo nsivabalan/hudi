@@ -584,6 +584,14 @@ public final class HoodieMetadataConfig extends HoodieConfig {
           + "honor the set value for number of tasks. If not, number of write status's from data "
           + "table writes will be used for metadata table record preparation");
 
+  public static final ConfigProperty<Boolean> ENABLE_FILE_SLICE_CACHE_OPTIMIZATION = ConfigProperty
+      .key(METADATA_PREFIX + ".file.slice.cache.optimization")
+      .defaultValue(true)
+      .markAdvanced()
+      .sinceVersion("0.14.2")
+      .withDocumentation("Enables cache for fetching latest file slice view. Would help RECORD_INDEX append "
+          + "handles at large scale (10000 file groups or more)");
+
   public long getMaxLogFileSize() {
     return getLong(MAX_LOG_FILE_SIZE_BYTES_PROP);
   }
@@ -889,6 +897,10 @@ public final class HoodieMetadataConfig extends HoodieConfig {
     return subIndexNameToDrop.contains(indexName);
   }
 
+  public boolean shouldEnableFileSliceCacheOptimization() {
+    return getBoolean(ENABLE_FILE_SLICE_CACHE_OPTIMIZATION);
+  }
+
   public static class Builder {
 
     private EngineType engineType = EngineType.SPARK;
@@ -1166,6 +1178,11 @@ public final class HoodieMetadataConfig extends HoodieConfig {
 
     public Builder withRepartitionDefaultPartitions(int defaultPartitions) {
       metadataConfig.setValue(REPARTITION_DEFAULT_PARTITIONS, String.valueOf(defaultPartitions));
+      return this;
+    }
+
+    public Builder withEnableFileSliceCacheOptimization(boolean shouldEnable) {
+      metadataConfig.setValue(ENABLE_FILE_SLICE_CACHE_OPTIMIZATION, Boolean.toString(shouldEnable));
       return this;
     }
 

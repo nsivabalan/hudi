@@ -244,7 +244,8 @@ public class HoodieMetadataWriteUtils {
         .withRecordMergeImplClasses(HoodieAvroRecordMerger.class.getCanonicalName())
         .withWriteRecordPositionsEnabled(false)
         .withWriteConcurrencyMode(concurrencyMode)
-        .withLockConfig(lockConfig);
+        .withLockConfig(lockConfig)
+        .withEnableFileSliceCacheOptimization(writeConfig.getMetadataConfig().shouldEnableFileSliceCacheOptimization());
 
     // RecordKey properties are needed for the metadata table records
     final Properties properties = new Properties();

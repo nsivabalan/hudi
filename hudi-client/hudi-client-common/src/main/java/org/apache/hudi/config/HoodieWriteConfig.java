@@ -919,6 +919,13 @@ public class HoodieWriteConfig extends HoodieConfig {
           + " or when using a custom Hoodie Concat Handle Implementation controlled by the config " + CONCAT_HANDLE_CLASS_NAME.key()
               + ", enabling this config results in fallback to the default implementations if instantiation of the custom implementation fails");
 
+  public static final ConfigProperty<Boolean> ENABLE_FILE_SLICE_CACHE_OPTIMIZATION = ConfigProperty
+      .key("hoodie.write.file.slice.cache.optimization")
+      .defaultValue(false)
+      .markAdvanced()
+      .sinceVersion("0.14.2")
+      .withDocumentation("Enables cache for fetching latest file slice view.");
+
   /**
    * Config key with boolean value that indicates whether record being written during MERGE INTO Spark SQL
    * operation are already prepped.
@@ -2957,6 +2964,10 @@ public class HoodieWriteConfig extends HoodieConfig {
     }
   }
 
+  public Boolean shouldEnableFileSliceCacheOptimization() {
+    return getBoolean(ENABLE_FILE_SLICE_CACHE_OPTIMIZATION);
+  }
+
   public static class Builder {
 
     protected final HoodieWriteConfig writeConfig = new HoodieWriteConfig();
@@ -3535,6 +3546,11 @@ public class HoodieWriteConfig extends HoodieConfig {
 
     public Builder withFileGroupReaderMergeHandleClassName(String className) {
       writeConfig.setValue(COMPACT_MERGE_HANDLE_CLASS_NAME, className);
+      return this;
+    }
+
+    public Builder withEnableFileSliceCacheOptimization(boolean enableFileSliceCacheOpt) {
+      writeConfig.setValue(ENABLE_FILE_SLICE_CACHE_OPTIMIZATION, Boolean.toString(enableFileSliceCacheOpt));
       return this;
     }
 

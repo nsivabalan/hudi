@@ -55,6 +55,7 @@ import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.ReflectionUtils;
 import org.apache.hudi.common.util.SizeEstimator;
 import org.apache.hudi.common.util.collection.Pair;
+import org.apache.hudi.common.util.collection.Triple;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.exception.HoodieAppendException;
 import org.apache.hudi.exception.HoodieException;
@@ -63,10 +64,12 @@ import org.apache.hudi.metadata.HoodieIndexVersion;
 import org.apache.hudi.metadata.HoodieTableMetadataUtil;
 import org.apache.hudi.stats.HoodieColumnRangeMetadata;
 import org.apache.hudi.storage.StoragePath;
+import org.apache.hudi.metadata.MetadataPartitionType;
 import org.apache.hudi.table.HoodieTable;
 import org.apache.hudi.util.CommonClientUtils;
 import org.apache.hudi.util.Lazy;
 
+import com.github.benmanes.caffeine.cache.LoadingCache;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -207,7 +210,7 @@ public class HoodieAppendHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O
       prevCommit = instantTime;
       if (hoodieTable.getMetaClient().getTableConfig().isCDCEnabled()) {
         // the cdc reader needs the base file metadata to have deterministic update sequence.
-        fileSlice = hoodieTable.getSliceView().getLatestFileSlice(partitionPath, fileId);
+        fileSlice = getLatestSliceView(hoodieTable.getSliceView(), partitionPath, fileId));
         if (fileSlice.isPresent()) {
           prevCommit = fileSlice.get().getBaseInstantTime();
           baseFile = fileSlice.get().getBaseFile().map(BaseFile::getFileName).orElse("");
@@ -216,7 +219,7 @@ public class HoodieAppendHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O
       }
     } else {
       // older table versions.
-      fileSlice = hoodieTable.getSliceView().getLatestFileSlice(partitionPath, fileId);
+      fileSlice =  getLatestSliceView(hoodieTable.getSliceView(), partitionPath, fileId));
       if (fileSlice.isPresent()) {
         prevCommit = fileSlice.get().getBaseInstantTime();
         baseFile = fileSlice.get().getBaseFile().map(BaseFile::getFileName).orElse("");
@@ -285,6 +288,15 @@ public class HoodieAppendHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O
       }
     }
     return instantTime;
+  }
+
+  private Option<FileSlice> getLatestSliceView(TableFileSystemView.SliceView sliceView, String partitionPath, String fileId) {
+    if (hoodieTable.isMetadataTable() && config.shouldEnableFileSliceCacheOptimization() && partitionPath.equals(MetadataPartitionType.RECORD_INDEX.getPartitionPath())) {
+      LoadingCache<Triple<String, String, String>, Option<org.apache.hudi.common.model.FileSlice>> latestFileSliceCache = LatestFileSliceCache.getCache(sliceView);
+      return latestFileSliceCache.get(Triple.of(partitionPath, fileId, instantTime));
+    } else {
+      return sliceView.getLatestFileSlice(partitionPath, fileId);
+    }
   }
 
   /**
