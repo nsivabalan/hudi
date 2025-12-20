@@ -887,6 +887,13 @@ public class HoodieWriteConfig extends HoodieConfig {
       .sinceVersion("0.15.1")
       .withDocumentation("Freeze the options to be used for the write. This is useful to prevent options from being overwritten.");
 
+  public static final ConfigProperty<Boolean> ENABLE_FILE_SLICE_CACHE_OPTIMIZATION = ConfigProperty
+      .key("hoodie.write.file.slice.cache.optimization")
+      .defaultValue(false)
+      .markAdvanced()
+      .sinceVersion("0.14.2")
+      .withDocumentation("Enables cache for fetching latest file slice view.");
+
   /**
    * Config key with boolean value that indicates whether record being written during MERGE INTO Spark SQL
    * operation are already prepped.
@@ -2827,6 +2834,10 @@ public class HoodieWriteConfig extends HoodieConfig {
     return getBoolean(ENABLE_TIMESTAMP_ORDERING_VALIDATION);
   }
 
+  public Boolean shouldEnableFileSliceCacheOptimization() {
+    return getBoolean(ENABLE_FILE_SLICE_CACHE_OPTIMIZATION);
+  }
+
   public static class Builder {
 
     protected final HoodieWriteConfig writeConfig = new HoodieWriteConfig();
@@ -3373,6 +3384,11 @@ public class HoodieWriteConfig extends HoodieConfig {
 
     public Builder withConcatHandleClassName(String className) {
       writeConfig.setValue(CONCAT_HANDLE_CLASS_NAME, className);
+      return this;
+    }
+
+    public Builder withEnableFileSliceCacheOptimization(boolean enableFileSliceCacheOpt) {
+      writeConfig.setValue(ENABLE_FILE_SLICE_CACHE_OPTIMIZATION, Boolean.toString(enableFileSliceCacheOpt));
       return this;
     }
 

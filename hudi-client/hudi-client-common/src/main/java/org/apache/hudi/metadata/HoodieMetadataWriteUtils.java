@@ -155,7 +155,8 @@ public class HoodieMetadataWriteUtils {
         .withKeyGenerator(HoodieTableMetadataKeyGenerator.class.getCanonicalName())
         .withPopulateMetaFields(DEFAULT_METADATA_POPULATE_META_FIELDS)
         .withWriteStatusClass(FailOnFirstErrorWriteStatus.class)
-        .withReleaseResourceEnabled(writeConfig.areReleaseResourceEnabled());
+        .withReleaseResourceEnabled(writeConfig.areReleaseResourceEnabled())
+        .withEnableFileSliceCacheOptimization(writeConfig.getMetadataConfig().shouldEnableFileSliceCacheOptimization());
 
     // RecordKey properties are needed for the metadata table records
     final Properties properties = new Properties();

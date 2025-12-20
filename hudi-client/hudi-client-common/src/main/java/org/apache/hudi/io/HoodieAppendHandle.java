@@ -50,12 +50,16 @@ import org.apache.hudi.common.util.DefaultSizeEstimator;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.ReflectionUtils;
 import org.apache.hudi.common.util.SizeEstimator;
+import org.apache.hudi.common.util.collection.Pair;
+import org.apache.hudi.common.util.collection.Triple;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.exception.HoodieAppendException;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieUpsertException;
+import org.apache.hudi.metadata.MetadataPartitionType;
 import org.apache.hudi.table.HoodieTable;
 
+import com.github.benmanes.caffeine.cache.LoadingCache;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.IndexedRecord;
 import org.apache.hadoop.fs.Path;
@@ -164,8 +168,7 @@ public class HoodieAppendHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O
   private void init(HoodieRecord record) {
     if (doInit) {
       // extract some information from the first record
-      SliceView rtView = hoodieTable.getSliceView();
-      Option<FileSlice> fileSlice = rtView.getLatestFileSlice(partitionPath, fileId);
+      Option<FileSlice> fileSlice = getLatestSliceView(hoodieTable.getSliceView(), partitionPath,fileId);
       // Set the base commit time as the current instantTime for new inserts into log files
       String baseInstantTime;
       String baseFile = "";
@@ -213,6 +216,15 @@ public class HoodieAppendHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O
             + instantTime + " on HDFS path " + hoodieTable.getMetaClient().getBasePath() + "/" + partitionPath, e);
       }
       doInit = false;
+    }
+  }
+
+  private Option<FileSlice> getLatestSliceView(SliceView sliceView, String partitionPath, String fileId) {
+    if (hoodieTable.isMetadataTable() && config.shouldEnableFileSliceCacheOptimization() && partitionPath.equals(MetadataPartitionType.RECORD_INDEX.getPartitionPath())) {
+      LoadingCache<Triple<String, String, String>, Option<org.apache.hudi.common.model.FileSlice>> latestFileSliceCache = LatestFileSliceCache.getCache(sliceView);
+      return latestFileSliceCache.get(Triple.of(partitionPath, fileId, instantTime));
+    } else {
+      return sliceView.getLatestFileSlice(partitionPath, fileId);
     }
   }
 
