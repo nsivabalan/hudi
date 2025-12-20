@@ -210,7 +210,7 @@ public class HoodieAppendHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O
       prevCommit = instantTime;
       if (hoodieTable.getMetaClient().getTableConfig().isCDCEnabled()) {
         // the cdc reader needs the base file metadata to have deterministic update sequence.
-        fileSlice = getLatestSliceView(hoodieTable.getSliceView(), partitionPath, fileId));
+        fileSlice = getLatestSliceView(hoodieTable.getSliceView(), partitionPath, fileId);
         if (fileSlice.isPresent()) {
           prevCommit = fileSlice.get().getBaseInstantTime();
           baseFile = fileSlice.get().getBaseFile().map(BaseFile::getFileName).orElse("");
@@ -219,7 +219,7 @@ public class HoodieAppendHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O
       }
     } else {
       // older table versions.
-      fileSlice =  getLatestSliceView(hoodieTable.getSliceView(), partitionPath, fileId));
+      fileSlice =  getLatestSliceView(hoodieTable.getSliceView(), partitionPath, fileId);
       if (fileSlice.isPresent()) {
         prevCommit = fileSlice.get().getBaseInstantTime();
         baseFile = fileSlice.get().getBaseFile().map(BaseFile::getFileName).orElse("");
@@ -292,10 +292,16 @@ public class HoodieAppendHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O
 
   private Option<FileSlice> getLatestSliceView(TableFileSystemView.SliceView sliceView, String partitionPath, String fileId) {
     if (hoodieTable.isMetadataTable() && config.shouldEnableFileSliceCacheOptimization() && partitionPath.equals(MetadataPartitionType.RECORD_INDEX.getPartitionPath())) {
+      long startTime = System.currentTimeMillis();
       LoadingCache<Triple<String, String, String>, Option<org.apache.hudi.common.model.FileSlice>> latestFileSliceCache = LatestFileSliceCache.getCache(sliceView);
-      return latestFileSliceCache.get(Triple.of(partitionPath, fileId, instantTime));
+      Option<FileSlice> toReturn = latestFileSliceCache.get(Triple.of(partitionPath, fileId, instantTime));
+      LOG.warn("[Cached] Total time to fetch latest file slice " + (System.currentTimeMillis() - startTime) + ", for " + partitionPath + ", " + fileId);
+      return toReturn;
     } else {
-      return sliceView.getLatestFileSlice(partitionPath, fileId);
+      long startTime = System.currentTimeMillis();
+      Option<FileSlice> toReturn = sliceView.getLatestFileSlice(partitionPath, fileId);
+      LOG.warn("Total time to fetch latest file slice " + (System.currentTimeMillis() - startTime) + ", for " + partitionPath + ", " + fileId);
+      return toReturn;
     }
   }
 
