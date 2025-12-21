@@ -586,7 +586,7 @@ public final class HoodieMetadataConfig extends HoodieConfig {
 
   public static final ConfigProperty<Boolean> ENABLE_FILE_SLICE_CACHE_OPTIMIZATION = ConfigProperty
       .key(METADATA_PREFIX + ".file.slice.cache.optimization")
-      .defaultValue(true)
+      .defaultValue(false)
       .markAdvanced()
       .sinceVersion("0.14.2")
       .withDocumentation("Enables cache for fetching latest file slice view. Would help RECORD_INDEX append "
