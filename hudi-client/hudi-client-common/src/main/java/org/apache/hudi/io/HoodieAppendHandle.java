@@ -69,6 +69,7 @@ import org.apache.hudi.table.HoodieTable;
 import org.apache.hudi.util.CommonClientUtils;
 import org.apache.hudi.util.Lazy;
 
+import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -86,6 +87,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static org.apache.hudi.metadata.HoodieTableMetadataUtil.PARTITION_NAME_COLUMN_STATS;
@@ -293,8 +295,14 @@ public class HoodieAppendHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O
   private Option<FileSlice> getLatestSliceView(TableFileSystemView.SliceView sliceView, String partitionPath, String fileId) {
     if (hoodieTable.isMetadataTable() && config.shouldEnableFileSliceCacheOptimization() && partitionPath.equals(MetadataPartitionType.RECORD_INDEX.getPartitionPath())) {
       long startTime = System.currentTimeMillis();
-      LoadingCache<Triple<String, String, String>, Option<org.apache.hudi.common.model.FileSlice>> latestFileSliceCache = LatestFileSliceCache.getCache(sliceView);
-      Option<FileSlice> toReturn = latestFileSliceCache.get(Triple.of(partitionPath, fileId, instantTime));
+      Cache<Triple<String, String, String>, Option<FileSlice>> latestFileSliceCache = LatestFileSliceCache.getCache(sliceView, instantTime);
+      Option<FileSlice> toReturn = latestFileSliceCache.get(Triple.of(partitionPath, fileId, instantTime), new Function<Triple<String, String, String>, Option<FileSlice>>() {
+        @Override
+        public Option<FileSlice> apply(Triple<String, String, String> stringStringStringTriple) {
+          throw new HoodieException("Failed to fetch cache entry for " + stringStringStringTriple.getLeft() + ", " + stringStringStringTriple.getMiddle()
+              + ", " + stringStringStringTriple.getRight());
+        }
+      });
       LOG.warn("[Cached] Total time to fetch latest file slice " + (System.currentTimeMillis() - startTime) + ", for " + partitionPath + ", " + fileId);
       return toReturn;
     } else {

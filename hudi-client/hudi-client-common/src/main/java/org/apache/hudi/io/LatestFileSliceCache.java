@@ -41,7 +41,9 @@ import org.apache.hudi.common.table.view.TableFileSystemView;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.collection.Triple;
 import org.apache.hudi.exception.HoodieException;
+import org.apache.hudi.metadata.MetadataPartitionType;
 
+import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
@@ -52,80 +54,37 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.time.temporal.ChronoUnit;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class LatestFileSliceCache {
   private static final Logger LOG = LoggerFactory.getLogger(LatestFileSliceCache.class);
 
-  private static LoadingCache<Triple<String, String, String>, Option<FileSlice>> LATEST_FILE_SLICE_CACHE = null;
-  private static Map<Triple<String, String, String>, Option<FileSlice>> LATEST_MERGED_FILE_SLICES = new ConcurrentHashMap<>();
-  private static Set<String> instantTimes = new HashSet<>();
+  private static String RLI_PARTITION_PATH = MetadataPartitionType.RECORD_INDEX.getPartitionPath();
+  private static AtomicReference<Cache<Triple<String, String, String>, Option<FileSlice>>> LATEST_FILE_SLICE_CACHE = null;
+  private static String INSTANT_TIME_CACHED = null;
 
-  public static LoadingCache<Triple<String, String, String>, Option<FileSlice>> getCache(TableFileSystemView.SliceView sliceView) {
-    if (LATEST_FILE_SLICE_CACHE == null) {
+  public static Cache<Triple<String, String, String>, Option<FileSlice>> getCache(TableFileSystemView.SliceView sliceView, String instantTime) {
+    if (LATEST_FILE_SLICE_CACHE == null || INSTANT_TIME_CACHED == null || (!INSTANT_TIME_CACHED.equals(instantTime))) {
       synchronized (LatestFileSliceCache.class) {
-        LATEST_FILE_SLICE_CACHE = Caffeine.newBuilder()
-            .weakValues()
-            .maximumSize(100000)
-            .expireAfterWrite(Duration.of(30, ChronoUnit.MINUTES))
-            .build(new LatestFileSliceCacheLoader(sliceView, LATEST_MERGED_FILE_SLICES, instantTimes));
-      }
-    }
-    return LATEST_FILE_SLICE_CACHE;
-  }
-}
-
-class LatestFileSliceCacheLoader implements CacheLoader<Triple<String, String, String>, Option<FileSlice>> {
-  private static final Logger LOG = LoggerFactory.getLogger(LatestFileSliceCacheLoader.class);
-  private TableFileSystemView.SliceView sliceView;
-  private Map<Triple<String, String, String>, Option<FileSlice>> latestMergedFileSlices;
-  private Set<String> instantTimes;
-
-  public LatestFileSliceCacheLoader(TableFileSystemView.SliceView sliceView,
-                                    Map<Triple<String, String, String>, Option<FileSlice>> latestMergedFileSlices,
-                                    Set<String> instantTimes) {
-    this.sliceView = sliceView;
-    this.latestMergedFileSlices = latestMergedFileSlices;
-    this.instantTimes = instantTimes;
-  }
-
-  @Override
-  public @Nullable Option<FileSlice> load(@NonNull Triple<String, String, String> key) throws Exception {
-    if (instantTimes.contains(key.getRight())) {
-      // should definitely be part of local cache.
-      if (latestMergedFileSlices.containsKey(key)) {
-        // return cached entry
-        return latestMergedFileSlices.get(key);
-      } else {
-        LOG.warn("Instant found, but latest file slice not found " + key.getMiddle() + ", Entering waiting loop");
-        long waitedSoFar = 0;
-        while ((waitedSoFar < 1000 * 60 * 5) && !latestMergedFileSlices.containsKey(key)) {
-          Thread.sleep(1000 * 30);
-          waitedSoFar += 1000 * 30;
-        }
-        if (latestMergedFileSlices.containsKey(key)) {
-          LOG.warn("Latest file slice populated in " + waitedSoFar + " ms for " + key.getMiddle());
-          return latestMergedFileSlices.get(key);
+        if (LATEST_FILE_SLICE_CACHE == null || INSTANT_TIME_CACHED == null || (!INSTANT_TIME_CACHED.equals(instantTime))) {
+          LOG.warn("Instantiating new LATEST_FILE_SLICE_CACHE");
+          LATEST_FILE_SLICE_CACHE = new AtomicReference<>(Caffeine.newBuilder()
+              .maximumSize(100000)
+              .expireAfterWrite(Duration.of(360, ChronoUnit.MINUTES))
+              .build());
+          LOG.warn("Populating entries into Latest file slice cache with instant time " + instantTime + " : Started ");
+          // populate cache w/ latest file slice for all file groups
+          sliceView.getLatestMergedFileSlicesBeforeOrOn(RLI_PARTITION_PATH, instantTime).forEach(fileSlice -> {
+            LOG.warn("     " + RLI_PARTITION_PATH + ", file slice for "+ fileSlice.getFileId() +" being added to cache");
+            LATEST_FILE_SLICE_CACHE.get().put(Triple.of(RLI_PARTITION_PATH, fileSlice.getFileId(), instantTime), Option.of(fileSlice));
+          });
+          INSTANT_TIME_CACHED = instantTime;
+          LOG.warn("Populating entries into Latest file slice cache with instant time " + instantTime + " : Completed. Total entries " + LATEST_FILE_SLICE_CACHE.get().estimatedSize());
         } else {
-          // not reachable
-          throw new HoodieException("Instant time {" + key.getRight() + "} is cached, but no file slice found for " + key.getLeft() + ", " + key.getMiddle()
-              + ", even after waiting for " + waitedSoFar);
+          LOG.warn("Within sync block. but looks like already some other task populated the entries. Skipping to populate entries. Total entries " + LATEST_FILE_SLICE_CACHE.get().estimatedSize());
         }
       }
     }
-    synchronized (LatestFileSliceCacheLoader.class) {
-      // if not part of instant time, we need to load from FSV and populate the cache.
-      // clear cache.
-      instantTimes.clear();
-      latestMergedFileSlices.clear();
-      sliceView.getLatestMergedFileSlicesBeforeOrOn(key.getLeft(), key.getRight()).forEach(fileSlice -> {
-        latestMergedFileSlices.put(Triple.of(key.getLeft(), fileSlice.getFileId(), key.getRight()), Option.of(fileSlice));
-      });
-      instantTimes.add(key.getRight());
-      return latestMergedFileSlices.get(key);
-    }
+    return LATEST_FILE_SLICE_CACHE.get();
   }
 }
