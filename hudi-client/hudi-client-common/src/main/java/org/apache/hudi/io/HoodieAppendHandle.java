@@ -302,12 +302,12 @@ public class HoodieAppendHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O
               + ", " + stringStringStringTriple.getRight());
         }
       });
-      LOG.warn("Total time to fetch latest file slice potentially cached" + (System.currentTimeMillis() - startTime) + ", for " + partitionPath + ", " + fileId);
+      LOG.info("Total time to fetch latest file slice potentially cached" + (System.currentTimeMillis() - startTime) + ", for " + partitionPath + ", " + fileId);
       return toReturn;
     } else {
       long startTime = System.currentTimeMillis();
       Option<FileSlice> toReturn = sliceView.getLatestFileSlice(partitionPath, fileId);
-      LOG.warn("Total time to fetch latest file slice " + (System.currentTimeMillis() - startTime) + ", for " + partitionPath + ", " + fileId);
+      LOG.info("Total time to fetch latest file slice " + (System.currentTimeMillis() - startTime) + ", for " + partitionPath + ", " + fileId);
       return toReturn;
     }
   }
