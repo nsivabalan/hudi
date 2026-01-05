@@ -70,7 +70,6 @@ import org.apache.hudi.util.CommonClientUtils;
 import org.apache.hudi.util.Lazy;
 
 import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.LoadingCache;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -303,7 +302,7 @@ public class HoodieAppendHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O
               + ", " + stringStringStringTriple.getRight());
         }
       });
-      LOG.warn("[Cached] Total time to fetch latest file slice " + (System.currentTimeMillis() - startTime) + ", for " + partitionPath + ", " + fileId);
+      LOG.warn("Total time to fetch latest file slice potentially cached" + (System.currentTimeMillis() - startTime) + ", for " + partitionPath + ", " + fileId);
       return toReturn;
     } else {
       long startTime = System.currentTimeMillis();

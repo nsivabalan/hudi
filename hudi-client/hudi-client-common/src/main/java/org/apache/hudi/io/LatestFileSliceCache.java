@@ -40,15 +40,10 @@ import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.table.view.TableFileSystemView;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.collection.Triple;
-import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.metadata.MetadataPartitionType;
 
 import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import com.github.benmanes.caffeine.cache.LoadingCache;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -56,6 +51,11 @@ import java.time.Duration;
 import java.time.temporal.ChronoUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
+/**
+ * File slice cache for Latest file slice. This is mainly used for RLI partition in Metadata table so that each task pertaining to RLI file group
+ * don't need to build the FileSystemView repeatedly. Here, the latest file slice for each file group is populated just once upfront, shared by the same jvm and is used
+ * by different tasks being spun up in the same node.
+ */
 public class LatestFileSliceCache {
   private static final Logger LOG = LoggerFactory.getLogger(LatestFileSliceCache.class);
 
@@ -67,21 +67,20 @@ public class LatestFileSliceCache {
     if (LATEST_FILE_SLICE_CACHE == null || INSTANT_TIME_CACHED == null || (!INSTANT_TIME_CACHED.equals(instantTime))) {
       synchronized (LatestFileSliceCache.class) {
         if (LATEST_FILE_SLICE_CACHE == null || INSTANT_TIME_CACHED == null || (!INSTANT_TIME_CACHED.equals(instantTime))) {
-          LOG.warn("Instantiating new LATEST_FILE_SLICE_CACHE");
+          LOG.warn("Instantiating LatestFileSliceCache");
           LATEST_FILE_SLICE_CACHE = new AtomicReference<>(Caffeine.newBuilder()
               .maximumSize(100000)
-              .expireAfterWrite(Duration.of(360, ChronoUnit.MINUTES))
+              .expireAfterWrite(Duration.of(120, ChronoUnit.MINUTES))
               .build());
-          LOG.warn("Populating entries into Latest file slice cache with instant time " + instantTime + " : Started ");
+          LOG.warn("Populating entries into Latest file slice cache with instant time {} : Started ", instantTime);
           // populate cache w/ latest file slice for all file groups
           sliceView.getLatestMergedFileSlicesBeforeOrOn(RLI_PARTITION_PATH, instantTime).forEach(fileSlice -> {
-            LOG.warn("     " + RLI_PARTITION_PATH + ", file slice for "+ fileSlice.getFileId() +" being added to cache");
             LATEST_FILE_SLICE_CACHE.get().put(Triple.of(RLI_PARTITION_PATH, fileSlice.getFileId(), instantTime), Option.of(fileSlice));
           });
           INSTANT_TIME_CACHED = instantTime;
-          LOG.warn("Populating entries into Latest file slice cache with instant time " + instantTime + " : Completed. Total entries " + LATEST_FILE_SLICE_CACHE.get().estimatedSize());
+          LOG.warn("Populating entries into Latest file slice cache with instant time {} : Completed. Total entries {}", instantTime, LATEST_FILE_SLICE_CACHE.get().estimatedSize());
         } else {
-          LOG.warn("Within sync block. but looks like already some other task populated the entries. Skipping to populate entries. Total entries " + LATEST_FILE_SLICE_CACHE.get().estimatedSize());
+          LOG.warn("Already some other concurrent task populated the entries. Hence, skipping to populate entries. Total entries " + LATEST_FILE_SLICE_CACHE.get().estimatedSize());
         }
       }
     }

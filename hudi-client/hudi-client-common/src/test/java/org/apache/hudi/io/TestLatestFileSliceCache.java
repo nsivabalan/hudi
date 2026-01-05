@@ -21,13 +21,17 @@ package org.apache.hudi.io;
 import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.table.view.TableFileSystemView;
 import org.apache.hudi.common.util.Option;
-import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.common.util.collection.Triple;
+import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.metadata.MetadataPartitionType;
 
-import com.github.benmanes.caffeine.cache.LoadingCache;
+import com.github.benmanes.caffeine.cache.Cache;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
@@ -35,75 +39,67 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/*
+
+ */
 public class TestLatestFileSliceCache {
 
+  private static String RLI_PARTITION_PATH = MetadataPartitionType.RECORD_INDEX.getPartitionPath();
   private static final String FILEID1 = "fileId1";
   private static final String FILEID2 = "fileId2";
   private static final String FILEID3 = "fileId3";
   private static final String FILEID4 = "fileId4";
-  private static final String FILEID5 = "fileId5";
-  private static final String FILEID6 = "fileId6";
-  private FileSlice fileSlice_p1_fileID1;
-  private FileSlice fileSlice_p1_fileID2;
-  private FileSlice fileSlice_p2_fileID3;
-  private FileSlice fileSlice_p2_fileID4;
-  private FileSlice fileSlice_p3_fileID5;
-  private FileSlice fileSlice_p3_fileID6;
+  private FileSlice fileSliceP1FileId1;
+  private FileSlice fileSliceP1FileId2;
+  private FileSlice fileSliceP1FileId3;
+  private FileSlice fileSliceP1FileId4;
+  private final List<FileSlice> latestFileSlices = new ArrayList<>();
 
   private TableFileSystemView.SliceView sliceView;
 
   @BeforeEach
   public void setUp() {
     sliceView = mock(TableFileSystemView.SliceView.class);
-    fileSlice_p1_fileID1 = new FileSlice(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), "000111", FILEID1);
-    when(sliceView.getLatestFileSlice(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), FILEID1)).thenReturn(Option.of(fileSlice_p1_fileID1));
-    fileSlice_p1_fileID2 = new FileSlice(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), "000111", FILEID2);
-    when(sliceView.getLatestFileSlice(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), FILEID2)).thenReturn(Option.of(fileSlice_p1_fileID2));
-    fileSlice_p2_fileID3 = new FileSlice(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), "000111", FILEID3);
-    when(sliceView.getLatestFileSlice(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), FILEID3)).thenReturn(Option.of(fileSlice_p2_fileID3));
-    fileSlice_p2_fileID4 = new FileSlice(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), "000111", FILEID4);
-    when(sliceView.getLatestFileSlice(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), FILEID4)).thenReturn(Option.of(fileSlice_p2_fileID4));
-    fileSlice_p3_fileID5 = new FileSlice(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), "000111", FILEID5);
-    when(sliceView.getLatestFileSlice(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), FILEID5)).thenReturn(Option.of(fileSlice_p3_fileID5));
-    fileSlice_p3_fileID6 = new FileSlice(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), "000111", FILEID6);
-    when(sliceView.getLatestFileSlice(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), FILEID6)).thenReturn(Option.of(fileSlice_p3_fileID6));
+    fileSliceP1FileId1 = new FileSlice(RLI_PARTITION_PATH, "000111", FILEID1);
+    fileSliceP1FileId2 = new FileSlice(RLI_PARTITION_PATH, "000111", FILEID2);
+    fileSliceP1FileId3 = new FileSlice(RLI_PARTITION_PATH, "000111", FILEID3);
+    fileSliceP1FileId4 = new FileSlice(RLI_PARTITION_PATH, "000111", FILEID4);
+    latestFileSlices.add(fileSliceP1FileId1);
+    latestFileSlices.add(fileSliceP1FileId2);
+    latestFileSlices.add(fileSliceP1FileId3);
+    latestFileSlices.add(fileSliceP1FileId4);
+    when(sliceView.getLatestMergedFileSlicesBeforeOrOn(RLI_PARTITION_PATH, "000111")).thenReturn(latestFileSlices.stream());
   }
 
-  /*@Test
+  @Test
   public void testLatestFileSliceCache() {
-    LoadingCache<Triple<String, String, String>, Option<FileSlice>> latestFileSliceCache = LatestFileSliceCache.getCache(sliceView, "0001");
-    for (int i=0;i < 3;i++) {
-      assertEquals(Option.of(fileSlice_p1_fileID1), latestFileSliceCache.get(Triple.of(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), FILEID1, "0001")));
-      assertEquals(Option.of(fileSlice_p1_fileID2), latestFileSliceCache.get(Triple.of(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), FILEID2, "0001")));
-      assertEquals(Option.of(fileSlice_p2_fileID3), latestFileSliceCache.get(Triple.of(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), FILEID3, "0001")));
-      assertEquals(Option.of(fileSlice_p2_fileID4), latestFileSliceCache.get(Triple.of(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), FILEID4, "0001")));
-      assertEquals(Option.of(fileSlice_p3_fileID5), latestFileSliceCache.get(Triple.of(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), FILEID5, "0001")));
-      assertEquals(Option.of(fileSlice_p3_fileID6), latestFileSliceCache.get(Triple.of(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), FILEID6, "0001")));
+    Cache<Triple<String, String, String>, Option<FileSlice>> latestFileSliceCache = LatestFileSliceCache.getCache(sliceView, "000111");
+
+    for (int i = 0; i < 3; i++) {
+      assertEquals(Option.of(fileSliceP1FileId1), latestFileSliceCache.get(Triple.of(RLI_PARTITION_PATH, FILEID1, "000111"), new FailingLoader()));
+      assertEquals(Option.of(fileSliceP1FileId2), latestFileSliceCache.get(Triple.of(RLI_PARTITION_PATH, FILEID2, "000111"), new FailingLoader()));
+      assertEquals(Option.of(fileSliceP1FileId3), latestFileSliceCache.get(Triple.of(RLI_PARTITION_PATH, FILEID3, "000111"), new FailingLoader()));
+      assertEquals(Option.of(fileSliceP1FileId4), latestFileSliceCache.get(Triple.of(RLI_PARTITION_PATH, FILEID4, "000111"), new FailingLoader()));
     }
 
-    verify(sliceView, times(1)).getLatestFileSlice(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), FILEID1);
-    verify(sliceView, times(1)).getLatestFileSlice(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), FILEID2);
-    verify(sliceView, times(1)).getLatestFileSlice(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), FILEID3);
-    verify(sliceView, times(1)).getLatestFileSlice(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), FILEID4);
-    verify(sliceView, times(1)).getLatestFileSlice(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), FILEID5);
-    verify(sliceView, times(1)).getLatestFileSlice(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), FILEID6);
+    verify(sliceView, times(1)).getLatestMergedFileSlicesBeforeOrOn(RLI_PARTITION_PATH, "000111");
 
+    when(sliceView.getLatestMergedFileSlicesBeforeOrOn(RLI_PARTITION_PATH, "000222")).thenReturn(latestFileSlices.stream());
+    latestFileSliceCache = LatestFileSliceCache.getCache(sliceView, "000222");
     // if instant time changes, cached entry will be ignored
-    latestFileSliceCache = LatestFileSliceCache.getCache(sliceView, "0002");
-    for (int i=0;i < 3;i++) {
-      assertEquals(Option.of(fileSlice_p1_fileID1), latestFileSliceCache.get(Triple.of(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), FILEID1, "0002")));
-      assertEquals(Option.of(fileSlice_p1_fileID2), latestFileSliceCache.get(Triple.of(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), FILEID2, "0002")));
-      assertEquals(Option.of(fileSlice_p2_fileID3), latestFileSliceCache.get(Triple.of(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), FILEID3, "0002")));
-      assertEquals(Option.of(fileSlice_p2_fileID4), latestFileSliceCache.get(Triple.of(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), FILEID4, "0002")));
-      assertEquals(Option.of(fileSlice_p3_fileID5), latestFileSliceCache.get(Triple.of(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), FILEID5, "0002")));
-      assertEquals(Option.of(fileSlice_p3_fileID6), latestFileSliceCache.get(Triple.of(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), FILEID6, "0002")));
+    for (int i = 0; i < 3; i++) {
+      assertEquals(Option.of(fileSliceP1FileId1), latestFileSliceCache.get(Triple.of(RLI_PARTITION_PATH, FILEID1, "000222"), new FailingLoader()));
+      assertEquals(Option.of(fileSliceP1FileId2), latestFileSliceCache.get(Triple.of(RLI_PARTITION_PATH, FILEID2, "000222"), new FailingLoader()));
+      assertEquals(Option.of(fileSliceP1FileId3), latestFileSliceCache.get(Triple.of(RLI_PARTITION_PATH, FILEID3, "000222"), new FailingLoader()));
+      assertEquals(Option.of(fileSliceP1FileId4), latestFileSliceCache.get(Triple.of(RLI_PARTITION_PATH, FILEID4, "000222"), new FailingLoader()));
     }
+    verify(sliceView, times(1)).getLatestMergedFileSlicesBeforeOrOn(RLI_PARTITION_PATH, "000222");
+  }
 
-    verify(sliceView, times(2)).getLatestFileSlice(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), FILEID1);
-    verify(sliceView, times(2)).getLatestFileSlice(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), FILEID2);
-    verify(sliceView, times(2)).getLatestFileSlice(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), FILEID3);
-    verify(sliceView, times(2)).getLatestFileSlice(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), FILEID4);
-    verify(sliceView, times(2)).getLatestFileSlice(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), FILEID5);
-    verify(sliceView, times(2)).getLatestFileSlice(MetadataPartitionType.RECORD_INDEX.getPartitionPath(), FILEID6);
-  }*/
+  static class FailingLoader implements Function<Triple<String, String, String>, Option<FileSlice>> {
+    @Override
+    public Option<FileSlice> apply(Triple<String, String, String> stringStringStringTriple) {
+      throw new HoodieException("All entries in cache should have already been populated. Unreachable code.");
+    }
+  }
 }
