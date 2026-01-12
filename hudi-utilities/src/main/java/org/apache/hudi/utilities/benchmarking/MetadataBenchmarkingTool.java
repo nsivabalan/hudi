@@ -224,16 +224,16 @@ public class MetadataBenchmarkingTool implements Closeable {
     @Parameter(names = {"--table-base-path", "-tbp"}, description = "Base path for the Hudi table", required = true)
     public String tableBasePath = null;
 
-    @Parameter(names = {"--num-cols-to-index", "-num-cols"}, description = "Number of columns to index (1 for tenantID, 2 for tenantID & age)", required = true)
+    @Parameter(names = {"--num-cols-to-index", "-num-cols"}, description = "Number of columns to index (1 for tenantID, 2 for tenantID & age)", required = false)
     public Integer numColumnsToIndex = 1;
 
-    @Parameter(names = {"--col-stats-file-group-count", "-col-fg-count"}, description = "Number of file groups for column stats partition in metadata table", required = true)
+    @Parameter(names = {"--col-stats-file-group-count", "-col-fg-count"}, description = "Number of file groups for column stats partition in metadata table", required = false)
     public Integer colStatsFileGroupCount = 10;
 
-    @Parameter(names = {"--num-partitions", "-np"}, description = "Number of partitions to create in the table", required = true)
+    @Parameter(names = {"--num-partitions", "-np"}, description = "Number of partitions to create in the table", required = false)
     public Integer numPartitions = 1;
 
-    @Parameter(names = {"--num-files-to-bootstrap", "-nfb"}, description = "Number of files to create during bootstrap", required = true)
+    @Parameter(names = {"--num-files-to-bootstrap", "-nfb"}, description = "Number of files to create during bootstrap", required = false)
     public Integer numFilesToBootstrap = 1000;
 
     @Parameter(names = {"--num-files-for-incremental", "-nfi"}, description = "Total number of files to create across incremental commits")
@@ -686,7 +686,7 @@ public class MetadataBenchmarkingTool implements Closeable {
 
     int totalFileSlices = countFileSlices(filteredSlices);
 
-    LOG.info("filterFileSlices took {} ms", filterTimeMs);
+    LOG.info("Dataskipping took {} ms", filterTimeMs);
     LOG.info("File slices returned: {} / {}", totalFileSlices, numFiles);
     if (numFiles > 0) {
       double skippingRatio = ((double) (numFiles - totalFileSlices) / numFiles) * 100.0;
