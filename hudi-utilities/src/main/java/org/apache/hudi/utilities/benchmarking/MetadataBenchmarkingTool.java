@@ -54,6 +54,7 @@ import org.apache.hudi.common.util.StringUtils;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.data.HoodieJavaRDD;
+import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.metadata.HoodieBackedTableMetadataWriter;
 import org.apache.hudi.metadata.HoodieMetadataPayload;
 import org.apache.hudi.metadata.HoodieMetadataWriteUtils;
@@ -75,7 +76,6 @@ import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.execution.datasources.NoopCache$;
 import org.apache.spark.sql.types.StructType;
-import org.bouncycastle.util.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -107,7 +107,7 @@ public class MetadataBenchmarkingTool implements Closeable {
   private static final Logger LOG = LoggerFactory.getLogger(MetadataBenchmarkingTool.class);
 
   // Table and column constants
-  private static final String TABLE_NAME = "test_mdt_stats_tbl";
+  private static final String TABLE_NAME = "mdt_benchmarking_tbl";
   private static final String COL_TENANT_ID = "tenantID";
   private static final String COL_AGE = "age";
 
@@ -297,8 +297,9 @@ public class MetadataBenchmarkingTool implements Closeable {
 
     try (MetadataBenchmarkingTool metadataBenchmarkingTool = new MetadataBenchmarkingTool(spark, cfg)) {
       metadataBenchmarkingTool.run();
-    } catch (Throwable throwable) {
-      LOG.error("Failed to get table size stats for " + cfg, throwable);
+    } catch (Exception e) {
+      LOG.error("Failed to benchmark metadata table " + cfg, e);
+      throw new HoodieException("Failed to benchmark metadata table ", e);
     } finally {
       spark.stop();
     }
@@ -310,7 +311,7 @@ public class MetadataBenchmarkingTool implements Closeable {
     LOG.info("Data table base path: {}", cfg.tableBasePath);
     LOG.info("Benchmark mode: {}", cfg.mode);
 
-    HoodieWriteConfig dataWriteConfig = getWriteConfig(getAvroSchema(), cfg.tableBasePath, HoodieFailedWritesCleaningPolicy.EAGER);
+    HoodieWriteConfig dataWriteConfig = getWriteConfig(getAvroSchema(), cfg.tableBasePath);
 
     int totalFilesCreated = 0;
     if (cfg.mode == Config.BenchmarkMode.BOOTSTRAP || cfg.mode == Config.BenchmarkMode.BOOTSTRAP_AND_QUERY) {
@@ -390,18 +391,18 @@ public class MetadataBenchmarkingTool implements Closeable {
       int filesPerPartition, String dataCommitTime, HoodieTableMetaClient dataTableMetaClient) throws Exception {
     HoodieTestTable testTable = HoodieTestTable.of(dataTableMetaClient);
     HoodieSchema hoodieSchema = HoodieSchemaConversionUtils.convertStructTypeToHoodieSchema(getDataSchema(), "mdt_benchmarking_struct","mdt_benchmarking_namespace");
-        HoodieTestTable.TEST_TABLE_SCHEMA = hoodieSchema.toString();
+    HoodieTestTable.TEST_TABLE_SCHEMA = hoodieSchema.toString();
 
     HoodieCommitMetadata commitMetadata = testTable.createCommitMetadata(
         dataCommitTime, WriteOperationType.INSERT, partitions, filesPerPartition, false);
 
-            HoodieInstant requestedInstant = new HoodieInstant(HoodieInstant.State.REQUESTED, HoodieTimeline.COMMIT_ACTION, dataCommitTime,
-                InstantComparatorV1.REQUESTED_TIME_BASED_COMPARATOR);
+    HoodieInstant requestedInstant = new HoodieInstant(HoodieInstant.State.REQUESTED, HoodieTimeline.COMMIT_ACTION, dataCommitTime,
+        InstantComparatorV1.REQUESTED_TIME_BASED_COMPARATOR);
     dataTableMetaClient.getActiveTimeline().createNewInstant(requestedInstant);
     dataTableMetaClient.getActiveTimeline().transitionRequestedToInflight(requestedInstant, Option.empty());
 
-            Map<String, String> extraMetadata = new HashMap<>();
-        extraMetadata.put(HoodieCommitMetadata.SCHEMA_KEY, commitMetadata.getMetadata(HoodieCommitMetadata.SCHEMA_KEY));
+    Map<String, String> extraMetadata = new HashMap<>();
+    extraMetadata.put(HoodieCommitMetadata.SCHEMA_KEY, commitMetadata.getMetadata(HoodieCommitMetadata.SCHEMA_KEY));
 
     dataTableMetaClient.getActiveTimeline().saveAsComplete(false,
         dataTableMetaClient.createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.COMMIT_ACTION, dataCommitTime), Option.of(commitMetadata));
@@ -727,7 +728,7 @@ public class MetadataBenchmarkingTool implements Closeable {
     final List<String> filterStrings;
 
     if (StringUtils.nonEmpty(cfg.dataFilters)) {
-      filterStrings = Arrays.stream(Strings.split(cfg.dataFilters, ','))
+      filterStrings = Arrays.stream(cfg.dataFilters.split(","))
           .map(String::trim)
           .filter(StringUtils::nonEmpty)
           .collect(Collectors.toList());
@@ -876,7 +877,7 @@ public class MetadataBenchmarkingTool implements Closeable {
             ValueMetadata.V1EmptyMetadata.get());
   }
 
-  private HoodieWriteConfig getWriteConfig(String schemaStr, String basePath, HoodieFailedWritesCleaningPolicy cleaningPolicy) {
+  private HoodieWriteConfig getWriteConfig(String schemaStr, String basePath) {
     HoodieWriteConfig.Builder builder = HoodieWriteConfig.newBuilder().withPath(basePath)
         .withProperties(props)
         .forTable(TABLE_NAME)
