@@ -236,7 +236,7 @@ public class MetadataBenchmarkingTool implements Closeable {
     @Parameter(names = {"--num-files-to-bootstrap", "-nfb"}, description = "Number of files to create during bootstrap", required = false)
     public Integer numFilesToBootstrap = 1000;
 
-    @Parameter(names = {"--num-files-for-incremental", "-nfi"}, description = "Total number of files to create across incremental commits")
+    @Parameter(names = {"--num-files-for-incremental", "-nfi"}, description = "Number of files to create per incremental commit")
     public Integer numFilesForIncrementalIngestion = 0;
 
     @Parameter(names = {"--num-commits-for-incremental", "-nci"}, description = "Number of incremental commits to distribute files across")
@@ -342,7 +342,8 @@ public class MetadataBenchmarkingTool implements Closeable {
     if (cfg.mode == Config.BenchmarkMode.QUERY || cfg.mode == Config.BenchmarkMode.BOOTSTRAP_AND_QUERY) {
       HoodieTableMetaClient dataMetaClient = loadExistingMetaClient(dataWriteConfig);
       if (totalFilesCreated == 0) {
-        totalFilesCreated = cfg.numFilesToBootstrap + cfg.numFilesForIncrementalIngestion;
+        int estimatedIncrementalFiles = cfg.numFilesForIncrementalIngestion * cfg.numOfcommitForIncrementalIngestion;
+        totalFilesCreated = cfg.numFilesToBootstrap + estimatedIncrementalFiles;
         if (totalFilesCreated == 0) {
           LOG.warn("Total files count is 0. Data skipping ratio calculation may be inaccurate.");
         }
@@ -453,22 +454,19 @@ public class MetadataBenchmarkingTool implements Closeable {
 
   /**
    * Runs incremental ingestion rounds after bootstrap.
-   * Distributes files across multiple commits and uses upsertPreppedRecords for each commit.
+   * Creates the same number of files per commit and uses upsertPreppedRecords for each commit.
    * Reuses the partitions created during bootstrap.
    */
   private int runIncrementalIngestion(
-      int totalFiles,
+      int filesPerCommit,
       int numCommits,
       List<String> partitions,
       List<String> colsToIndex,
       HoodieWriteConfig dataWriteConfig,
       HoodieTableMetaClient dataMetaClient) throws Exception {
 
-    LOG.info("Starting incremental ingestion: {} files across {} commits using {} existing partitions", 
-        totalFiles, numCommits, partitions.size());
-    
-    int filesPerCommit = totalFiles / numCommits;
-    int remainingFiles = totalFiles % numCommits;
+    LOG.info("Starting incremental ingestion: {} files per commit across {} commits using {} existing partitions", 
+        filesPerCommit, numCommits, partitions.size());
     
     HoodieWriteConfig mdtWriteConfig = HoodieMetadataWriteUtils.createMetadataWriteConfig(
         dataWriteConfig,
@@ -488,14 +486,13 @@ public class MetadataBenchmarkingTool implements Closeable {
       // HoodieBackedTableMetadataWriter initializes metadata reader in constructor, no need to call initMetadataMetaClient()
 
       for (int commitIdx = 0; commitIdx < numCommits; commitIdx++) {
-        int filesThisCommit = filesPerCommit + (commitIdx < remainingFiles ? 1 : 0);
-        if (filesThisCommit == 0) {
+        if (filesPerCommit == 0) {
           continue;
         }
 
         String dataCommitTime = InProcessTimeGenerator.createNewInstantTime();
         HoodieCommitMetadata commitMetadata = createCommitMetadataAndAddToTimeline(
-            partitions, filesThisCommit, dataCommitTime, dataMetaClient);
+            partitions, filesPerCommit, dataCommitTime, dataMetaClient);
 
         // Partitions already exist from bootstrap, no need to create them again
         // createFilesForCommit(dataMetaClient, commitMetadata);
@@ -517,9 +514,9 @@ public class MetadataBenchmarkingTool implements Closeable {
             columnStatsRecords,
             colsToIndex);
 
-        totalFilesCreated += filesThisCommit;
+        totalFilesCreated += filesPerCommit;
         LOG.info("Completed incremental commit {}: {} files (total: {})", 
-            commitIdx + 1, filesThisCommit, totalFilesCreated);
+            commitIdx + 1, filesPerCommit, totalFilesCreated);
       }
     }
 
