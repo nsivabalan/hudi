@@ -132,7 +132,8 @@ public class ParquetUtils extends FileFormatUtils {
    * @return Set of pairs of row key and position matching candidateRecordKeys
    */
   private static Set<Pair<String, Long>> filterParquetRowKeys(HoodieStorage storage,
-                                                              Path filePath, Set<String> filter,
+                                                              Path filePath,
+                                                              Set<String> filter,
                                                               Schema readSchema) {
     Option<RecordKeysFilterFunction> filterFunction = Option.empty();
     if (filter != null && !filter.isEmpty()) {
@@ -148,9 +149,10 @@ public class ParquetUtils extends FileFormatUtils {
       Object obj = reader.read();
       while (obj != null) {
         if (obj instanceof GenericRecord) {
-          String recordKey = ((GenericRecord) obj).get(HoodieRecord.RECORD_KEY_METADATA_FIELD).toString();
-          if (!filterFunction.isPresent() || filterFunction.get().apply(recordKey)) {
-            rowKeys.add(Pair.of(recordKey, rowPosition));
+          Object recordKey = ((GenericRecord) obj).get(HoodieRecord.RECORD_KEY_METADATA_FIELD);
+          String resolvedKey = HoodieRecordUtils.resolveRecordKey(recordKey, filePath.toString(), rowPosition);
+          if (recordKey == null || !filterFunction.isPresent() || filterFunction.get().apply(resolvedKey)) {
+            rowKeys.add(Pair.of(resolvedKey, rowPosition));
           }
           obj = reader.read();
           rowPosition++;
@@ -158,7 +160,6 @@ public class ParquetUtils extends FileFormatUtils {
       }
     } catch (IOException e) {
       throw new HoodieIOException("Failed to read row keys from Parquet " + filePath, e);
-
     }
     // ignore
     return rowKeys;

@@ -49,20 +49,20 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Tests {@link ReflectionUtils}
  */
-public class TestReflectionUtils {
+class TestReflectionUtils {
 
   private ClassLoader originalClassLoader;
   private URLClassLoader customClassLoader;
 
   @BeforeEach
-  public void setUp() {
+  void setUp() {
     originalClassLoader = Thread.currentThread().getContextClassLoader();
     // Create a custom class loader for testing
     customClassLoader = new URLClassLoader(new URL[0], originalClassLoader);
   }
 
   @AfterEach
-  public void tearDown() {
+  void tearDown() {
     Thread.currentThread().setContextClassLoader(originalClassLoader);
     if (customClassLoader != null) {
       try {
@@ -74,7 +74,7 @@ public class TestReflectionUtils {
   }
 
   @Test
-  public void testIsSubClass() {
+  void testIsSubClass() {
     String subClassName1 = DirectMarkerBasedDetectionStrategy.class.getName();
     String subClassName2 = TimelineServerBasedDetectionStrategy.class.getName();
     assertTrue(isSubClass(subClassName1, EarlyConflictDetectionStrategy.class));
@@ -95,7 +95,7 @@ public class TestReflectionUtils {
   }
 
   @Test
-  public void testThreadContextClassLoaderWithNonSystemClass() throws NoSuchFieldException, IllegalAccessException {
+  void testThreadContextClassLoaderWithNonSystemClass() throws NoSuchFieldException, IllegalAccessException {
     // Use a class that exists in the current context but simulate it's not in system loader
     String testClassName = "org.apache.hudi.test.CustomTestClass";
 
@@ -155,7 +155,7 @@ public class TestReflectionUtils {
   }
 
   @Test
-  public void testGetClassWithSystemClassLoader() {
+  void testGetClassWithSystemClassLoader() {
     // Test loading a standard JDK class
     Class<?> clazz = ReflectionUtils.getClass("java.lang.String");
     assertNotNull(clazz);
@@ -163,7 +163,7 @@ public class TestReflectionUtils {
   }
 
   @Test
-  public void testGetClassWithInvalidClassName() {
+  void testGetClassWithInvalidClassName() {
     assertThrows(HoodieException.class, () -> ReflectionUtils.getClass("com.nonexistent.InvalidClass"));
   }
 
@@ -246,5 +246,29 @@ public class TestReflectionUtils {
       // If we can't access the field, log but don't fail the test
       System.err.println("Warning: Unable to access CLAZZ_CACHE field in ReflectionUtils");
     }
+  }
+
+  @Test
+  void testLoadClassWithExplicitConstructorArgs() {
+    // Test loadClass with explicit constructor argument types
+    char[] chars = {'h', 'e', 'l', 'l', 'o'};
+    String instance = ReflectionUtils.loadClass(
+        "java.lang.String",
+        new Class<?>[]{char[].class},
+        chars
+    );
+    assertNotNull(instance, "Instance should not be null");
+    assertEquals("hello", instance, "String content should match");
+  }
+
+  @Test
+  void testLoadClassWithInferredConstructorArgs() {
+    // Test loadClass with inferred constructor argument types
+    StringBuilder instance = (StringBuilder) ReflectionUtils.loadClass(
+        "java.lang.StringBuilder",
+        "test content"
+    );
+    assertNotNull(instance, "Instance should not be null");
+    assertEquals("test content", instance.toString(), "StringBuilder content should match");
   }
 }

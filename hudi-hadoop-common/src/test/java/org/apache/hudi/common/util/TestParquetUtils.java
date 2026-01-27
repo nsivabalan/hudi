@@ -39,6 +39,7 @@ import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.hadoop.fs.Path;
+import org.apache.parquet.avro.AvroParquetWriter;
 import org.apache.parquet.avro.AvroSchemaConverter;
 import org.apache.parquet.hadoop.ParquetWriter;
 import org.apache.parquet.hadoop.metadata.CompressionCodecName;
@@ -71,11 +72,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Tests parquet utils.
  */
-public class TestParquetUtils extends HoodieCommonTestHarness {
+class TestParquetUtils extends HoodieCommonTestHarness {
 
   private ParquetUtils parquetUtils;
 
-  public static List<Arguments> bloomFilterTypeCodes() {
+  static List<Arguments> bloomFilterTypeCodes() {
     return Arrays.asList(
         Arguments.of(BloomFilterTypeCode.SIMPLE.name()),
         Arguments.of(BloomFilterTypeCode.DYNAMIC_V0.name())
@@ -83,14 +84,14 @@ public class TestParquetUtils extends HoodieCommonTestHarness {
   }
 
   @BeforeEach
-  public void setup() {
+  void setup() {
     initPath();
     parquetUtils = new ParquetUtils();
   }
 
   @ParameterizedTest
   @MethodSource("bloomFilterTypeCodes")
-  public void testHoodieWriteSupport(String typeCode) throws Exception {
+  void testHoodieWriteSupport(String typeCode) throws Exception {
     List<String> rowKeys = new ArrayList<>();
     for (int i = 0; i < 1000; i++) {
       rowKeys.add(UUID.randomUUID().toString());
@@ -115,7 +116,7 @@ public class TestParquetUtils extends HoodieCommonTestHarness {
 
   @ParameterizedTest
   @MethodSource("bloomFilterTypeCodes")
-  public void testFilterParquetRowKeys(String typeCode) throws Exception {
+  void testFilterParquetRowKeys(String typeCode) throws Exception {
     List<String> rowKeys = new ArrayList<>();
     Set<String> filter = new HashSet<>();
     for (int i = 0; i < 1000; i++) {
@@ -142,7 +143,7 @@ public class TestParquetUtils extends HoodieCommonTestHarness {
 
   @ParameterizedTest
   @MethodSource("bloomFilterTypeCodes")
-  public void testFetchRecordKeyPartitionPathFromParquet(String typeCode) throws Exception {
+  void testFetchRecordKeyPartitionPathFromParquet(String typeCode) throws Exception {
     List<String> rowKeys = new ArrayList<>();
     List<HoodieKey> expected = new ArrayList<>();
     String partitionPath = "path1";
@@ -172,7 +173,7 @@ public class TestParquetUtils extends HoodieCommonTestHarness {
   }
 
   @Test
-  public void testFetchRecordKeyPartitionPathVirtualKeysFromParquet() throws Exception {
+  void testFetchRecordKeyPartitionPathVirtualKeysFromParquet() throws Exception {
     List<String> rowKeys = new ArrayList<>();
     List<HoodieKey> expected = new ArrayList<>();
     String partitionPath = "path1";
@@ -204,7 +205,7 @@ public class TestParquetUtils extends HoodieCommonTestHarness {
   }
 
   @Test
-  public void testReadCounts() throws Exception {
+  void testReadCounts() throws Exception {
     String filePath = Paths.get(basePath, "test.parquet").toUri().toString();
     List<String> rowKeys = new ArrayList<>();
     for (int i = 0; i < 123; i++) {
@@ -217,7 +218,7 @@ public class TestParquetUtils extends HoodieCommonTestHarness {
   }
 
   @Test
-  public void testReadColumnStatsFromMetadata() throws Exception {
+  void testReadColumnStatsFromMetadata() throws Exception {
     List<Pair<Pair<String, String>, Boolean>> valueList = new ArrayList<>();
     String minKey = "z";
     String maxKey = "0";
@@ -400,77 +401,70 @@ public class TestParquetUtils extends HoodieCommonTestHarness {
     }
   }
 
-  @Test
-  public void testReadSchemaHash() throws Exception {
-    // Given: Create a parquet file with a specific schema
-    List<String> rowKeys = Arrays.asList("row1", "row2", "row3");
-    String filePath = Paths.get(basePath, "test_schema_hash.parquet").toUri().toString();
-    writeParquetFile(BloomFilterTypeCode.SIMPLE.name(), filePath, rowKeys);
-    
-    StoragePath storagePath = new StoragePath(filePath);
-    
-    // When: Reading schema hash
-    Integer schemaHash = ParquetUtils.readSchemaHash(HoodieTestUtils.getStorage(filePath), storagePath);
-    
-    // Then: Should return a valid hash
+  /**
+   * Creates a file path in the base path with the given filename.
+   */
+  private String createFilePath(String fileName) {
+    return Paths.get(basePath, fileName).toUri().toString();
+  }
+
+  /**
+   * Reads schema hash from a parquet file.
+   */
+  private Integer readSchemaHash(String filePath) {
+    return ParquetUtils.readSchemaHash(HoodieTestUtils.getStorage(filePath), new StoragePath(filePath));
+  }
+
+  /**
+   * Asserts that a schema hash is valid (not null and not zero).
+   */
+  private void assertValidSchemaHash(Integer schemaHash) {
     assertTrue(schemaHash != null, "Schema hash should not be null");
     assertTrue(schemaHash != 0, "Schema hash should not be zero (default error value)");
-    
-    // Verify consistency - reading same file should return same hash
-    Integer secondRead = ParquetUtils.readSchemaHash(HoodieTestUtils.getStorage(filePath), storagePath);
+  }
+
+  @Test
+  void testReadSchemaHash() throws Exception {
+    List<String> rowKeys = Arrays.asList("row1", "row2", "row3");
+    String filePath = createFilePath("test_schema_hash.parquet");
+    writeParquetFile(BloomFilterTypeCode.SIMPLE.name(), filePath, rowKeys);
+    Integer schemaHash = readSchemaHash(filePath);
+    assertValidSchemaHash(schemaHash);
+    Integer secondRead = readSchemaHash(filePath);
     assertEquals(schemaHash, secondRead, "Schema hash should be consistent across reads");
   }
 
   @Test
-  public void testReadSchemaHash_DifferentSchemas() throws Exception {
-    // Given: Create two parquet files with different schemas
+  void testReadSchemaHash_DifferentSchemas() throws Exception {
     List<String> rowKeys = Arrays.asList("row1", "row2");
-    
-    // File 1 with original schema
-    String filePath1 = Paths.get(basePath, "test_schema1.parquet").toUri().toString();
+    String filePath1 = createFilePath("test_schema1.parquet");
     writeParquetFile(BloomFilterTypeCode.SIMPLE.name(), filePath1, rowKeys);
-    
-    // File 2 with extended schema (add a field)
-    String filePath2 = Paths.get(basePath, "test_schema2.parquet").toUri().toString();
+    String filePath2 = createFilePath("test_schema2.parquet");
     writeParquetFileWithExtendedSchema(filePath2, rowKeys);
-    
-    // When: Reading schema hashes from both files
-    Integer hash1 = ParquetUtils.readSchemaHash(HoodieTestUtils.getStorage(filePath1), new StoragePath(filePath1));
-    Integer hash2 = ParquetUtils.readSchemaHash(HoodieTestUtils.getStorage(filePath2), new StoragePath(filePath2));
-    
-    // Then: Should have different hashes for different schemas
-    assertTrue(hash1 != null && hash2 != null, "Both schema hashes should be valid");
+    Integer hash1 = readSchemaHash(filePath1);
+    Integer hash2 = readSchemaHash(filePath2);
+    assertValidSchemaHash(hash1);
+    assertValidSchemaHash(hash2);
     assertTrue(!hash1.equals(hash2), "Different schemas should have different hash codes");
   }
 
   @Test
-  public void testReadSchemaHash_NonExistentFile() throws Exception {
-    // Given: Non-existent file path
+  void testReadSchemaHash_NonExistentFile() {
     StoragePath nonExistentPath = new StoragePath("/non/existent/file.parquet");
-    
-    // When: Reading schema hash from non-existent file
     Integer schemaHash = ParquetUtils.readSchemaHash(HoodieTestUtils.getStorage(basePath), nonExistentPath);
-    
-    // Then: Should return 0 (error default value)
     assertEquals(Integer.valueOf(0), schemaHash, "Non-existent file should return default error value 0");
   }
 
   @Test
-  public void testReadSchemaHash_MatchesDirectSchemaRead() throws Exception {
-    // Given: Create a parquet file
+  void testReadSchemaHash_MatchesDirectSchemaRead() throws Exception {
     List<String> rowKeys = Arrays.asList("row1", "row2", "row3");
-    String filePath = Paths.get(basePath, "test_direct_schema.parquet").toUri().toString();
+    String filePath = createFilePath("test_direct_schema.parquet");
     writeParquetFile(BloomFilterTypeCode.SIMPLE.name(), filePath, rowKeys);
-    
     StoragePath storagePath = new StoragePath(filePath);
-    
-    // When: Reading schema hash vs direct schema read
-    Integer schemaHashFromUtils = ParquetUtils.readSchemaHash(HoodieTestUtils.getStorage(filePath), storagePath);
+    Integer schemaHashFromUtils = readSchemaHash(filePath);
     MessageType directSchema = parquetUtils.readSchema(HoodieTestUtils.getStorage(filePath), storagePath);
     Integer directSchemaHash = directSchema.hashCode();
-    
-    // Then: Hash from utility method should match direct schema hash
-    assertEquals(directSchemaHash, schemaHashFromUtils, 
+    assertEquals(directSchemaHash, schemaHashFromUtils,
         "Schema hash from utility should match direct schema.hashCode()");
   }
 
@@ -500,6 +494,62 @@ public class TestParquetUtils extends HoodieCommonTestHarness {
       record.put("extra_field", "extra_value"); // Set the extra field
       writer.write(record);
       writeSupport.add(rowKey);
+    }
+    writer.close();
+  }
+
+  @Test
+  void testFilterRowKeysWithExternalParquetFile() throws Exception {
+    String filePath = createFilePath("external_test.parquet");
+    int recordCount = 100;
+    writeExternalParquetFile(filePath, recordCount);
+    Set<Pair<String, Long>> result = parquetUtils.filterRowKeys(
+        HoodieTestUtils.getStorage(filePath), new StoragePath(filePath), null);
+    assertEquals(recordCount, result.size(), "Should return all records");
+    List<Pair<String, Long>> sortedResults = result.stream()
+        .sorted(Comparator.comparing(Pair::getRight))
+        .collect(Collectors.toList());
+    String firstKey = sortedResults.get(0).getLeft();
+    String basePathForKeys = firstKey.substring(0, firstKey.lastIndexOf("_"));
+    verifyFallbackKeyPattern(sortedResults, basePathForKeys, recordCount);
+  }
+
+  /**
+   * Verifies that the keys follow the fallback pattern: "basePath_position".
+   */
+  private void verifyFallbackKeyPattern(List<Pair<String, Long>> sortedResults, String basePathForKeys, int recordCount) {
+    for (int i = 0; i < recordCount; i++) {
+      Pair<String, Long> entry = sortedResults.get(i);
+      String expectedKey = basePathForKeys + "_" + i;
+      assertEquals(Long.valueOf(i), entry.getRight(), "Position should be sequential");
+      assertEquals(expectedKey, entry.getLeft(), "Key should exactly match fallback pattern 'basePath_position'");
+    }
+  }
+
+  /**
+   * Helper method to write external parquet file without Hudi metadata fields.
+   */
+  private void writeExternalParquetFile(String filePath, int recordCount) throws Exception {
+    // Create simple schema with only data columns (no Hudi metadata)
+    Schema schema = Schema.createRecord("ExternalRecord", "", "", false);
+    List<Schema.Field> fields = new ArrayList<>();
+    fields.add(new Schema.Field("id", Schema.create(Schema.Type.INT), "", (Object) null));
+    fields.add(new Schema.Field("name", Schema.create(Schema.Type.STRING), "", (Object) null));
+    fields.add(new Schema.Field("value", Schema.create(Schema.Type.LONG), "", (Object) null));
+    schema.setFields(fields);
+    // Use standard Parquet writer (not HoodieAvroWriteSupport)
+    MessageType parquetSchema = new AvroSchemaConverter().convert(schema);
+    ParquetWriter<GenericRecord> writer = AvroParquetWriter.<GenericRecord>builder(new Path(filePath))
+        .withSchema(schema)
+        .withCompressionCodec(CompressionCodecName.GZIP)
+        .build();
+    // Write records without _hoodie_record_key field
+    for (int i = 0; i < recordCount; i++) {
+      GenericRecord record = new GenericData.Record(schema);
+      record.put("id", i);
+      record.put("name", "name_" + i);
+      record.put("value", (long) i * 100);
+      writer.write(record);
     }
     writer.close();
   }

@@ -89,8 +89,20 @@ public class HoodieBaseFile extends BaseFile {
    * @param fileName Name of the file
    * @return String array of size 2 with fileId as the first and commitTime as the second element.
    */
-  private static String[] getFileIdAndCommitTimeFromFileName(String fileName) {
+  public static String[] getFileIdAndCommitTimeFromFileName(String fileName) {
     return ExternalFilePathUtil.isExternallyCreatedFile(fileName) ? handleExternallyGeneratedFile(fileName) : handleHudiGeneratedFile(fileName);
+  }
+
+  /**
+   * Normalizes the file name by stripping external file markers if present.
+   * For externally created files (with '_hudiext' suffix), this extracts the original file name.
+   * For regular Hudi files, the file name is returned as-is.
+   *
+   * @param fileName the file name to normalize, which may contain external file markers
+   * @return the normalized file name without external markers
+   */
+  public static String normalizeFileName(String fileName) {
+    return ExternalFilePathUtil.isExternallyCreatedFile(fileName) ? handleExternallyGeneratedFile(fileName)[0] : fileName;
   }
 
   private static String[] handleHudiGeneratedFile(String fileName) {

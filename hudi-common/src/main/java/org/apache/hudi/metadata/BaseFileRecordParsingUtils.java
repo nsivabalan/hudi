@@ -20,6 +20,7 @@
 package org.apache.hudi.metadata;
 
 import org.apache.hudi.common.fs.FSUtils;
+import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.model.HoodieFileFormat;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieWriteStat;
@@ -125,7 +126,7 @@ public class BaseFileRecordParsingUtils {
                                                                      String prevFileName,
                                                                      HoodieStorage storage,
                                                                      Set<RecordStatus> recordStatusesOfInterest) {
-    Set<String> recordKeysFromLatestBaseFile = getRecordKeysFromBaseFile(storage, basePath, partition, latestFileName);
+    Set<String> recordKeysFromLatestBaseFile = getRecordKeysFromBaseFile(storage, basePath, partition, HoodieBaseFile.normalizeFileName(latestFileName));
     if (prevFileName == null) {
       if (recordStatusesOfInterest.contains(RecordStatus.INSERT)) {
         return Collections.singletonMap(RecordStatus.INSERT, new ArrayList<>(recordKeysFromLatestBaseFile));
@@ -136,7 +137,7 @@ public class BaseFileRecordParsingUtils {
     } else {
       // read from previous base file and find difference to also generate delete records.
       // we will return updates and deletes from this code block
-      Set<String> recordKeysFromPreviousBaseFile = getRecordKeysFromBaseFile(storage, basePath, partition, prevFileName);
+      Set<String> recordKeysFromPreviousBaseFile = getRecordKeysFromBaseFile(storage, basePath, partition, HoodieBaseFile.normalizeFileName(prevFileName));
       Map<RecordStatus, List<String>> toReturn = new HashMap<>(recordStatusesOfInterest.size());
       if (recordStatusesOfInterest.contains(RecordStatus.DELETE)) {
         toReturn.put(RecordStatus.DELETE, recordKeysFromPreviousBaseFile.stream()

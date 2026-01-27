@@ -27,12 +27,14 @@ import org.apache.hudi.common.engine.HoodieLocalEngineContext;
 import org.apache.hudi.common.engine.HoodieReaderContext;
 import org.apache.hudi.common.engine.ReaderContextFactory;
 import org.apache.hudi.common.fs.FSUtils;
+import org.apache.hudi.common.model.BaseFile;
 import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.model.HoodieFileFormat;
 import org.apache.hudi.common.model.HoodieIndexDefinition;
 import org.apache.hudi.common.model.HoodieLogFile;
 import org.apache.hudi.common.model.HoodieRecord;
+import org.apache.hudi.common.model.HoodieReplaceCommitMetadata;
 import org.apache.hudi.common.model.HoodieWriteStat;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.TableSchemaResolver;
@@ -40,6 +42,7 @@ import org.apache.hudi.common.table.read.HoodieFileGroupReader;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.view.FileSystemViewManager;
 import org.apache.hudi.common.table.view.TableFileSystemView;
+import org.apache.hudi.common.util.HoodieRecordUtils;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.ValidationUtils;
 import org.apache.hudi.common.util.VisibleForTesting;
@@ -65,12 +68,13 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 import static org.apache.hudi.common.model.HoodieRecord.RECORD_KEY_METADATA_FIELD;
+import static org.apache.hudi.common.util.ExternalFilePathUtil.createExternalFileSlice;
 import static org.apache.hudi.metadata.HoodieMetadataPayload.createSecondaryIndexRecord;
 import static org.apache.hudi.metadata.HoodieTableMetadataUtil.filePath;
-import static org.apache.hudi.metadata.HoodieTableMetadataUtil.tryResolveSchemaForTable;
 
 /**
  * Utility methods for generating secondary index records during initialization and updates.
@@ -82,6 +86,7 @@ public class SecondaryIndexRecordGenerationUtils {
    *
    * @param allWriteStats   list of write stats
    * @param instantTime     instant time
+   * @param tableSchema     table schema for reading records
    * @param indexDefinition secondary index definition
    * @param metadataConfig  metadata config
    * @param dataMetaClient  data table meta client
@@ -92,6 +97,7 @@ public class SecondaryIndexRecordGenerationUtils {
   @VisibleForTesting
   public static <T> HoodieData<HoodieRecord> convertWriteStatsToSecondaryIndexRecords(List<HoodieWriteStat> allWriteStats,
                                                                                       String instantTime,
+                                                                                      Schema tableSchema,
                                                                                       HoodieIndexDefinition indexDefinition,
                                                                                       HoodieMetadataConfig metadataConfig,
                                                                                       HoodieTableMetaClient dataMetaClient,
@@ -105,20 +111,18 @@ public class SecondaryIndexRecordGenerationUtils {
     })) {
       throw new HoodieIOException("Secondary index cannot support logs having inserts with current offering. Please disable secondary index.");
     }
-
-    Schema tableSchema;
-    try {
-      tableSchema = tryResolveSchemaForTable(dataMetaClient).get();
-    } catch (Exception e) {
-      throw new HoodieException("Failed to get latest schema for " + dataMetaClient.getBasePath(), e);
-    }
     Map<String, List<HoodieWriteStat>> writeStatsByFileId = allWriteStats.stream().collect(Collectors.groupingBy(HoodieWriteStat::getFileId));
     int parallelism = Math.max(Math.min(writeStatsByFileId.size(), metadataConfig.getSecondaryIndexParallelism()), 1);
 
+    // Convert HashMap entries to serializable Pair objects to avoid NotSerializableException for HashMap$Node
+    List<Pair<String, List<HoodieWriteStat>>> serializableEntries = writeStatsByFileId.entrySet().stream()
+        .map(e -> Pair.of(e.getKey(), e.getValue()))
+        .collect(Collectors.toList());
+
     ReaderContextFactory<T> readerContextFactory = engineContext.getReaderContextFactory(dataMetaClient);
-    HoodieData<HoodieRecord> secondaryIndexRecords = engineContext.parallelize(new ArrayList<>(writeStatsByFileId.entrySet()), parallelism).flatMap(writeStatsByFileIdEntry -> {
-      String fileId = writeStatsByFileIdEntry.getKey();
-      List<HoodieWriteStat> writeStats = writeStatsByFileIdEntry.getValue();
+    HoodieData<HoodieRecord> secondaryIndexRecords = engineContext.parallelize(serializableEntries, parallelism).flatMap(entry -> {
+      String fileId = entry.getLeft();
+      List<HoodieWriteStat> writeStats = entry.getRight();
       String partition = writeStats.get(0).getPartitionPath();
       StoragePath basePath = dataMetaClient.getBasePath();
 
@@ -206,6 +210,104 @@ public class SecondaryIndexRecordGenerationUtils {
     return HoodieTableMetadataUtil.reduceByKeys(secondaryIndexRecords, parallelism, false);
   }
 
+  /**
+   * Converts write stats for non-native format (externally-created) files to secondary index records.
+   * This is specifically for write operations where files are created by
+   * external systems (like Iceberg/Delta) and need to be indexed by Hudi.
+   * This method handles both the newly written files and the replaced files by:
+   * 1. Processing new files to create insert records (isDeleted=false) from the write stats
+   * 2. Processing replaced files to create delete records (isDeleted=true) for old file groups
+   * 3. Combining and deduplicating records to handle cases where records move between file groups
+   *
+   * @param engineContext        engine context for parallelization
+   * @param instantTime          instant time of the replacecommit
+   * @param tableSchema          table schema for reading records
+   * @param indexDefinition      secondary index definition
+   * @param metadataConfig       metadata config
+   * @param dataMetaClient       data table meta client
+   * @param props                typed properties for file group reader
+   * @param replaceCommitMetadata replace commit metadata containing write stats and replaced file IDs
+   * @return {@link HoodieData} of {@link HoodieRecord} to be updated in the metadata table for the given secondary index partition
+   */
+  public static <T> HoodieData<HoodieRecord> convertWriteStatsForNonNativeFormatToSecondaryIndexRecords(
+      HoodieEngineContext engineContext,
+      String instantTime,
+      Schema tableSchema,
+      HoodieIndexDefinition indexDefinition,
+      HoodieMetadataConfig metadataConfig,
+      HoodieTableMetaClient dataMetaClient,
+      TypedProperties props,
+      HoodieReplaceCommitMetadata replaceCommitMetadata) {
+    List<HoodieWriteStat> allWriteStats = replaceCommitMetadata.getWriteStats();
+    Map<String, List<String>> partitionToReplaceFileIds = replaceCommitMetadata.getPartitionToReplaceFileIds();
+    ReaderContextFactory<T> readerContextFactory = engineContext.getReaderContextFactory(dataMetaClient);
+    // Process new files (allWriteStats) - create insert records (isDeleted=false)
+    int addParallelism = Math.max(Math.min(allWriteStats.size(), metadataConfig.getSecondaryIndexParallelism()), 1);
+    HoodieData<HoodieRecord> addedRecords = engineContext.parallelize(allWriteStats, addParallelism).flatMap(writeStat -> {
+      FileSlice currentFileSlice = createExternalFileSlice(dataMetaClient.getBasePath(), writeStat);
+      // Stream records directly without loading into HashMap - true streaming for memory efficiency
+      ClosableIterator<Pair<String, String>> recordKeyAndSecondaryIndexValueIter;
+      try {
+        recordKeyAndSecondaryIndexValueIter = createSecondaryIndexRecordGenerator(
+            readerContextFactory.getContext(),
+            dataMetaClient,
+            currentFileSlice,
+            tableSchema,
+            indexDefinition,
+            instantTime,
+            props,
+            true);
+      } catch (IOException e) {
+        throw new HoodieException("Failed to create secondary index record generator", e);
+      }
+      return new CloseableMappingIterator<>(
+          recordKeyAndSecondaryIndexValueIter,
+          pair -> createSecondaryIndexRecord(pair.getKey(), pair.getValue(), indexDefinition.getIndexName(), false)
+      );
+    });
+    // Process replaced files (partitionToReplaceFileIds) - create delete records (isDeleted=true).
+    // Flatten partitionToReplaceFileIds to list of (partition, fileId) pairs.
+    List<Pair<String, String>> replacedFileIdList = partitionToReplaceFileIds.entrySet().stream()
+        .flatMap(entry -> entry.getValue().stream().map(fileId -> Pair.of(entry.getKey(), fileId)))
+        .collect(Collectors.toList());
+    int deleteParallelism = Math.max(Math.min(replacedFileIdList.size(), metadataConfig.getSecondaryIndexParallelism()), 1);
+    HoodieData<HoodieRecord> deletedRecords = engineContext.parallelize(replacedFileIdList, deleteParallelism).flatMap(partitionAndFileId -> {
+      String partition = partitionAndFileId.getKey();
+      String replacedFileId = partitionAndFileId.getValue();
+      FileSlice previousFileSlice = createExternalFileSlice(
+          dataMetaClient.getBasePath(),
+          partition,
+          replacedFileId
+      );
+      // Stream records directly without loading into HashMap - true streaming for memory efficiency
+      ClosableIterator<Pair<String, String>> recordKeyAndSecondaryIndexValueIter;
+      try {
+        recordKeyAndSecondaryIndexValueIter = createSecondaryIndexRecordGenerator(
+            readerContextFactory.getContext(),
+            dataMetaClient,
+            previousFileSlice,
+            tableSchema,
+            indexDefinition,
+            instantTime,
+            props,
+            false);
+      } catch (IOException e) {
+        throw new HoodieException("Failed to create secondary index record generator for replaced file", e);
+      }
+      return new CloseableMappingIterator<>(
+          recordKeyAndSecondaryIndexValueIter,
+          pair -> createSecondaryIndexRecord(pair.getKey(), pair.getValue(), indexDefinition.getIndexName(), true)
+      );
+    });
+    // Combine added and deleted records and deduplicate by secondary index key.
+    // This handles the case where a record moves from one file group to another (clustering),
+    // which generates both a delete (from replaced fileId) and an insert (to new fileId).
+    // Similar to how Record Level Index handles partition path update, we prefer non-deleted records.
+    HoodieData<HoodieRecord> combinedRecords = addedRecords.union(deletedRecords);
+    int parallelism = Math.max(Math.min(allWriteStats.size() + replacedFileIdList.size(), metadataConfig.getSecondaryIndexParallelism()), 1);
+    return HoodieTableMetadataUtil.reduceByKeys(combinedRecords, parallelism, false);
+  }
+
   private static TableFileSystemView.SliceView getSliceView(HoodieWriteConfig config, HoodieTableMetaClient dataMetaClient) {
     HoodieEngineContext context = new HoodieLocalEngineContext(dataMetaClient.getStorageConf());
     FileSystemViewManager viewManager = FileSystemViewManager.createViewManager(context, config.getMetadataConfig(), config.getViewStorageConfig(),
@@ -218,13 +320,13 @@ public class SecondaryIndexRecordGenerationUtils {
   }
 
   public static <T> Map<String, String> getRecordKeyToSecondaryKey(HoodieTableMetaClient metaClient,
-                                                                    HoodieReaderContext<T> readerContext,
-                                                                    FileSlice fileSlice,
-                                                                    Schema tableSchema,
-                                                                    HoodieIndexDefinition indexDefinition,
-                                                                    String instantTime,
-                                                                    TypedProperties props,
-                                                                    boolean allowInflightInstants) throws IOException {
+                                                                   HoodieReaderContext<T> readerContext,
+                                                                   FileSlice fileSlice,
+                                                                   Schema tableSchema,
+                                                                   HoodieIndexDefinition indexDefinition,
+                                                                   String instantTime,
+                                                                   TypedProperties props,
+                                                                   boolean allowInflightInstants) throws IOException {
     Map<String, String> recordKeyToSecondaryKey = new HashMap<>();
     try (ClosableIterator<Pair<String, String>> recordKeyAndSecondaryIndexValueIter =
              createSecondaryIndexRecordGenerator(readerContext, metaClient, fileSlice, tableSchema, indexDefinition, instantTime, props, allowInflightInstants)) {
@@ -301,6 +403,7 @@ public class SecondaryIndexRecordGenerationUtils {
     return new ClosableIterator<Pair<String, String>>() {
       private final ClosableIterator<T> recordIterator = fileGroupReader.getClosableIterator();
       private Pair<String, String> nextValidRecord;
+      private final AtomicLong rowPosition = new AtomicLong(0L);
 
       @Override
       public void close() {
@@ -317,10 +420,11 @@ public class SecondaryIndexRecordGenerationUtils {
         while (recordIterator.hasNext()) {
           T record = recordIterator.next();
           Object secondaryKey = readerContext.getRecordContext().getValue(record, requestedSchema, secondaryKeyField);
-            nextValidRecord = Pair.of(
-                readerContext.getRecordContext().getRecordKey(record, requestedSchema),
-                secondaryKey == null ? null : secondaryKey.toString()
-            );
+          Object recordKey = readerContext.getRecordContext().getValue(record, requestedSchema, HoodieRecord.HoodieMetadataField.RECORD_KEY_METADATA_FIELD.getFieldName());
+          String dataFilePath = fileSlice.getBaseFile().map(BaseFile::getPath).orElse(fileSlice.getPartitionPath() + "/" + fileSlice.getFileId());
+          nextValidRecord = Pair.of(
+              HoodieRecordUtils.resolveRecordKey(recordKey, dataFilePath, rowPosition.getAndIncrement()),
+              secondaryKey == null ? null : secondaryKey.toString());
           return true;
         }
 

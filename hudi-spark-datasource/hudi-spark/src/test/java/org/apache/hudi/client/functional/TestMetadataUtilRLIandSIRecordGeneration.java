@@ -19,6 +19,7 @@
 
 package org.apache.hudi.client.functional;
 
+import org.apache.hudi.avro.HoodieAvroUtils;
 import org.apache.hudi.avro.model.HoodieMetadataRecord;
 import org.apache.hudi.client.SparkRDDWriteClient;
 import org.apache.hudi.client.WriteClientTestUtils;
@@ -33,6 +34,7 @@ import org.apache.hudi.common.model.EmptyHoodieRecordPayload;
 import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieCommitMetadata;
 import org.apache.hudi.common.model.HoodieFailedWritesCleaningPolicy;
+import org.apache.hudi.common.model.HoodieReplaceCommitMetadata;
 import org.apache.hudi.common.model.HoodieIndexDefinition;
 import org.apache.hudi.common.model.HoodieLogFile;
 import org.apache.hudi.common.model.HoodieRecord;
@@ -46,6 +48,7 @@ import org.apache.hudi.common.table.read.DeleteContext;
 import org.apache.hudi.common.table.read.HoodieFileGroupReader;
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
 import org.apache.hudi.common.util.CollectionUtils;
+import org.apache.hudi.common.util.ExternalFilePathUtil;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.collection.ClosableIterator;
 import org.apache.hudi.common.util.collection.Pair;
@@ -64,10 +67,17 @@ import org.apache.hudi.testutils.HoodieClientTestBase;
 
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
+import org.apache.hadoop.fs.Path;
+import org.apache.parquet.avro.AvroParquetReader;
+import org.apache.parquet.avro.AvroParquetWriter;
+import org.apache.parquet.hadoop.ParquetReader;
+import org.apache.parquet.hadoop.ParquetWriter;
+import org.apache.parquet.hadoop.metadata.CompressionCodecName;
 import org.apache.spark.api.java.JavaRDD;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -89,6 +99,7 @@ import static org.apache.hudi.metadata.HoodieTableMetadataUtil.getRevivedAndDele
 import static org.apache.hudi.metadata.HoodieTableMetadataUtil.reduceByKeys;
 import static org.apache.hudi.metadata.SecondaryIndexKeyUtils.constructSecondaryIndexKey;
 import static org.apache.hudi.metadata.SecondaryIndexKeyUtils.getRecordKeyFromSecondaryIndexKey;
+import static org.apache.hudi.metadata.SecondaryIndexRecordGenerationUtils.convertWriteStatsForNonNativeFormatToSecondaryIndexRecords;
 import static org.apache.hudi.metadata.SecondaryIndexRecordGenerationUtils.convertWriteStatsToSecondaryIndexRecords;
 import static org.apache.hudi.metadata.SecondaryIndexRecordGenerationUtils.readSecondaryKeysFromFileSlices;
 import static org.apache.hudi.testutils.Assertions.assertNoWriteErrors;
@@ -371,8 +382,9 @@ public class TestMetadataUtilRLIandSIRecordGeneration extends HoodieClientTestBa
       metadata.reset();
       metadataView = new HoodieTableFileSystemView(metadata, metaClient, metaClient.getActiveTimeline());
       List<HoodieWriteStat> allWriteStats = writeStatusList2.stream().map(WriteStatus::getStat).collect(Collectors.toList());
+      Schema tableSchema = HoodieAvroUtils.addMetadataFields(new Schema.Parser().parse(TRIP_EXAMPLE_SCHEMA));
       secondaryIndexRecords =
-          convertWriteStatsToSecondaryIndexRecords(allWriteStats, secondCommitTime, indexDefinition, metadataConfig, metaClient, engineContext, writeConfig).collectAsList();
+          convertWriteStatsToSecondaryIndexRecords(allWriteStats, secondCommitTime, tableSchema, indexDefinition, metadataConfig, metaClient, engineContext, writeConfig).collectAsList();
       client.commit(secondCommitTime, jsc.parallelize(writeStatusList2));
 
       // There should be 3 SI records:
@@ -406,7 +418,7 @@ public class TestMetadataUtilRLIandSIRecordGeneration extends HoodieClientTestBa
       metadataView = new HoodieTableFileSystemView(metadata, metaClient, metaClient.getActiveTimeline());
       allWriteStats = writeStatusList3.stream().map(WriteStatus::getStat).collect(Collectors.toList());
       secondaryIndexRecords =
-          convertWriteStatsToSecondaryIndexRecords(allWriteStats, thirdCommitTime, indexDefinition, metadataConfig, metaClient, engineContext, writeConfig).collectAsList();
+          convertWriteStatsToSecondaryIndexRecords(allWriteStats, thirdCommitTime, tableSchema, indexDefinition, metadataConfig, metaClient, engineContext, writeConfig).collectAsList();
       client.commit(thirdCommitTime, jsc.parallelize(writeStatusList3));
 
       // There should be 1 SI records: 1 delete due to deletes3
@@ -437,7 +449,7 @@ public class TestMetadataUtilRLIandSIRecordGeneration extends HoodieClientTestBa
       metadataView = new HoodieTableFileSystemView(metadata, metaClient, metaClient.getActiveTimeline());
       allWriteStats = writeStatusList4.stream().map(WriteStatus::getStat).collect(Collectors.toList());
       secondaryIndexRecords =
-          convertWriteStatsToSecondaryIndexRecords(allWriteStats, fourthCommitTime, indexDefinition, metadataConfig, metaClient, engineContext, writeConfig).collectAsList();
+          convertWriteStatsToSecondaryIndexRecords(allWriteStats, fourthCommitTime, tableSchema, indexDefinition, metadataConfig, metaClient, engineContext, writeConfig).collectAsList();
       client.commit(fourthCommitTime, jsc.parallelize(writeStatusList4));
 
       // There should be 1 SI records: 1 insert due to inserts4
@@ -460,7 +472,7 @@ public class TestMetadataUtilRLIandSIRecordGeneration extends HoodieClientTestBa
       metadataView = new HoodieTableFileSystemView(metadata, metaClient, metaClient.getActiveTimeline());
       allWriteStats = writeStatusList5.stream().map(WriteStatus::getStat).collect(Collectors.toList());
       secondaryIndexRecords =
-          convertWriteStatsToSecondaryIndexRecords(allWriteStats, fifthCommitTime, indexDefinition, metadataConfig, metaClient, engineContext, writeConfig).collectAsList();
+          convertWriteStatsToSecondaryIndexRecords(allWriteStats, fifthCommitTime, tableSchema, indexDefinition, metadataConfig, metaClient, engineContext, writeConfig).collectAsList();
       client.commit(fifthCommitTime, jsc.parallelize(writeStatusList5));
 
       // There should be 0 SI records because the secondary key field "rider" value has not changed.
@@ -479,7 +491,7 @@ public class TestMetadataUtilRLIandSIRecordGeneration extends HoodieClientTestBa
       metadataView = new HoodieTableFileSystemView(metadata, metaClient, metaClient.getActiveTimeline());
       allWriteStats = compactionCommitMetadata.getWriteStats();
       secondaryIndexRecords = convertWriteStatsToSecondaryIndexRecords(
-          allWriteStats, compactionInstantOpt.get(), indexDefinition, metadataConfig, metaClient, engineContext, writeConfig).collectAsList();
+          allWriteStats, compactionInstantOpt.get(), tableSchema, indexDefinition, metadataConfig, metaClient, engineContext, writeConfig).collectAsList();
       // Get valid and deleted secondary index records
       List<HoodieRecord> validSecondaryIndexRecords3 = new ArrayList<>();
       List<HoodieRecord> deletedSecondaryIndexRecords3 = new ArrayList<>();
@@ -490,6 +502,188 @@ public class TestMetadataUtilRLIandSIRecordGeneration extends HoodieClientTestBa
       assertEquals(0, deletedSecondaryIndexRecords3.size());
       assertEquals(initialRecordsCount, dataGen.getNumExistingKeys(TRIP_EXAMPLE_SCHEMA));
     }
+  }
+
+  /**.
+   * This tests that convertWriteStatsForNonNativeFormatToSecondaryIndexRecords correctly handles external files.
+   * <p>
+   * This test verifies:
+   * - The method correctly processes external files (with _hudiext suffix)
+   * - Insert SI records (isDeleted=false) are generated for new external files
+   * - Delete SI records (isDeleted=true) are generated for replaced external files
+   * - Record keys include full file paths in format: secondaryKey$filePath_position
+   */
+  @Test
+  public void testSecondaryIndexRecordGenerationForInsertOverwriteNonNative() throws Exception {
+    HoodieTableType tableType = HoodieTableType.COPY_ON_WRITE;
+    cleanupClients();
+    initMetaClient(tableType);
+    cleanupTimelineService();
+    initTimelineService();
+
+    HoodieSparkEngineContext engineContext = new HoodieSparkEngineContext(jsc);
+    HoodieWriteConfig writeConfig = getConfigBuilder(HoodieFailedWritesCleaningPolicy.EAGER).build();
+    String testPartition = "americas/united_states/san_francisco";
+    String commitTime1 = "20260101000000";
+    String commitTime2 = "20260102000000";
+
+    // Setup index definition
+    HoodieIndexDefinition indexDefinition = HoodieIndexDefinition.newBuilder()
+        .withIndexName("secondary_index_idx_rider")
+        .withIndexType(MetadataPartitionType.COLUMN_STATS.name())
+        .withVersion(HoodieIndexVersion.getCurrentVersion(
+            HoodieTableVersion.current(), "secondary_index_idx_rider"))
+        .withIndexFunction("")
+        .withSourceFields(Collections.singletonList("rider"))
+        .withIndexOptions(Collections.emptyMap())
+        .build();
+    HoodieMetadataConfig metadataConfig = HoodieMetadataConfig.newBuilder()
+        .enable(true)
+        .withSecondaryIndexParallelism(2)
+        .build();
+
+    // Step 1: Write external parquet files that will be "removed"
+    int initialRecordsCount = 10;
+    List<HoodieRecord> removedRecords = dataGen.generateInsertsForPartition(commitTime1, initialRecordsCount, testPartition);
+
+    List<String> removedFiles = new ArrayList<>();
+    List<String> expectedRemovedRecordKeys = new ArrayList<>();
+    for (int i = 0; i < 2; i++) {
+      String fileName = "removed_file_" + i + ".parquet";
+      String baseFilePath = Paths.get(basePath, testPartition, fileName).toString();
+      writeExternalParquetFileWithTripData(baseFilePath, removedRecords.subList(i * 5, (i + 1) * 5));
+      removedFiles.add(fileName);
+      expectedRemovedRecordKeys.addAll(readExternalParquetFileWithRowPositions(baseFilePath));
+    }
+
+    // Step 2: Write external parquet files that are "added"
+    int newRecordsCount = 5;
+    List<HoodieRecord> addedRecords = dataGen.generateInsertsForPartition(commitTime2, newRecordsCount, testPartition);
+
+    List<HoodieWriteStat> addedWriteStats = new ArrayList<>();
+    List<String> expectedAddedRecordKeys = new ArrayList<>();
+    String fileName = "added_file_0.parquet";
+    String baseFilePath = Paths.get(basePath, testPartition, fileName).toString();
+    addedWriteStats.add(writeExternalFileAndCreateWriteStat(basePath, testPartition, fileName, addedRecords, commitTime2));
+    expectedAddedRecordKeys.addAll(readExternalParquetFileWithRowPositions(baseFilePath));
+
+    // Step 3: Construct HoodieReplaceCommitMetadata
+    Map<String, List<String>> partitionToReplaceFileIds = new HashMap<>();
+    partitionToReplaceFileIds.put(testPartition, removedFiles);
+    HoodieReplaceCommitMetadata replaceCommitMetadata = buildReplaceCommitMetadata(addedWriteStats, partitionToReplaceFileIds);
+
+    // Step 4: Generate secondary index records for external files
+    metaClient = HoodieTableMetaClient.reload(metaClient);
+    Schema tableSchema = new Schema.Parser().parse(TRIP_EXAMPLE_SCHEMA);
+    List<HoodieRecord> secondaryIndexRecords = convertWriteStatsForNonNativeFormatToSecondaryIndexRecords(
+        engineContext, commitTime2, tableSchema, indexDefinition, metadataConfig,
+        metaClient, writeConfig.getProps(), replaceCommitMetadata).collectAsList();
+
+    // Step 5: Separate valid (insert) and deleted SI records
+    List<HoodieRecord> validSIRecords = new ArrayList<>();
+    List<HoodieRecord> deletedSIRecords = new ArrayList<>();
+    secondaryIndexRecords.forEach(record -> {
+      populateValidAndDeletedSecondaryIndexRecords(record, deletedSIRecords, validSIRecords);
+    });
+
+    // Verify counts
+    assertEquals(newRecordsCount, validSIRecords.size(),
+        "Should have insert SI records for all new records");
+    assertEquals(initialRecordsCount, deletedSIRecords.size(),
+        "Should have delete SI records for all replaced files");
+
+    // Verify record keys match exactly (validates secondary key, file path, and position)
+    Collections.sort(expectedAddedRecordKeys);
+    Collections.sort(expectedRemovedRecordKeys);
+    assertListEquality(expectedAddedRecordKeys, extractAndSortRecordKeys(validSIRecords));
+    assertListEquality(expectedRemovedRecordKeys, extractAndSortRecordKeys(deletedSIRecords));
+  }
+
+  /**
+   * Helper method to write external parquet files with trip data (for testing).
+   */
+  private void writeExternalParquetFileWithTripData(String filePath, List<HoodieRecord> records) throws Exception {
+    Schema schema = new Schema.Parser().parse(TRIP_EXAMPLE_SCHEMA);
+    ParquetWriter<GenericRecord> writer = AvroParquetWriter.<GenericRecord>builder(new Path(filePath))
+        .withSchema(schema)
+        .withCompressionCodec(CompressionCodecName.GZIP)
+        .build();
+
+    for (HoodieRecord record : records) {
+      GenericRecord avroRecord = (GenericRecord) record.getData();
+      writer.write(avroRecord);
+    }
+    writer.close();
+  }
+
+  /**
+   * Reads an external parquet file and returns a list of expected record keys
+   * in the format: secondaryKey$filePath_rowPosition
+   *
+   * @param baseFilePath Base file path (e.g., /path/to/file.parquet)
+   * @return List of record keys matching the secondary index format
+   */
+  private List<String> readExternalParquetFileWithRowPositions(String baseFilePath) throws IOException {
+    List<String> recordKeys = new ArrayList<>();
+
+    ParquetReader<GenericRecord> reader = AvroParquetReader.<GenericRecord>builder(new Path(baseFilePath))
+        .build();
+
+    long position = 0;
+    GenericRecord record;
+    while ((record = reader.read()) != null) {
+      String secondaryKey = record.get("rider").toString();
+      // Format: secondaryKey$filePath_position (without _hudiext suffix)
+      String recordKey = secondaryKey + "$" + baseFilePath + "_" + position;
+      recordKeys.add(recordKey);
+      position++;
+    }
+    reader.close();
+
+    return recordKeys;
+  }
+
+  /**
+   * Helper to write external parquet file and create HoodieWriteStat for it.
+   */
+  private HoodieWriteStat writeExternalFileAndCreateWriteStat(String basePath, String partition, String fileName,
+                                                                List<HoodieRecord> records, String commitTime) throws Exception {
+    String baseFilePath = Paths.get(basePath, partition, fileName).toString();
+    writeExternalParquetFileWithTripData(baseFilePath, records);
+
+    HoodieWriteStat writeStat = new HoodieWriteStat();
+    String externalPath = ExternalFilePathUtil.appendCommitTimeAndExternalFileMarker(baseFilePath, commitTime);
+    String externalFileName = FSUtils.getFileNameFromPath(externalPath);
+    writeStat.setFileId(fileName);
+    writeStat.setPath(partition + "/" + externalFileName);
+    writeStat.setPartitionPath(partition);
+    writeStat.setFileSizeInBytes(new java.io.File(baseFilePath).length());
+
+    return writeStat;
+  }
+
+  /**
+   * Helper to construct HoodieReplaceCommitMetadata with added and removed files.
+   */
+  private HoodieReplaceCommitMetadata buildReplaceCommitMetadata(List<HoodieWriteStat> addedWriteStats,
+                                                                  Map<String, List<String>> partitionToRemovedFileIds) {
+    HoodieReplaceCommitMetadata replaceCommitMetadata = new HoodieReplaceCommitMetadata();
+    // Operation type not needed - external files auto-detected by _hudiext suffix
+    addedWriteStats.forEach(stat -> replaceCommitMetadata.addWriteStat(stat.getPartitionPath(), stat));
+    replaceCommitMetadata.setPartitionToReplaceFileIds(partitionToRemovedFileIds);
+    replaceCommitMetadata.addMetadata(HoodieCommitMetadata.SCHEMA_KEY, TRIP_EXAMPLE_SCHEMA);
+    return replaceCommitMetadata;
+  }
+
+  /**
+   * Helper to extract and sort record keys from HoodieRecords.
+   */
+  private List<String> extractAndSortRecordKeys(List<HoodieRecord> records) {
+    List<String> keys = records.stream()
+        .map(HoodieRecord::getRecordKey)
+        .sorted()
+        .collect(Collectors.toList());
+    return keys;
   }
 
   private static void populateValidAndDeletedSecondaryIndexRecords(HoodieRecord record, List<HoodieRecord> deletedSecondaryIndexRecords, List<HoodieRecord> validSecondaryIndexRecords) {
@@ -706,7 +900,7 @@ public class TestMetadataUtilRLIandSIRecordGeneration extends HoodieClientTestBa
   }
 
   Set<String> getRecordKeys(String partition, String baseInstantTime, String fileId, List<StoragePath> logFilePaths, HoodieTableMetaClient datasetMetaClient,
-                                   Option<Schema> writerSchemaOpt, String latestCommitTimestamp, HoodieWriteConfig writeConfig) throws IOException {
+                            Option<Schema> writerSchemaOpt, String latestCommitTimestamp, HoodieWriteConfig writeConfig) throws IOException {
     if (writerSchemaOpt.isPresent()) {
       // read log file records without merging
       TypedProperties properties = new TypedProperties();
@@ -733,5 +927,142 @@ public class TestMetadataUtilRLIandSIRecordGeneration extends HoodieClientTestBa
       return allRecordKeys;
     }
     return Collections.emptySet();
+  }
+
+  /**
+   * This tests the new code path in convertMetadataToRecordIndexRecords that handles external base files written by non-native formats.
+   * <p>
+   * Test flow:
+   * 1. Creates initial records in partition to simulate existing data files.
+   * 3. Calls convertMetadataToRecordIndexRecords with replaced file IDs
+   * 4. Verifies DELETE records are generated for all record keys in replaced files
+   */
+  @Test
+  public void testRLIGenerationForInsertOverwriteExternalFormat() throws Exception {
+    HoodieTableType tableType = HoodieTableType.COPY_ON_WRITE;
+    cleanupClients();
+    initMetaClient(tableType);
+    cleanupTimelineService();
+    initTimelineService();
+
+    HoodieSparkEngineContext engineContext = new HoodieSparkEngineContext(jsc);
+    HoodieWriteConfig writeConfig = getConfigBuilder(HoodieFailedWritesCleaningPolicy.EAGER).build();
+    String testPartition1 = "americas/brazil/sao_paulo";
+    String testPartition2 = "americas/argentina/buenos_aires";
+    String commitTime1 = "20260101000000";
+    String commitTime2 = "20260102000000";
+
+    // Step 1: Write external parquet files that will be "removed"
+    int partition1RecordsCount = 10;
+    int partition2RecordsCount = 5;
+    List<HoodieRecord> removedRecordsP1 = dataGen.generateInsertsForPartition(commitTime1, partition1RecordsCount, testPartition1);
+    List<HoodieRecord> removedRecordsP2 = dataGen.generateInsertsForPartition(commitTime1, partition2RecordsCount, testPartition2);
+
+    Map<String, List<String>> partitionToRemovedFileIds = new HashMap<>();
+    List<String> expectedDeletedRecordKeys = new ArrayList<>();
+
+    // Write removed files for partition 1
+    List<String> removedFilesP1 = new ArrayList<>();
+    for (int i = 0; i < 2; i++) {
+      String fileName = "removed_file_p1_" + i + ".parquet";
+      String baseFilePath = Paths.get(basePath, testPartition1, fileName).toString();
+      int startIdx = i * 5;
+      int endIdx = Math.min((i + 1) * 5, removedRecordsP1.size());
+      writeExternalParquetFileWithTripData(baseFilePath, removedRecordsP1.subList(startIdx, endIdx));
+
+      // Add just the fileName (not the full external path) to partitionToReplaceFileIds
+      removedFilesP1.add(fileName);
+
+      // Read parquet and get expected RLI record keys (filePath_position format)
+      expectedDeletedRecordKeys.addAll(readExternalParquetFileWithRowPositions(baseFilePath).stream()
+          .map(key -> key.substring(key.indexOf('$') + 1))  // Extract filePath_position part
+          .collect(Collectors.toList()));
+    }
+    partitionToRemovedFileIds.put(testPartition1, removedFilesP1);
+
+    // Write removed files for partition 2
+    List<String> removedFilesP2 = new ArrayList<>();
+    String fileName = "removed_file_p2_0.parquet";
+    String baseFilePath = Paths.get(basePath, testPartition2, fileName).toString();
+    writeExternalParquetFileWithTripData(baseFilePath, removedRecordsP2);
+
+    // Add just the fileName (not the full external path) to partitionToReplaceFileIds
+    removedFilesP2.add(fileName);
+    partitionToRemovedFileIds.put(testPartition2, removedFilesP2);
+
+    // Read parquet and get expected RLI record keys (filePath_position format)
+    expectedDeletedRecordKeys.addAll(readExternalParquetFileWithRowPositions(baseFilePath).stream()
+        .map(key -> key.substring(key.indexOf('$') + 1))  // Extract filePath_position part
+        .collect(Collectors.toList()));
+
+    // Step 2: Write external parquet files that are "added"
+    List<HoodieRecord> addedRecordsP1 = dataGen.generateInsertsForPartition(commitTime2, 5, testPartition1);
+    List<HoodieRecord> addedRecordsP2 = dataGen.generateInsertsForPartition(commitTime2, 3, testPartition2);
+
+    List<HoodieWriteStat> addedWriteStats = new ArrayList<>();
+    List<String> expectedInsertedRecordKeys = new ArrayList<>();
+
+    // Write added file for partition 1
+    String addedFileName1 = "added_file_p1_0.parquet";
+    String addedFilePath1 = Paths.get(basePath, testPartition1, addedFileName1).toString();
+    addedWriteStats.add(writeExternalFileAndCreateWriteStat(basePath, testPartition1, addedFileName1, addedRecordsP1, commitTime2));
+    expectedInsertedRecordKeys.addAll(readExternalParquetFileWithRowPositions(addedFilePath1).stream()
+        .map(key -> key.substring(key.indexOf('$') + 1))  // Extract filePath_position part
+        .collect(Collectors.toList()));
+
+    // Write added file for partition 2
+    String addedFileName2 = "added_file_p2_0.parquet";
+    String addedFilePath2 = Paths.get(basePath, testPartition2, addedFileName2).toString();
+    addedWriteStats.add(writeExternalFileAndCreateWriteStat(basePath, testPartition2, addedFileName2, addedRecordsP2, commitTime2));
+    expectedInsertedRecordKeys.addAll(readExternalParquetFileWithRowPositions(addedFilePath2).stream()
+        .map(key -> key.substring(key.indexOf('$') + 1))  // Extract filePath_position part
+        .collect(Collectors.toList()));
+
+    // Step 3: Construct HoodieReplaceCommitMetadata
+    HoodieReplaceCommitMetadata replaceCommitMetadata = buildReplaceCommitMetadata(addedWriteStats, partitionToRemovedFileIds);
+
+    // Step 4: Create metadata config with RLI enabled
+    HoodieMetadataConfig metadataConfig = HoodieMetadataConfig.newBuilder()
+        .enable(true)
+        .withEnableGlobalRecordLevelIndex(true)
+        .build();
+
+    // Step 5: Call convertMetadataToRecordIndexRecords - this is the key test
+    metaClient = HoodieTableMetaClient.reload(metaClient);
+    List<HoodieRecord> rliRecords = convertMetadataToRecordIndexRecords(
+        engineContext,
+        replaceCommitMetadata,
+        metadataConfig,
+        metaClient,
+        1,
+        commitTime2,
+        EngineType.SPARK,
+        writeConfig.enableOptimizedLogBlocksScan()
+    ).collectAsList();
+
+    // Step 6: Separate INSERT and DELETE records
+    List<HoodieRecord> insertRecords = new ArrayList<>();
+    List<HoodieRecord> deleteRecords = new ArrayList<>();
+    for (HoodieRecord record : rliRecords) {
+      if (record.getData() instanceof EmptyHoodieRecordPayload) {
+        deleteRecords.add(record);
+      } else {
+        insertRecords.add(record);
+      }
+    }
+
+    // Verify counts
+    int expectedNewRecords = addedRecordsP1.size() + addedRecordsP2.size(); // 5 + 3 = 8
+    int expectedDeleteRecords = partition1RecordsCount + partition2RecordsCount; // 10 + 5 = 15
+    assertEquals(expectedNewRecords, insertRecords.size(),
+        "Should have INSERT RLI records for all new records");
+    assertEquals(expectedDeleteRecords, deleteRecords.size(),
+        "Should have DELETE RLI records for all replaced file records");
+
+    // Verify record keys match expected (validates file path and position)
+    Collections.sort(expectedInsertedRecordKeys);
+    Collections.sort(expectedDeletedRecordKeys);
+    assertListEquality(expectedInsertedRecordKeys, extractAndSortRecordKeys(insertRecords));
+    assertListEquality(expectedDeletedRecordKeys, extractAndSortRecordKeys(deleteRecords));
   }
 }

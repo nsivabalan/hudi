@@ -328,7 +328,7 @@ public class HoodieWriteStat extends HoodieReadStats {
   @Override
   public int hashCode() {
     int result = path.hashCode();
-    result = 31 * result + prevCommit.hashCode();
+    result = 31 * result + (prevCommit != null ? prevCommit.hashCode() : "".hashCode());
     return result;
   }
 

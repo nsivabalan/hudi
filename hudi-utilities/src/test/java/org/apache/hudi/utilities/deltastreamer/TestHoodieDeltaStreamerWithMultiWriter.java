@@ -307,7 +307,7 @@ public class TestHoodieDeltaStreamerWithMultiWriter extends HoodieDeltaStreamerT
     new HoodieDeltaStreamer(cfgBackfillJob, jsc).sync(); // if deltastreamer checkpoint fetch does not walk back to older commits, this sync will fail
     meta.reloadActiveTimeline();
     Assertions.assertEquals(totalCommits + 2, meta.getCommitsTimeline().filterCompletedInstants().countInstants());
-    verifyCommitMetadataCheckpoint(meta, "00008");
+    verifyCommitMetadataCheckpoint(meta, String.format("0000%d", totalCommits));
   }
 
   private void verifyCommitMetadataCheckpoint(HoodieTableMetaClient metaClient, String expectedCheckpoint) throws IOException {

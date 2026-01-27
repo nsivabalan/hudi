@@ -233,4 +233,18 @@ public class HoodieRecordUtils {
         ? Collections.emptyList()
         : tableConfig.getOrderingFields();
   }
+
+  /**
+   * Resolves a record key, using a fallback pattern for external parquet files without _hoodie_record_key.
+   *
+   * @param recordKey    The record key value (can be null for external files)
+   * @param dataFilePath Data file path for fallback key (e.g., "partition/fileId" or "relativePath")
+   * @param rowPosition  Row position in the file
+   * @return The resolved record key string
+   */
+  public static String resolveRecordKey(Object recordKey, String dataFilePath, long rowPosition) {
+    return recordKey == null
+        ? String.format("%s_%s", dataFilePath, rowPosition)
+        : recordKey.toString();
+  }
 }

@@ -69,6 +69,7 @@ import org.apache.hudi.common.model.HoodiePartitionMetadata;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieRecord.HoodieRecordType;
 import org.apache.hudi.common.model.HoodieRecordGlobalLocation;
+import org.apache.hudi.common.model.HoodieReplaceCommitMetadata;
 import org.apache.hudi.common.model.HoodieWriteStat;
 import org.apache.hudi.common.model.WriteOperationType;
 import org.apache.hudi.common.table.HoodieTableConfig;
@@ -91,6 +92,7 @@ import org.apache.hudi.common.table.timeline.InstantGenerator;
 import org.apache.hudi.common.table.timeline.TimelineFactory;
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
 import org.apache.hudi.common.util.CollectionUtils;
+import org.apache.hudi.common.util.ExternalFilePathUtil;
 import org.apache.hudi.common.util.FileFormatUtils;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.PartitionPathEncodeUtils;
@@ -751,7 +753,7 @@ public class HoodieTableMetadataUtil {
       records.add(HoodieMetadataPayload.createPartitionListRecord(deletedPartitions, true));
     }
     LOG.info("Updating at {} from Clean. #partitions_updated={}, #files_deleted={}, #partitions_deleted={}",
-            instantTime, records.size(), fileDeleteCount[0], deletedPartitions.size());
+        instantTime, records.size(), fileDeleteCount[0], deletedPartitions.size());
     return records;
   }
 
@@ -785,7 +787,7 @@ public class HoodieTableMetadataUtil {
     }
 
     LOG.info("Re-adding missing records at {} during Restore. #partitions_updated={}, #files_added={}, #files_deleted={}, #partitions_deleted={}",
-            instantTime, records.size(), filesAddedCount[0], fileDeleteCount[0], deletedPartitions.size());
+        instantTime, records.size(), filesAddedCount[0], fileDeleteCount[0], deletedPartitions.size());
     return Collections.singletonMap(MetadataPartitionType.FILES.getPartitionPath(), engineContext.parallelize(records, 1));
   }
 
@@ -897,13 +899,19 @@ public class HoodieTableMetadataUtil {
       Option<Schema> writerSchemaOpt = tryResolveSchemaForTable(dataTableMetaClient);
       Option<Schema> finalWriterSchemaOpt = writerSchemaOpt;
       ReaderContextFactory<T> readerContextFactory = engineContext.getReaderContextFactory(dataTableMetaClient);
-      HoodieData<HoodieRecord> recordIndexRecords = engineContext.parallelize(new ArrayList<>(writeStatsByFileId.entrySet()), parallelism)
-          .flatMap(writeStatsByFileIdEntry -> {
-            String fileId = writeStatsByFileIdEntry.getKey();
-            List<HoodieWriteStat> writeStats = writeStatsByFileIdEntry.getValue();
+      // Convert HashMap entries to serializable Pair objects to avoid NotSerializableException for HashMap$Node
+      List<Pair<String, List<HoodieWriteStat>>> serializableEntries = writeStatsByFileId.entrySet().stream()
+          .map(e -> Pair.of(e.getKey(), e.getValue()))
+          .collect(Collectors.toList());
+      HoodieData<HoodieRecord> recordIndexRecords = engineContext.parallelize(serializableEntries, parallelism)
+          .flatMap(entry -> {
+            String fileId = entry.getLeft();
+            List<HoodieWriteStat> writeStats = entry.getRight();
             // Partition the write stats into base file and log file write stats
             List<HoodieWriteStat> baseFileWriteStats = writeStats.stream()
-                .filter(writeStat -> writeStat.getPath().endsWith(baseFileFormat.getFileExtension()))
+                .filter(writeStat -> writeStat.getPath().endsWith(baseFileFormat.getFileExtension())
+                    || (ExternalFilePathUtil.isExternallyCreatedFile(writeStat.getPath())
+                    && HoodieBaseFile.getFileIdAndCommitTimeFromFileName(writeStat.getPath())[0].endsWith(baseFileFormat.getFileExtension())))
                 .collect(Collectors.toList());
             List<HoodieWriteStat> logFileWriteStats = writeStats.stream()
                 .filter(writeStat -> FSUtils.isLogFile(new StoragePath(writeStats.get(0).getPath())))
@@ -958,25 +966,83 @@ public class HoodieTableMetadataUtil {
             LOG.warn("No base file or log file write stats found for fileId: {}", fileId);
             return Collections.emptyIterator();
           });
+      // For external files (when base files are generated in non-native (Hudi) format to replace existing files),
+      // we need to process the replaced base files and generate RLI delete records for all their record keys
+      if (commitMetadata instanceof HoodieReplaceCommitMetadata && ExternalFilePathUtil.hasExternalFiles(commitMetadata)) {
+        HoodieData<HoodieRecord> recordIndexRecordsDeleted = generateRecordIndexDeletesForReplacedFiles(
+            engineContext,
+            (HoodieReplaceCommitMetadata) commitMetadata,
+            basePath,
+            storageConfiguration,
+            metadataConfig.isRecordLevelIndexEnabled(),
+            parallelism
+        );
+        // Union the deleted records with the main record index records
+        recordIndexRecords = recordIndexRecords.union(recordIndexRecordsDeleted);
+      }
 
       // there are chances that same record key from data table has 2 entries (1 delete from older partition and 1 insert to newer partition)
       // lets do reduce by key to ignore the deleted entry.
       // first deduce parallelism to avoid too few tasks for large number of records.
-      long totalWriteBytesForRLI = allWriteStats.stream().mapToLong(writeStat -> {
-        // if there are no inserts or deletes, we can ignore this write stat for RLI
-        if (writeStat.getNumInserts() == 0 && writeStat.getNumDeletes() == 0) {
-          return 0;
-        }
-        return writeStat.getTotalWriteBytes();
-      }).sum();
+      long totalWriteBytesForRLI = allWriteStats.stream().mapToLong(HoodieWriteStat::getTotalWriteBytes).sum();
       // approximate task partition size of 100MB
       // (TODO: make this configurable)
       long targetPartitionSize = 100 * 1024 * 1024;
       parallelism = (int) Math.max(1, (totalWriteBytesForRLI + targetPartitionSize - 1) / targetPartitionSize);
+      LOG.info("RLI update: calling reduceByKeys with parallelism={} [totalWriteBytesForRLI={}, targetPartitionSize={}MB, isPartitionedRLI={}]",
+          parallelism, totalWriteBytesForRLI, targetPartitionSize / (1024 * 1024), metadataConfig.isRecordLevelIndexEnabled());
       return reduceByKeys(recordIndexRecords, parallelism, metadataConfig.isRecordLevelIndexEnabled());
     } catch (Exception e) {
       throw new HoodieException("Failed to generate RLI records for metadata table", e);
     }
+  }
+
+  /**
+   * Generates record index delete records for replaced base files.
+   * For external files (when base files are generated in non-native (Hudi) format to replace existing files),
+   * we need to process the replaced base files and generate RLI delete records for all their record keys.
+   *
+   * @param engineContext       HoodieEngineContext instance
+   * @param replaceCommitMetadata      HoodieReplaceCommitMetadata instance containing replaced file information
+   * @param basePath            Base path of the data table
+   * @param storageConfiguration Storage configuration for the data table
+   * @param isPartitionedRLI    Whether the record level index is partitioned
+   * @param parallelism         Parallelism to use for processing
+   * @return HoodieData containing HoodieRecord instances for deleted records
+   */
+  private static HoodieData<HoodieRecord> generateRecordIndexDeletesForReplacedFiles(
+      HoodieEngineContext engineContext,
+      HoodieReplaceCommitMetadata replaceCommitMetadata,
+      String basePath,
+      StorageConfiguration storageConfiguration,
+      boolean isPartitionedRLI,
+      int parallelism) {
+    Map<String, List<String>> partitionToReplaceFileIds = replaceCommitMetadata.getPartitionToReplaceFileIds();
+    List<Pair<String, String>> replacedFileIdList = partitionToReplaceFileIds.entrySet().stream()
+        .flatMap(entry -> entry.getValue().stream().map(fileId -> Pair.of(entry.getKey(), fileId)))
+        .collect(Collectors.toList());
+    // Generate delete records for replaced files
+    int deleteParallelism = Math.max(Math.min(replacedFileIdList.size(), parallelism), 1);
+    return engineContext.parallelize(replacedFileIdList, deleteParallelism)
+        .flatMap(partitionAndFileId -> {
+          String partition = partitionAndFileId.getKey();
+          String fileId = partitionAndFileId.getValue();
+          // Construct the file name from fileId - we need to find the actual file in the partition
+          HoodieStorage storage = HoodieStorageUtils.getStorage(new StoragePath(basePath, partition), storageConfiguration);
+          // Get record keys from the previous base file
+          StoragePath dataFilePath = new StoragePath(basePath, StringUtils.isNullOrEmpty(partition) ? fileId : (partition + StoragePath.SEPARATOR) + fileId);
+          // Validate external file is Parquet format
+          if (!fileId.contains(HoodieFileFormat.PARQUET.getFileExtension())) {
+            throw new HoodieException("External files must be in Parquet format for RLI delete generation, found: " + fileId);
+          }
+          FileFormatUtils fileFormatUtils = HoodieIOFactory.getIOFactory(storage).getFileFormatUtils(HoodieFileFormat.PARQUET);
+          Set<String> recordKeysFromPreviousBaseFile = fileFormatUtils.readRowKeys(storage, dataFilePath);
+          // Create DELETE records for all keys in the previous base file
+          List<HoodieRecord> hoodieRecords = recordKeysFromPreviousBaseFile.stream()
+              .map(recordKey -> HoodieMetadataPayload.createRecordIndexDelete(recordKey, partition, isPartitionedRLI))
+              .collect(Collectors.toList());
+          return hoodieRecords.iterator();
+        });
   }
 
   /**
@@ -1023,7 +1089,7 @@ public class HoodieTableMetadataUtil {
       }
     }
     return getRevivedAndDeletedKeys(dataTableMetaClient, instantTime, partitionPath, readerContext,
-            logFilePaths, finalWriterSchemaOpt, logFilePathsWithoutCurrentLogFiles, enableOptimizedLogBlocksScan);
+        logFilePaths, finalWriterSchemaOpt, logFilePathsWithoutCurrentLogFiles, enableOptimizedLogBlocksScan);
   }
 
   private static <T> Pair<Set<String>, Set<String>> getRevivedAndDeletedKeys(HoodieTableMetaClient dataTableMetaClient,
@@ -1289,7 +1355,7 @@ public class HoodieTableMetadataUtil {
     });
 
     LOG.info("Found at {} from {}. #partitions_updated={}, #files_deleted={}, #files_appended={}",
-            instantTime, operation, records.size(), fileChangeCount[0], fileChangeCount[1]);
+        instantTime, operation, records.size(), fileChangeCount[0], fileChangeCount[1]);
 
     return records;
   }
@@ -1596,7 +1662,7 @@ public class HoodieTableMetadataUtil {
   }
 
   public static Map<String, Schema> getColumnsToIndex(HoodieCommitMetadata commitMetadata, HoodieTableMetaClient dataMetaClient,
-                                               HoodieMetadataConfig metadataConfig, Option<HoodieRecordType> recordTypeOpt) {
+                                                      HoodieMetadataConfig metadataConfig, Option<HoodieRecordType> recordTypeOpt) {
     Option<Schema> writerSchema =
         Option.ofNullable(commitMetadata.getMetadata(HoodieCommitMetadata.SCHEMA_KEY))
             .flatMap(writerSchemaStr ->
@@ -2094,8 +2160,8 @@ public class HoodieTableMetadataUtil {
     // instant which we have a log block for.
     final String earliestInstantTime = validInstantTimestamps.isEmpty() ? SOLO_COMMIT_TIMESTAMP : Collections.min(validInstantTimestamps);
     datasetTimeline.getRollbackAndRestoreTimeline().filterCompletedInstants().getInstantsAsStream()
-            .filter(instant -> compareTimestamps(instant.requestedTime(), GREATER_THAN, earliestInstantTime))
-            .forEach(instant -> validInstantTimestamps.addAll(getRollbackedCommits(instant, datasetTimeline, dataMetaClient.getInstantGenerator())));
+        .filter(instant -> compareTimestamps(instant.requestedTime(), GREATER_THAN, earliestInstantTime))
+        .forEach(instant -> validInstantTimestamps.addAll(getRollbackedCommits(instant, datasetTimeline, dataMetaClient.getInstantGenerator())));
 
     // add restore and rollback instants from MDT.
     metadataMetaClient.getActiveTimeline().getRollbackAndRestoreTimeline().filterCompletedInstants()
@@ -2740,9 +2806,9 @@ public class HoodieTableMetadataUtil {
   }
 
   static HoodieData<HoodieRecord> convertMetadataToPartitionStatsRecords(HoodiePairData<String, List<HoodieColumnRangeMetadata<Comparable>>> columnRangeMetadataPartitionPair,
-                                                                                 HoodieTableMetaClient dataMetaClient,
-                                                                                 Map<String, Schema> colsToIndexSchemaMap,
-                                                                                 HoodieIndexVersion partitionStatsIndexVersion
+                                                                         HoodieTableMetaClient dataMetaClient,
+                                                                         Map<String, Schema> colsToIndexSchemaMap,
+                                                                         HoodieIndexVersion partitionStatsIndexVersion
   ) {
     try {
       return columnRangeMetadataPartitionPair
@@ -2821,9 +2887,9 @@ public class HoodieTableMetadataUtil {
   }
 
   static List<HoodieColumnRangeMetadata<Comparable>> translateWriteStatToFileStats(HoodieWriteStat writeStat,
-                                                                                           HoodieTableMetaClient datasetMetaClient,
-                                                                                           List<String> columnsToIndex,
-                                                                                           HoodieIndexVersion indexVersion) {
+                                                                                   HoodieTableMetaClient datasetMetaClient,
+                                                                                   List<String> columnsToIndex,
+                                                                                   HoodieIndexVersion indexVersion) {
     if (writeStat instanceof HoodieDeltaWriteStat && ((HoodieDeltaWriteStat) writeStat).getColumnStats().isPresent()) {
       Map<String, HoodieColumnRangeMetadata<Comparable>> columnRangeMap = ((HoodieDeltaWriteStat) writeStat).getColumnStats().get();
       return new ArrayList<>(columnRangeMap.values());
@@ -2869,7 +2935,7 @@ public class HoodieTableMetadataUtil {
 
     Comparable minValue = newValueMetadata.standardizeJavaTypeAndPromote(
         (Comparable) Stream.of((Comparable) prevValueMetadata.unwrapValue(prevColumnStats.getMinValue()),
-            (Comparable) newValueMetadata.unwrapValue(newColumnStats.getMinValue()))
+                (Comparable) newValueMetadata.unwrapValue(newColumnStats.getMinValue()))
             .filter(Objects::nonNull)
             .min(Comparator.naturalOrder())
             .orElse(null));

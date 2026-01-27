@@ -79,4 +79,108 @@ class TestHoodieRecordUtils {
     props.setProperty("hoodie.table.ordering.fields", "props");
     assertEquals(Collections.singletonList("tbl"), HoodieRecordUtils.getOrderingFieldNames(RecordMergeMode.EVENT_TIME_ORDERING, metaClient));
   }
+
+  @Test
+  void testResolveRecordKeyWithNonNullRecordKey() {
+    // Test with string record key
+    String recordKey = "test_record_key_123";
+    String dataFilePath = "partition/fileId";
+    long rowPosition = 42L;
+
+    String result = HoodieRecordUtils.resolveRecordKey(recordKey, dataFilePath, rowPosition);
+    assertEquals(recordKey, result, "Should return the record key as-is when it's not null");
+  }
+
+  @Test
+  void testResolveRecordKeyWithNonNullNumericRecordKey() {
+    // Test with numeric record key
+    Long recordKey = 12345L;
+    String dataFilePath = "partition/fileId";
+    long rowPosition = 42L;
+
+    String result = HoodieRecordUtils.resolveRecordKey(recordKey, dataFilePath, rowPosition);
+    assertEquals("12345", result, "Should convert numeric record key to string");
+  }
+
+  @Test
+  void testResolveRecordKeyWithNullRecordKey() {
+    // Test with null record key - should use fallback pattern
+    String dataFilePath = "partition/fileId";
+    long rowPosition = 42L;
+    String result = HoodieRecordUtils.resolveRecordKey(null, dataFilePath, rowPosition);
+    assertEquals("partition/fileId_42", result,
+        "Should return fallback pattern 'dataFilePath_rowPosition' when record key is null");
+  }
+
+  @Test
+  void testResolveRecordKeyWithNullRecordKeyAndZeroPosition() {
+    // Test with null record key and zero row position
+    String dataFilePath = "partition/fileId";
+    long rowPosition = 0L;
+
+    String result = HoodieRecordUtils.resolveRecordKey(null, dataFilePath, rowPosition);
+    assertEquals("partition/fileId_0", result,
+        "Should handle zero row position correctly in fallback pattern");
+  }
+
+  @Test
+  void testResolveRecordKeyWithNullRecordKeyAndLargePosition() {
+    // Test with null record key and large row position
+    String dataFilePath = "partition/external_file.parquet";
+    long rowPosition = 999999999L;
+    String result = HoodieRecordUtils.resolveRecordKey(null, dataFilePath, rowPosition);
+    assertEquals("partition/external_file.parquet_999999999", result,
+        "Should handle large row position correctly in fallback pattern");
+  }
+
+  @Test
+  void testResolveRecordKeyWithComplexDataFilePath() {
+    // Test with complex nested partition path
+    String dataFilePath = "year=2023/month=12/day=31/part-00000-abc123.parquet";
+    long rowPosition = 10L;
+
+    // With non-null record key
+    String result1 = HoodieRecordUtils.resolveRecordKey("key123", dataFilePath, rowPosition);
+    assertEquals("key123", result1, "Should return record key regardless of complex path");
+
+    // With null record key
+    String result2 = HoodieRecordUtils.resolveRecordKey(null, dataFilePath, rowPosition);
+    assertEquals("year=2023/month=12/day=31/part-00000-abc123.parquet_10", result2,
+        "Should handle complex file paths in fallback pattern");
+  }
+
+  @Test
+  void testResolveRecordKeyWithRelativePath() {
+    // Test with relative path (typical for external files)
+    String dataFilePath = "relative/path/to/file";
+    long rowPosition = 5L;
+
+    String result = HoodieRecordUtils.resolveRecordKey(null, dataFilePath, rowPosition);
+    assertEquals("relative/path/to/file_5", result,
+        "Should handle relative paths correctly in fallback pattern");
+  }
+
+  @Test
+  void testResolveRecordKeyWithEmptyStringRecordKey() {
+    // Test with empty string record key (not null, but empty)
+    String recordKey = "";
+    String dataFilePath = "partition/fileId";
+    long rowPosition = 1L;
+
+    String result = HoodieRecordUtils.resolveRecordKey(recordKey, dataFilePath, rowPosition);
+    assertEquals("", result, "Should return empty string when record key is empty string (not null)");
+  }
+
+  @Test
+  void testResolveRecordKeyConsistency() {
+    // Test that the same inputs produce the same output (idempotency)
+    String dataFilePath = "partition/fileId";
+    long rowPosition = 100L;
+
+    String result1 = HoodieRecordUtils.resolveRecordKey(null, dataFilePath, rowPosition);
+    String result2 = HoodieRecordUtils.resolveRecordKey(null, dataFilePath, rowPosition);
+
+    assertEquals(result1, result2, "Same inputs should produce identical fallback keys");
+    assertEquals("partition/fileId_100", result1, "Fallback key should be consistent");
+  }
 }

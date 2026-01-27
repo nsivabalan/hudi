@@ -64,6 +64,7 @@ import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.timeline.InstantGenerator;
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
 import org.apache.hudi.common.util.CompactionUtils;
+import org.apache.hudi.common.util.ExternalFilePathUtil;
 import org.apache.hudi.common.util.HoodieTimer;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.StringUtils;
@@ -142,7 +143,6 @@ import static org.apache.hudi.metadata.MetadataPartitionType.PARTITION_STATS;
 import static org.apache.hudi.metadata.MetadataPartitionType.RECORD_INDEX;
 import static org.apache.hudi.metadata.MetadataPartitionType.SECONDARY_INDEX;
 import static org.apache.hudi.metadata.MetadataPartitionType.fromPartitionPath;
-import static org.apache.hudi.metadata.SecondaryIndexRecordGenerationUtils.convertWriteStatsToSecondaryIndexRecords;
 import static org.apache.hudi.metadata.SecondaryIndexRecordGenerationUtils.readSecondaryKeysFromFileSlices;
 
 /**
@@ -750,8 +750,9 @@ public abstract class HoodieBackedTableMetadataWriter<I, O> implements HoodieTab
     recordIndexRecords.unpersist();
   }
 
-  private HoodieData<HoodieRecord> initializeFilegroupsAndCommitToPartitionedRecordIndexPartition(String commitTimeForPartition,
-                                                                              Lazy<List<Pair<String, FileSlice>>> lazyLatestMergedPartitionFileSliceList) throws IOException {
+  private HoodieData<HoodieRecord> initializeFilegroupsAndCommitToPartitionedRecordIndexPartition(
+      String commitTimeForPartition,
+      Lazy<List<Pair<String, FileSlice>>> lazyLatestMergedPartitionFileSliceList) throws IOException {
     Map<String, List<Pair<String, FileSlice>>> partitionFileSlicePairsMap = lazyLatestMergedPartitionFileSliceList.get().stream()
         .collect(Collectors.groupingBy(Pair::getKey));
     Map<String, Pair<Integer, HoodieData<HoodieRecord>>> fileGroupCountAndRecordsPairMap = new HashMap<>(partitionFileSlicePairsMap.size());
@@ -1550,7 +1551,26 @@ public abstract class HoodieBackedTableMetadataWriter<I, O> implements HoodieTab
       return engineContext.emptyHoodieData();
     }
     HoodieIndexDefinition indexDefinition = getIndexDefinition(indexPartition);
-    return convertWriteStatsToSecondaryIndexRecords(allWriteStats, instantTime, indexDefinition, dataWriteConfig.getMetadataConfig(), dataMetaClient, engineContext, dataWriteConfig);
+    // Resolve schema for the table
+    Schema tableSchema;
+    try {
+      tableSchema = HoodieTableMetadataUtil.tryResolveSchemaForTable(dataMetaClient)
+          .orElse(new Schema.Parser().parse(commitMetadata.getMetadata("schema")));
+    } catch (Exception e) {
+      throw new HoodieException("Failed to get latest schema for " + dataMetaClient.getBasePath(), e);
+    }
+    // Split between non-native and hudi file slices
+    // Automatically detect external files by checking for _hudiext suffix
+    if (commitMetadata instanceof HoodieReplaceCommitMetadata && ExternalFilePathUtil.hasExternalFiles(commitMetadata)) {
+      return SecondaryIndexRecordGenerationUtils.convertWriteStatsForNonNativeFormatToSecondaryIndexRecords(
+          engineContext, instantTime, tableSchema, indexDefinition,
+          dataWriteConfig.getMetadataConfig(), dataMetaClient, dataWriteConfig.getProps(),
+          (HoodieReplaceCommitMetadata) commitMetadata);
+    }
+    // Handle Hudi-native format files
+    return SecondaryIndexRecordGenerationUtils.convertWriteStatsToSecondaryIndexRecords(
+        allWriteStats, instantTime, tableSchema, indexDefinition, dataWriteConfig.getMetadataConfig(),
+        dataMetaClient, engineContext, dataWriteConfig);
   }
 
   /**
