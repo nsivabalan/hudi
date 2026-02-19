@@ -492,7 +492,7 @@ public class MetadataBenchmarkingTool implements Closeable {
 
         String dataCommitTime = InProcessTimeGenerator.createNewInstantTime();
         HoodieCommitMetadata commitMetadata = createCommitMetadataAndAddToTimeline(
-            partitions, filesPerCommit, dataCommitTime, dataMetaClient);
+            partitions, filesPerCommit / partitions.size(), dataCommitTime, dataMetaClient);
 
         // Partitions already exist from bootstrap, no need to create them again
         // createFilesForCommit(dataMetaClient, commitMetadata);
