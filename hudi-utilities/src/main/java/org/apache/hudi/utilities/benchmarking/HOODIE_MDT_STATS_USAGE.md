@@ -177,7 +177,6 @@ Sample logs from data skipping
 26/01/12 08:55:13 INFO MetadataBenchmarkingTool: Completed query benchmarking
 ```
 
-
 ### Query an already bootstrapped dataset with 1 month predicate
 #### Generate dataset for 1 year 
 ```bash
