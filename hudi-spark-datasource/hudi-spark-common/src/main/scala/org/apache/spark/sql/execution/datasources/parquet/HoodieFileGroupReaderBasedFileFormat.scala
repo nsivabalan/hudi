@@ -104,6 +104,16 @@ class HoodieFileGroupReaderBasedFileFormat(tablePath: String,
 
   def getRequiredFilters: Seq[Filter] = requiredFilters
 
+  /**
+   * Returns true when this file format only reads base Parquet files with no log merging,
+   * making it safe to offload to a native parquet reader (e.g., Velox via Gluten).
+   */
+  def canOffloadToNativeParquetReader: Boolean = {
+    !isMOR && !isBootstrap && !isIncremental &&
+      !isMultipleBaseFileFormatsEnabled &&
+      hoodieFileFormat == HoodieFileFormat.PARQUET
+  }
+
   private val sanitizedTableName = AvroSchemaUtils.getAvroRecordQualifiedName(tableName)
 
   /**
