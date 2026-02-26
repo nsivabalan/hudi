@@ -115,10 +115,9 @@ public class MetadataBenchmarkingTool implements Closeable {
   private static final LocalDate PARTITION_START_DATE = LocalDate.of(2025, 1, 1);
   private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
-  // TenantID column stats range: 30000-60000
+  // TenantID column stats range
   private static final long TENANT_ID_MIN_BASE = 30000L;
-  private static final int TENANT_ID_RANGE = 30000;
-  private static final long TENANT_ID_MAX = 60000L;
+  private static final int DEFAULT_TENANT_ID_RANGE = 30000;
 
   // Age column stats range: 20-99
   private static final int AGE_MIN_BASE = 20;
@@ -248,6 +247,9 @@ public class MetadataBenchmarkingTool implements Closeable {
     @Parameter(names = {"--data-filter", "-df"}, description = "data filter predicate for querying (e.g., \"age > 70\")")
     public String dataFilters = "";
 
+    @Parameter(names = {"--tenant-id-range", "-tir"}, description = "Range of tenantID values to distribute across files (default: 30000, meaning 30000-60000)")
+    public Integer tenantIdRange = DEFAULT_TENANT_ID_RANGE;
+
     @Parameter(names = {"--hoodie-conf"}, description = "Any configuration that can be set in the properties file "
         + "(using the CLI parameter \"--props\") can also be passed command line using this parameter. This can be repeated",
         splitter = IdentitySplitter.class)
@@ -271,7 +273,8 @@ public class MetadataBenchmarkingTool implements Closeable {
           + "   --num-files-to-bootstrap " + numFilesToBootstrap + ",\n"
           + "   --num-files-for-incremental " + numFilesForIncrementalIngestion + ",\n"
           + "   --num-commits-for-incremental " + numOfcommitForIncrementalIngestion + ",\n"
-          + "   --partition-filter " + partitionFilter + "\n"
+          + "   --partition-filter " + partitionFilter + ",\n"
+          + "   --tenant-id-range " + tenantIdRange + "\n"
           + "}";
     }
   }
@@ -319,11 +322,11 @@ public class MetadataBenchmarkingTool implements Closeable {
       
       // Bootstrap phase
       Pair<Integer, List<String>> bootstrapResult = bootstrapMetadataTable(
-          cfg.numFilesToBootstrap, numPartitions, colsToIndex, dataWriteConfig, dataMetaClient);
+          cfg.numFilesToBootstrap, numPartitions, colsToIndex, dataWriteConfig, dataMetaClient, cfg.tenantIdRange);
       totalFilesCreated = bootstrapResult.getLeft();
       List<String> partitions = bootstrapResult.getRight();
       LOG.info("Completed bootstrapping Metadata table with {} files", totalFilesCreated);
-      
+
       // Incremental ingestion phase
       if (cfg.numFilesForIncrementalIngestion > 0 && cfg.numOfcommitForIncrementalIngestion > 0) {
         int incrementalFiles = runIncrementalIngestion(
@@ -332,9 +335,10 @@ public class MetadataBenchmarkingTool implements Closeable {
             partitions,
             colsToIndex,
             dataWriteConfig,
-            dataMetaClient);
+            dataMetaClient,
+            cfg.tenantIdRange);
         totalFilesCreated += incrementalFiles;
-        LOG.info("Completed incremental ingestion with {} additional files across {} commits", 
+        LOG.info("Completed incremental ingestion with {} additional files across {} commits",
             incrementalFiles, cfg.numOfcommitForIncrementalIngestion);
       }
     }
@@ -355,10 +359,10 @@ public class MetadataBenchmarkingTool implements Closeable {
 
   private Pair<Integer, List<String>> bootstrapMetadataTable(
       int numFiles, int numPartitions, List<String> colsToIndex,
-      HoodieWriteConfig dataWriteConfig, HoodieTableMetaClient dataTableMetaClient) throws Exception {
+      HoodieWriteConfig dataWriteConfig, HoodieTableMetaClient dataTableMetaClient, int tenantIdRange) throws Exception {
 
-    LOG.info("Bootstrapping metadata table: {} files, {} partitions, columns [{}], {} col stats file groups",
-        numFiles, numPartitions, String.join(",", colsToIndex), cfg.colStatsFileGroupCount);
+    LOG.info("Bootstrapping metadata table: {} files, {} partitions, columns [{}], {} col stats file groups, tenantID range {}",
+        numFiles, numPartitions, String.join(",", colsToIndex), cfg.colStatsFileGroupCount, tenantIdRange);
 
     List<String> partitions = generatePartitions(numPartitions);
     int filesPerPartition = numFiles / numPartitions;
@@ -378,7 +382,7 @@ public class MetadataBenchmarkingTool implements Closeable {
 
       metadataWriter.initMetadataMetaClient();
       bootstrapFilesPartition(metadataWriter, commitMetadata, dataCommitTime);
-      bootstrapColumnStatsPartition(metadataWriter, commitMetadata, colsToIndex);
+      bootstrapColumnStatsPartition(metadataWriter, commitMetadata, colsToIndex, tenantIdRange);
     }
     LOG.info("Time taken to perform bootstrapping metadata table is {}", timer.endTimer());
 
@@ -438,10 +442,11 @@ public class MetadataBenchmarkingTool implements Closeable {
   private void bootstrapColumnStatsPartition(
       SparkHoodieBackedTableMetadataBenchmarkWriter metadataWriter,
       HoodieCommitMetadata commitMetadata,
-      List<String> colsToIndex) throws IOException {
+      List<String> colsToIndex,
+      int tenantIdRange) throws IOException {
 
     HoodieTimer timer = HoodieTimer.start();
-    HoodieData<HoodieRecord> columnStatsRecords = generateColumnStatsRecordsForCommitMetadata(commitMetadata);
+    HoodieData<HoodieRecord> columnStatsRecords = generateColumnStatsRecordsForCommitMetadata(commitMetadata, tenantIdRange);
     LOG.info("Bootstrapping COLUMN_STATS partition with {} file groups", cfg.colStatsFileGroupCount);
 
     String instantTime = generateUniqueInstantTime(1);
@@ -463,11 +468,12 @@ public class MetadataBenchmarkingTool implements Closeable {
       List<String> partitions,
       List<String> colsToIndex,
       HoodieWriteConfig dataWriteConfig,
-      HoodieTableMetaClient dataMetaClient) throws Exception {
+      HoodieTableMetaClient dataMetaClient,
+      int tenantIdRange) throws Exception {
 
-    LOG.info("Starting incremental ingestion: {} files per commit across {} commits using {} existing partitions", 
+    LOG.info("Starting incremental ingestion: {} files per commit across {} commits using {} existing partitions",
         filesPerCommit, numCommits, partitions.size());
-    
+
     HoodieWriteConfig mdtWriteConfig = HoodieMetadataWriteUtils.createMetadataWriteConfig(
         dataWriteConfig,
         HoodieFailedWritesCleaningPolicy.EAGER,
@@ -475,7 +481,7 @@ public class MetadataBenchmarkingTool implements Closeable {
 
     int totalFilesCreated = 0;
 
-    try (HoodieBackedTableMetadataWriter<?, ?> metadataWriter = 
+    try (HoodieBackedTableMetadataWriter<?, ?> metadataWriter =
         (HoodieBackedTableMetadataWriter) org.apache.hudi.metadata.SparkMetadataWriterFactory.create(
             engineContext.getStorageConf(),
             dataWriteConfig,
@@ -499,11 +505,11 @@ public class MetadataBenchmarkingTool implements Closeable {
 
         // Generate records for both partitions
         @SuppressWarnings("unchecked")
-        List<HoodieRecord<HoodieMetadataPayload>> filesRecords = 
+        List<HoodieRecord<HoodieMetadataPayload>> filesRecords =
             (List<HoodieRecord<HoodieMetadataPayload>>) (List<?>)
             HoodieTableMetadataUtil.convertMetadataToFilesPartitionRecords(commitMetadata, dataCommitTime);
 
-        HoodieData<HoodieRecord> columnStatsRecords = generateColumnStatsRecordsForCommitMetadata(commitMetadata);
+        HoodieData<HoodieRecord> columnStatsRecords = generateColumnStatsRecordsForCommitMetadata(commitMetadata, tenantIdRange);
 
         // Use upsertPreppedRecords for incremental commits
         performIncrementalCommit(
@@ -515,7 +521,7 @@ public class MetadataBenchmarkingTool implements Closeable {
             colsToIndex);
 
         totalFilesCreated += filesPerCommit;
-        LOG.info("Completed incremental commit {}: {} files (total: {})", 
+        LOG.info("Completed incremental commit {}: {} files (total: {})",
             commitIdx + 1, filesPerCommit, totalFilesCreated);
       }
     }
@@ -777,11 +783,12 @@ public class MetadataBenchmarkingTool implements Closeable {
    * all files within a single table partition to avoid memory issues.
    *
    * @param commitMetadata The commit metadata containing partition and file information
+   * @param tenantIdRange The range of tenantID values to distribute
    * @return HoodieData of column stats records, distributed across Spark partitions
    */
   @SuppressWarnings("rawtypes")
   private HoodieData<HoodieRecord> generateColumnStatsRecordsForCommitMetadata(
-      HoodieCommitMetadata commitMetadata) {
+      HoodieCommitMetadata commitMetadata, int tenantIdRange) {
 
     Map<String, List<HoodieWriteStat>> partitionToWriteStats = commitMetadata.getPartitionToWriteStats();
     List<Map.Entry<String, List<HoodieWriteStat>>> partitionEntries = new ArrayList<>(partitionToWriteStats.entrySet());
@@ -794,24 +801,32 @@ public class MetadataBenchmarkingTool implements Closeable {
 
     JavaRDD<HoodieRecord> recordsRDD = jsc
         .parallelize(partitionEntries, partitionEntries.size())
-        .flatMap(entry -> processPartitionWriteStats(entry.getKey(), entry.getValue(), numColumnsToIndex).iterator());
+        .flatMap(entry -> processPartitionWriteStats(entry.getKey(), entry.getValue(), numColumnsToIndex, tenantIdRange).iterator());
 
     return HoodieJavaRDD.of(recordsRDD);
   }
 
   /**
    * Processes all write stats for a partition and generates column stats records.
+   * Files within a partition are sorted to ensure deterministic tenantID range assignment.
    */
   @SuppressWarnings("unchecked")
   private static List<HoodieRecord> processPartitionWriteStats(
-      String partitionPath, List<HoodieWriteStat> writeStats, int numColumnsToIndex) {
+      String partitionPath, List<HoodieWriteStat> writeStats, int numColumnsToIndex, int tenantIdRange) {
 
     List<HoodieRecord> partitionRecords = new ArrayList<>();
+    int totalFilesInPartition = writeStats.size();
 
-    for (HoodieWriteStat writeStat : writeStats) {
+    // Sort write stats by file path to ensure deterministic ordering
+    List<HoodieWriteStat> sortedWriteStats = writeStats.stream()
+        .sorted((ws1, ws2) -> ws1.getPath().compareTo(ws2.getPath()))
+        .collect(Collectors.toList());
+
+    int fileIndex = 0;
+    for (HoodieWriteStat writeStat : sortedWriteStats) {
       String fileName = new StoragePath(writeStat.getPath()).getName();
       List<HoodieColumnRangeMetadata<Comparable>> columnRangeMetadata =
-          generateColumnRangeMetadataForFile(fileName, numColumnsToIndex);
+          generateColumnRangeMetadataForFile(fileName, numColumnsToIndex, fileIndex, totalFilesInPartition, tenantIdRange);
 
       List<HoodieRecord<HoodieMetadataPayload>> fileRecords = HoodieMetadataPayload
           .createColumnStatsRecords(partitionPath, columnRangeMetadata, false)
@@ -819,6 +834,7 @@ public class MetadataBenchmarkingTool implements Closeable {
           .collect(Collectors.toList());
 
       partitionRecords.addAll(fileRecords);
+      fileIndex++;
     }
 
     return partitionRecords;
@@ -826,14 +842,20 @@ public class MetadataBenchmarkingTool implements Closeable {
 
   /**
    * Generates column range metadata for a single file.
+   *
+   * @param fileName File name for which to generate stats
+   * @param numColumnsToIndex Number of columns to index
+   * @param fileIndexInPartition Zero-based index of this file within its partition
+   * @param totalFilesInPartition Total number of files in the partition
+   * @param tenantIdRange The range of tenantID values to distribute
    */
   private static List<HoodieColumnRangeMetadata<Comparable>> generateColumnRangeMetadataForFile(
-      String fileName, int numColumnsToIndex) {
+      String fileName, int numColumnsToIndex, int fileIndexInPartition, int totalFilesInPartition, int tenantIdRange) {
 
     Random fileRandom = new Random(fileName.hashCode());
     List<HoodieColumnRangeMetadata<Comparable>> columnRangeMetadata = new ArrayList<>();
 
-    columnRangeMetadata.add(createTenantIDStats(fileName, fileRandom));
+    columnRangeMetadata.add(createTenantIDStats(fileName, fileRandom, fileIndexInPartition, totalFilesInPartition, tenantIdRange));
 
     if (numColumnsToIndex == 2) {
       columnRangeMetadata.add(createAgeStats(fileName, fileRandom));
@@ -843,12 +865,39 @@ public class MetadataBenchmarkingTool implements Closeable {
   }
 
   /**
-   * Creates column stats for tenantID column with random values in range 30000-60000.
+   * Creates column stats for tenantID column with sorted, equally-distributed ranges.
+   * <p>
+   * Distributes the tenantID range equally across all files in the partition.
+   * Each file gets a non-overlapping, sequential range of tenantIDs.
+   * <p>
+   * Example with tenantIdRange=30000 and 3 files in partition:
+   * - File 0: [30000, 40000)
+   * - File 1: [40000, 50000)
+   * - File 2: [50000, 60000]
+   *
+   * @param fileName File name
+   * @param random Random instance (unused in sorted mode, kept for compatibility)
+   * @param fileIndexInPartition Zero-based index of this file within its partition
+   * @param totalFilesInPartition Total number of files in the partition
+   * @param tenantIdRange The total range of tenantID values to distribute
+   * @return Column range metadata for tenantID
    */
   @SuppressWarnings({"rawtypes", "unchecked"})
-  private static HoodieColumnRangeMetadata<Comparable> createTenantIDStats(String fileName, Random random) {
-    long minTenantID = TENANT_ID_MIN_BASE + random.nextInt(TENANT_ID_RANGE);
-    long maxTenantID = minTenantID + random.nextInt((int) (TENANT_ID_MAX - minTenantID + 1));
+  private static HoodieColumnRangeMetadata<Comparable> createTenantIDStats(
+      String fileName, Random random, int fileIndexInPartition, int totalFilesInPartition, int tenantIdRange) {
+
+    long rangePerFile = tenantIdRange / totalFilesInPartition;
+
+    // Calculate min and max for this file based on its index
+    long minTenantID = TENANT_ID_MIN_BASE + (fileIndexInPartition * rangePerFile);
+    long maxTenantID;
+
+    // Last file gets any remainder to ensure we cover the full range
+    if (fileIndexInPartition == totalFilesInPartition - 1) {
+      maxTenantID = TENANT_ID_MIN_BASE + tenantIdRange;
+    } else {
+      maxTenantID = minTenantID + rangePerFile - 1;
+    }
 
     return (HoodieColumnRangeMetadata<Comparable>) (HoodieColumnRangeMetadata<?>)
         HoodieColumnRangeMetadata.create(

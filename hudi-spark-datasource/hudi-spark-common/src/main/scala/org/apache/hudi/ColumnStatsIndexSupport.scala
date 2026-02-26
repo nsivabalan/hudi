@@ -129,10 +129,13 @@ class ColumnStatsIndexSupport(spark: SparkSession,
                         shouldReadInMemory: Boolean,
                         prunedPartitions: Option[Set[String]] = None,
                         prunedFileNamesOpt: Option[Set[String]] = None)(block: DataFrame => T): T = {
+    val loadTransposedStartTime = System.currentTimeMillis()
     cachedColumnStatsIndexViews.get(targetColumns) match {
       case Some(cachedDF) =>
+        logInfo(s"$tableTypePrefix [TIMER] loadTransposed: Using cached DF (${System.currentTimeMillis() - loadTransposedStartTime}ms)")
         block(cachedDF)
       case None =>
+        val loadRecordsStartTime = System.currentTimeMillis()
         val colStatsRecords: HoodieData[HoodieMetadataColumnStats] = prunedFileNamesOpt match {
           case Some(prunedFileNames) =>
             val filterFunction = new SerializableFunction[HoodieMetadataColumnStats, java.lang.Boolean] {
@@ -144,9 +147,16 @@ class ColumnStatsIndexSupport(spark: SparkSession,
           case None =>
             loadColumnStatsIndexRecords(targetColumns, prunedPartitions, shouldReadInMemory)
         }
+        val loadRecordsElapsed = System.currentTimeMillis() - loadRecordsStartTime
+        logInfo(s"$tableTypePrefix [TIMER] loadTransposed: loadColumnStatsIndexRecords took ${loadRecordsElapsed}ms")
 
         withPersistedData(colStatsRecords, StorageLevel.MEMORY_ONLY) {
+          val transposeStartTime = System.currentTimeMillis()
           val (transposedRows, indexSchema) = transpose(colStatsRecords, targetColumns)
+          val transposeElapsed = System.currentTimeMillis() - transposeStartTime
+          logInfo(s"$tableTypePrefix [TIMER] loadTransposed: transpose took ${transposeElapsed}ms")
+
+          val createDFStartTime = System.currentTimeMillis()
           val df = if (shouldReadInMemory) {
             // NOTE: This will instantiate a [[Dataset]] backed by [[LocalRelation]] holding all of the rows
             //       of the transposed table in memory, facilitating execution of the subsequently chained operations
@@ -157,6 +167,11 @@ class ColumnStatsIndexSupport(spark: SparkSession,
             val rdd = HoodieJavaRDD.getJavaRDD(transposedRows)
             spark.createDataFrame(rdd, indexSchema)
           }
+          val createDFElapsed = System.currentTimeMillis() - createDFStartTime
+          logInfo(s"$tableTypePrefix [TIMER] loadTransposed: createDataFrame took ${createDFElapsed}ms (shouldReadInMemory=${shouldReadInMemory})")
+
+          val totalElapsed = System.currentTimeMillis() - loadTransposedStartTime
+          logInfo(s"$tableTypePrefix [TIMER] loadTransposed: Total time ${totalElapsed}ms")
 
           if (allowCaching) {
             cachedColumnStatsIndexViews.put(targetColumns, df)
@@ -347,9 +362,11 @@ class ColumnStatsIndexSupport(spark: SparkSession,
     //    - Fetching the records from CSI by key-prefixes (encoded column names)
     //    - Extracting [[HoodieMetadataColumnStats]] records
     //    - Filtering out nulls
+    val loadRecordsStartTime = System.currentTimeMillis()
     checkState(targetColumns.nonEmpty)
 
     // Create raw key prefixes based on column names and optional partition names
+    val createKeysStartTime = System.currentTimeMillis()
     val rawKeys = if (prunedPartitions.isDefined) {
       val partitionsList = prunedPartitions.get.toList
       targetColumns.flatMap(colName =>
@@ -358,11 +375,17 @@ class ColumnStatsIndexSupport(spark: SparkSession,
     } else {
       targetColumns.map(colName => new ColumnStatsIndexPrefixRawKey(colName))
     }
+    val createKeysElapsed = System.currentTimeMillis() - createKeysStartTime
+    logInfo(s"$tableTypePrefix [TIMER] loadColumnStatsIndexRecords: Create raw keys took ${createKeysElapsed}ms (${rawKeys.size} keys, ${prunedPartitions.map(_.size).getOrElse(0)} partitions)")
 
+    val fetchRecordsStartTime = System.currentTimeMillis()
     val metadataRecords: HoodieData[HoodieRecord[HoodieMetadataPayload]] =
       metadataTable.getRecordsByKeyPrefixes(
         HoodieListData.eager(rawKeys.asJava), HoodieTableMetadataUtil.PARTITION_NAME_COLUMN_STATS, shouldReadInMemory)
+    val fetchRecordsElapsed = System.currentTimeMillis() - fetchRecordsStartTime
+    logInfo(s"$tableTypePrefix [TIMER] loadColumnStatsIndexRecords: Fetch records from metadata table took ${fetchRecordsElapsed}ms")
 
+    val extractStatsStartTime = System.currentTimeMillis()
     val columnStatsRecords: HoodieData[HoodieMetadataColumnStats] =
       //TODO: [HUDI-8303] Explicit conversion might not be required for Scala 2.12+
       metadataRecords.map(JFunction.toJavaSerializableFunction(record => {
@@ -371,6 +394,11 @@ class ColumnStatsIndexSupport(spark: SparkSession,
             .orNull
         }))
         .filter(JFunction.toJavaSerializableFunction(columnStatsRecord => columnStatsRecord != null))
+    val extractStatsElapsed = System.currentTimeMillis() - extractStatsStartTime
+    logInfo(s"$tableTypePrefix [TIMER] loadColumnStatsIndexRecords: Extract column stats took ${extractStatsElapsed}ms")
+
+    val totalElapsed = System.currentTimeMillis() - loadRecordsStartTime
+    logInfo(s"$tableTypePrefix [TIMER] loadColumnStatsIndexRecords: Total time ${totalElapsed}ms")
 
     columnStatsRecords
   }

@@ -33,7 +33,6 @@ class PartitionBucketIndexSupport(spark: SparkSession,
                          specifiedQueryInstant: Option[String] = Option.empty)
   extends BucketIndexSupport(spark, metadataConfig, metaClient) {
 
-  private val log = LoggerFactory.getLogger(getClass)
   private def initCalc(): Option[PartitionBucketIndexCalculator] = {
     if (specifiedQueryInstant.isDefined) {
       val hashingConfigOption = PartitionBucketIndexHashingConfig.loadingLatestHashingConfigBeforeOrOn(metaClient, specifiedQueryInstant.get)

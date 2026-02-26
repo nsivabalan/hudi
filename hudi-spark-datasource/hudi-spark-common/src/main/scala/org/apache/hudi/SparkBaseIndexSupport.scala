@@ -28,6 +28,7 @@ import org.apache.hudi.metadata.{HoodieMetadataPayload, HoodieTableMetadata}
 import org.apache.hudi.metadata.HoodieTableMetadataUtil.PARTITION_NAME_COLUMN_STATS
 
 import org.apache.spark.api.java.JavaSparkContext
+import org.apache.spark.internal.Logging
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.{And, Expression}
 import org.apache.spark.sql.catalyst.expressions.Literal.TrueLiteral
@@ -39,10 +40,13 @@ import scala.util.control.NonFatal
 
 abstract class SparkBaseIndexSupport(spark: SparkSession,
                                      metadataConfig: HoodieMetadataConfig,
-                                     metaClient: HoodieTableMetaClient) extends SparkAdapterSupport {
+                                     metaClient: HoodieTableMetaClient) extends SparkAdapterSupport with Logging {
   @transient protected lazy val engineCtx = new HoodieSparkEngineContext(new JavaSparkContext(spark.sparkContext))
   @transient protected lazy val metadataTable: HoodieTableMetadata =
     metaClient.getTableFormat.getMetadataFactory.create(engineCtx, metaClient.getStorage, metadataConfig, metaClient.getBasePath.toString)
+
+  // Helper to identify whether logs are from data table or metadata table
+  protected val tableTypePrefix: String = if (metaClient.isMetadataTable) "[MDT]" else "[DATA]"
 
   def getIndexName: String
 
@@ -83,6 +87,13 @@ abstract class SparkBaseIndexSupport(spark: SparkSession,
 
   def getPrunedPartitionsAndFileNames(fileIndex: HoodieFileIndex, prunedPartitionsAndFileSlices: Seq[(Option[BaseHoodieTableFileIndex.PartitionPath],
                                       Seq[FileSlice])]): (Set[String], Set[String]) = {
+    val getPrunedStartTime = System.currentTimeMillis()
+    val inputPartitionCount = prunedPartitionsAndFileSlices.size
+    val inputFileSliceCount = prunedPartitionsAndFileSlices.map(_._2.size).sum
+
+    logInfo(s"$tableTypePrefix [TIMER] getPrunedPartitionsAndFileNames: Starting with $inputPartitionCount partitions, $inputFileSliceCount file slices (includeLogFiles=${fileIndex.includeLogFiles})")
+
+    val extractNamesStartTime = System.currentTimeMillis()
     val (prunedPartitions, prunedFiles) = prunedPartitionsAndFileSlices.foldLeft((Set.empty[String], Set.empty[String])) {
       case ((partitionSet, fileSet), (partitionPathOpt, fileSlices)) =>
         val updatedPartitionSet = partitionPathOpt.map(_.getPath).map(partitionSet + _).getOrElse(partitionSet)
@@ -97,6 +108,11 @@ abstract class SparkBaseIndexSupport(spark: SparkSession,
 
         (updatedPartitionSet, updatedFileSet)
     }
+    val extractNamesElapsed = System.currentTimeMillis() - extractNamesStartTime
+    logInfo(s"$tableTypePrefix [TIMER] getPrunedPartitionsAndFileNames: Extract partition and file names took ${extractNamesElapsed}ms")
+
+    val totalElapsed = System.currentTimeMillis() - getPrunedStartTime
+    logInfo(s"$tableTypePrefix [TIMER] getPrunedPartitionsAndFileNames: Total time ${totalElapsed}ms (${prunedPartitions.size} partitions, ${prunedFiles.size} files)")
 
     (prunedPartitions, prunedFiles)
   }
@@ -104,26 +120,41 @@ abstract class SparkBaseIndexSupport(spark: SparkSession,
   protected def getCandidateFiles(indexDf: DataFrame, queryFilters: Seq[Expression], fileNamesFromPrunedPartitions: Set[String],
                                   getValidIndexedColumnsFunc: HoodieIndexDefinition => Seq[String], isExpressionIndex: Boolean = false,
                                   indexDefinitionOpt: Option[HoodieIndexDefinition] = Option.empty): Set[String] = {
+    val getCandidateFilesStartTime = System.currentTimeMillis()
+
+    val getIndexDefStartTime = System.currentTimeMillis()
     val indexDefinition : HoodieIndexDefinition = if (indexDefinitionOpt.isDefined) {
       indexDefinitionOpt.get
     } else {
       metaClient.getIndexMetadata.get()
         .getIndexDefinitions.get(PARTITION_NAME_COLUMN_STATS)
     }
+    val getIndexDefElapsed = System.currentTimeMillis() - getIndexDefStartTime
+    logInfo(s"$tableTypePrefix [TIMER] getCandidateFiles: Get index definition took ${getIndexDefElapsed}ms")
 
+    val buildFilterStartTime = System.currentTimeMillis()
     val validIndexedColumns = getValidIndexedColumnsFunc.apply(indexDefinition)
     val indexFilter = queryFilters.map(translateIntoColumnStatsIndexFilterExpr(_, isExpressionIndex, validIndexedColumns)).reduce(And)
+    val buildFilterElapsed = System.currentTimeMillis() - buildFilterStartTime
+    logInfo(s"$tableTypePrefix [TIMER] getCandidateFiles: Build index filter took ${buildFilterElapsed}ms (${queryFilters.size} query filters, ${validIndexedColumns.size} indexed columns)")
+
     if (indexFilter.equals(TrueLiteral)) {
       // if there are any non indexed cols or we can't translate source expr, we have to read all files and may not benefit from col stats lookup.
-       fileNamesFromPrunedPartitions
+      logInfo(s"$tableTypePrefix [TIMER] getCandidateFiles: Index filter is TrueLiteral, returning all ${fileNamesFromPrunedPartitions.size} files (no filtering)")
+      val totalElapsed = System.currentTimeMillis() - getCandidateFilesStartTime
+      logInfo(s"$tableTypePrefix [TIMER] getCandidateFiles: Total time ${totalElapsed}ms")
+      fileNamesFromPrunedPartitions
     } else {
       // only lookup in col stats if all filters are eligible to be looked up in col stats index in MDT
+      val applyFilterStartTime = System.currentTimeMillis()
       val prunedCandidateFileNames =
         indexDf.where(sparkAdapter.createColumnFromExpression(indexFilter))
           .select(HoodieMetadataPayload.COLUMN_STATS_FIELD_FILE_NAME)
           .collect()
           .map(_.getString(0))
           .toSet
+      val applyFilterElapsed = System.currentTimeMillis() - applyFilterStartTime
+      logInfo(s"$tableTypePrefix [TIMER] getCandidateFiles: Apply filter and collect took ${applyFilterElapsed}ms (${prunedCandidateFileNames.size} candidate files)")
 
       // NOTE: Col-Stats Index isn't guaranteed to have complete set of statistics for every
       //       base-file or log file: since it's bound to clustering, which could occur asynchronously
@@ -132,14 +163,21 @@ abstract class SparkBaseIndexSupport(spark: SparkSession,
       //       To close that gap, we manually compute the difference b/w all indexed (by col-stats-index)
       //       files and all outstanding base-files or log files, and make sure that all base files and
       //       log file not represented w/in the index are included in the output of this method
+      val getUnindexedStartTime = System.currentTimeMillis()
       val allIndexedFileNames =
       indexDf.select(HoodieMetadataPayload.COLUMN_STATS_FIELD_FILE_NAME)
         .collect()
         .map(_.getString(0))
         .toSet
       val notIndexedFileNames = fileNamesFromPrunedPartitions -- allIndexedFileNames
+      val getUnindexedElapsed = System.currentTimeMillis() - getUnindexedStartTime
+      logInfo(s"$tableTypePrefix [TIMER] getCandidateFiles: Get unindexed files took ${getUnindexedElapsed}ms (${allIndexedFileNames.size} indexed, ${notIndexedFileNames.size} not indexed)")
 
-      prunedCandidateFileNames ++ notIndexedFileNames
+      val finalCandidates = prunedCandidateFileNames ++ notIndexedFileNames
+      val totalElapsed = System.currentTimeMillis() - getCandidateFilesStartTime
+      logInfo(s"$tableTypePrefix [TIMER] getCandidateFiles: Total time ${totalElapsed}ms (${finalCandidates.size} final candidates from ${fileNamesFromPrunedPartitions.size} total files)")
+
+      finalCandidates
     }
   }
 

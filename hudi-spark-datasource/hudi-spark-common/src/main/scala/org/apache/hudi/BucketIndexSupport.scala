@@ -44,8 +44,6 @@ class BucketIndexSupport(spark: SparkSession,
                          metaClient: HoodieTableMetaClient)
   extends SparkBaseIndexSupport (spark, metadataConfig, metaClient) {
 
-  private val log = LoggerFactory.getLogger(getClass)
-
   private lazy val keyGenerator = {
     val props = TypedProperties.copy(metadataConfig.getProps())
     TypedProperties.putAll(props, metaClient.getTableConfig.getProps)
@@ -118,7 +116,7 @@ class BucketIndexSupport(spark: SparkSession,
 
       // None means all the buckets need to be scanned
       if (numBucketsSelected == bucketNumber) {
-        log.info("The query predicates do not include equality expressions for all the hashing fields, fall back to the other indices")
+        logInfo("The query predicates do not include equality expressions for all the hashing fields, fall back to the other indices")
         None
       } else {
         Some(matchedBuckets)
