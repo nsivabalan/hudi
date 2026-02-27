@@ -21,7 +21,6 @@ jobs:
     strategy:
       matrix:
         include:
-          - sparkProfile: "spark3.4"
           - sparkProfile: "spark3.5"
     steps:
       - uses: actions/checkout@v2

@@ -34,6 +34,11 @@
 
     <modules>
         <module>hudi-flink</module>
+        <module>hudi-flink1.17.x</module>
+        <module>hudi-flink1.18.x</module>
+        <module>hudi-flink1.19.x</module>
+        <module>hudi-flink1.20.x</module>
+        <module>hudi-flink2.0.x</module>
     </modules>
 
 </project>
