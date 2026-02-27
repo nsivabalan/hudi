@@ -250,6 +250,9 @@ public class MetadataBenchmarkingTool implements Closeable {
     @Parameter(names = {"--tenant-id-range", "-tir"}, description = "Range of tenantID values to distribute across files (default: 30000, meaning 30000-60000)")
     public Integer tenantIdRange = DEFAULT_TENANT_ID_RANGE;
 
+    @Parameter(names = {"--col-stats-processing-mode", "-cspm"}, description = "Col stats processing mode)")
+    public String colStatsProcessingMode = HoodieMetadataConfig.COLUMN_STATS_INDEX_PROCESSING_MODE_IN_MEMORY;
+
     @Parameter(names = {"--hoodie-conf"}, description = "Any configuration that can be set in the properties file "
         + "(using the CLI parameter \"--props\") can also be passed command line using this parameter. This can be repeated",
         splitter = IdentitySplitter.class)
@@ -712,7 +715,7 @@ public class MetadataBenchmarkingTool implements Closeable {
     options.put("hoodie.metadata.index.column.stats.enable", "true");
     options.put(HoodieMetadataConfig.ENABLE_METADATA_INDEX_PARTITION_STATS.key(), "false");
     options.put("hoodie.metadata.index.column.stats.column.list", getColumnsToIndexString(cfg.numColumnsToIndex));
-    options.put(HoodieMetadataConfig.COLUMN_STATS_INDEX_PROCESSING_MODE_OVERRIDE.key(), dataConfig.getMetadataConfig().getColumnStatsIndexProcessingModeOverride());
+    options.put(HoodieMetadataConfig.COLUMN_STATS_INDEX_PROCESSING_MODE_OVERRIDE.key(), cfg.colStatsProcessingMode);
     spark.sqlContext().conf().setConfString("hoodie.fileIndex.dataSkippingFailureMode", "strict");
 
     scala.collection.immutable.Map<String, String> scalaOptions = JavaConverters.mapAsScalaMap(options)

@@ -18,6 +18,8 @@
 
 package org.apache.hudi.utilities.benchmarking;
 
+import org.apache.hudi.common.config.HoodieMetadataConfig;
+
 import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -101,6 +103,7 @@ public class TestMetadataBenchmarkingTool {
     config.colStatsFileGroupCount = 1;
     config.numFilesToBootstrap = 100;
     config.numPartitions = 3;
+    config.colStatsProcessingMode = HoodieMetadataConfig.COLUMN_STATS_INDEX_PROCESSING_MODE_ENGINE;
 
     LOG.info("Test config: tableBasePath={}, numFilesToBootstrap={}, numPartitions={}, numColumnsToIndex={}, colStatsFileGroupCount={}",
         config.tableBasePath, config.numFilesToBootstrap, config.numPartitions, config.numColumnsToIndex, config.colStatsFileGroupCount);

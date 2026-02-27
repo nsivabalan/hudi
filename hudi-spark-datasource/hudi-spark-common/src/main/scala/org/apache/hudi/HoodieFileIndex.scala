@@ -555,6 +555,12 @@ object HoodieFileIndex extends Logging {
       properties.setProperty(HoodieMetadataConfig.ENABLE.key(), String.valueOf(isMetadataTableEnabled))
     }
 
+    val colSatsIndexProcessingModeOverride = getConfigValue(options, sqlConf,
+      HoodieMetadataConfig.COLUMN_STATS_INDEX_PROCESSING_MODE_OVERRIDE.key, null)
+    if (colSatsIndexProcessingModeOverride != null) {
+      properties.setProperty(HoodieMetadataConfig.COLUMN_STATS_INDEX_PROCESSING_MODE_OVERRIDE.key, colSatsIndexProcessingModeOverride)
+    }
+
     val listingModeOverride = getConfigValue(options, sqlConf,
       DataSourceReadOptions.FILE_INDEX_LISTING_MODE_OVERRIDE.key, null)
     if (listingModeOverride != null) {
