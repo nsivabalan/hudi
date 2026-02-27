@@ -286,7 +286,36 @@ public class CleanPlanner<T, I, K, O> implements Serializable {
    */
   private List<String> getPartitionPathsForFullCleaning() {
     // Go to brute force mode of scanning all partitions
-    return FSUtils.getAllPartitionPaths(context, config.getMetadataConfig(), config.getBasePath());
+    List<String> allPartitionPaths = FSUtils.getAllPartitionPaths(context, config.getMetadataConfig(), config.getBasePath());
+
+    String partitionSelected = config.getCleanerPartitionFilterSelected();
+    String partitionRegex = config.getCleanerPartitionFilterRegex();
+
+    // Return early if no partition filter is configured
+    if (StringUtils.isNullOrEmpty(partitionSelected) && StringUtils.isNullOrEmpty(partitionRegex)) {
+      return allPartitionPaths;
+    }
+
+    // Partition filter cannot be used with incremental cleaning mode
+    if (config.incrementalCleanerModeEnabled()) {
+      throw new IllegalArgumentException("Incremental Cleaning mode is enabled. Partition filter for clean cannot be used.");
+    }
+
+    // Static list of partitions takes precedence over regex pattern
+    List<String> filteredPartitions;
+    if (!StringUtils.isNullOrEmpty(partitionSelected)) {
+      List<String> selectedPartitions = Arrays.asList(partitionSelected.split(","));
+      filteredPartitions = allPartitionPaths.stream()
+          .filter(selectedPartitions::contains)
+          .collect(Collectors.toList());
+      LOG.info("Restricting partitions to clean using selected list. Partitions to clean: {}", filteredPartitions);
+    } else {
+      filteredPartitions = allPartitionPaths.stream()
+          .filter(p -> p.matches(partitionRegex))
+          .collect(Collectors.toList());
+      LOG.info("Restricting partitions to clean using regex '{}'. Partitions to clean: {}", partitionRegex, filteredPartitions);
+    }
+    return filteredPartitions;
   }
 
   /**
