@@ -741,7 +741,7 @@ class TestColumnStatsIndex extends ColumnStatIndexTestBase {
       .build()
 
     val columnStatsIndex = new ColumnStatsIndexSupport(spark, structSchema, schema, metadataConfig, metaClient)
-    columnStatsIndex.loadTransposed(Seq("c2"), false) { transposedDF =>
+    columnStatsIndex.loadTransposed(Seq("c2"), false, Option.empty, Option.empty, System.currentTimeMillis()) { transposedDF =>
       val result = transposedDF.select("valueCount", "c2_nullCount")
         .collect().head
 
@@ -903,7 +903,8 @@ class TestColumnStatsIndex extends ColumnStatIndexTestBase {
 
       val columnStatsIndex = new ColumnStatsIndexSupport(spark, sourceTableSchema, sourceTableHoodieSchema, metadataConfig, metaClient)
 
-      columnStatsIndex.loadTransposed(requestedColumns, shouldReadInMemory) { emptyTransposedColStatsDF =>
+      columnStatsIndex.loadTransposed(requestedColumns, shouldReadInMemory,
+        Option.empty, Option.empty, System.currentTimeMillis()) { emptyTransposedColStatsDF =>
         assertEquals(0, emptyTransposedColStatsDF.collect().length)
       }
     }

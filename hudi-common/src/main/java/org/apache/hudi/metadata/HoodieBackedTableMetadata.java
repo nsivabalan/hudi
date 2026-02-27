@@ -248,14 +248,16 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
     return (shouldLoadInMemory ? HoodieListData.lazy(partitionFileSlices) :
         getEngineContext().parallelize(partitionFileSlices))
         .flatMap(
-            (SerializableFunction<FileSlice, Iterator<HoodieRecord<HoodieMetadataPayload>>>) fileSlice ->
-                readSliceAndFilterByKeysIntoList(partitionName, sortedKeyPrefixes, fileSlice,
+            (SerializableFunction<FileSlice, Iterator<HoodieRecord<HoodieMetadataPayload>>>) fileSlice -> {
+              LOG.warn("XXX reading from cols stats..");
+              return readSliceAndFilterByKeysIntoList(partitionName, sortedKeyPrefixes, fileSlice,
                     metadataRecord -> {
                       HoodieMetadataPayload payload = new HoodieMetadataPayload(Option.of(metadataRecord));
                       String rowKey = payload.key != null ? payload.key : metadataRecord.get(KEY_FIELD_NAME).toString();
                       HoodieKey key = new HoodieKey(rowKey, partitionName);
                       return new HoodieAvroRecord<>(key, payload);
-                    }, false))
+                    }, false);
+            })
         .filter(r -> !r.getData().isDeleted());
   }
 

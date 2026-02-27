@@ -36,6 +36,9 @@ import org.apache.hudi.io.hfile.HFileReaderImpl;
 import org.apache.hudi.storage.HoodieStorage;
 import org.apache.hudi.storage.StoragePath;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 
 /**
@@ -44,6 +47,7 @@ import java.io.IOException;
  */
 public class HFileReaderFactory {
 
+  private static final Logger LOG = LoggerFactory.getLogger(HFileReaderFactory.class);
   private final HoodieStorage storage;
   private final HoodieMetadataConfig metadataConfig;
   private final TypedProperties properties;
@@ -103,6 +107,7 @@ public class HFileReaderFactory {
   private SeekableDataInputStream createInputStream(long fileSize) throws IOException {
     if (fileSource.isLeft()) {
       if (fileSize <= (long) metadataConfig.getFileCacheMaxSizeMB() * 1024L * 1024L) {
+        LOG.warn("XXX Downloading entire file " + fileSource.asLeft());
         // Download the whole file if the file size is below a configured threshold
         StoragePath path = fileSource.asLeft();
         byte[] buffer;
@@ -111,6 +116,8 @@ public class HFileReaderFactory {
           stream.readFully(buffer);
         }
         return new ByteArraySeekableDataInputStream(new ByteBufferBackedInputStream(buffer));
+      } else {
+        LOG.warn("XXX Downloading not entire file " + fileSource.asLeft());
       }
       return storage.openSeekable(fileSource.asLeft(), false);
     }

@@ -1089,7 +1089,7 @@ class TestExpressionIndex extends HoodieSparkSqlTestBase with SparkAdapterSuppor
               val dataFilter = EqualTo(fromUnixTimeExpr, literal)
               val commonOpts = opts + ("path" -> metaClient.getBasePath.toString)
               var fileIndex = HoodieFileIndex(spark, metaClient, None, commonOpts, includeLogFiles = true)
-              val filterReferencedColumns = HoodieFileIndex.collectReferencedColumns(spark, Seq(dataFilter), tableSchema)
+              val filterReferencedColumns = HoodieFileIndex.collectReferencedColumns(spark, Seq(dataFilter), tableSchema, "table_schema")
               val metadataConfig = HoodieMetadataConfig.newBuilder
                 .enable(true)
                 .build()

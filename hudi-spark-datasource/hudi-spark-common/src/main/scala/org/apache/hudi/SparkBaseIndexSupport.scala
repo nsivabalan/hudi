@@ -119,7 +119,8 @@ abstract class SparkBaseIndexSupport(spark: SparkSession,
 
   protected def getCandidateFiles(indexDf: DataFrame, queryFilters: Seq[Expression], fileNamesFromPrunedPartitions: Set[String],
                                   getValidIndexedColumnsFunc: HoodieIndexDefinition => Seq[String], isExpressionIndex: Boolean = false,
-                                  indexDefinitionOpt: Option[HoodieIndexDefinition] = Option.empty): Set[String] = {
+                                  indexDefinitionOpt: Option[HoodieIndexDefinition] = Option.empty,
+                                  preLoadStartTime : Long = System.currentTimeMillis()): Set[String] = {
     val getCandidateFilesStartTime = System.currentTimeMillis()
 
     val getIndexDefStartTime = System.currentTimeMillis()
@@ -130,19 +131,19 @@ abstract class SparkBaseIndexSupport(spark: SparkSession,
         .getIndexDefinitions.get(PARTITION_NAME_COLUMN_STATS)
     }
     val getIndexDefElapsed = System.currentTimeMillis() - getIndexDefStartTime
-    logInfo(s"$tableTypePrefix [TIMER] getCandidateFiles: Get index definition took ${getIndexDefElapsed}ms")
+    logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] getCandidateFiles: Get index definition took ${getIndexDefElapsed}ms")
 
     val buildFilterStartTime = System.currentTimeMillis()
     val validIndexedColumns = getValidIndexedColumnsFunc.apply(indexDefinition)
     val indexFilter = queryFilters.map(translateIntoColumnStatsIndexFilterExpr(_, isExpressionIndex, validIndexedColumns)).reduce(And)
     val buildFilterElapsed = System.currentTimeMillis() - buildFilterStartTime
-    logInfo(s"$tableTypePrefix [TIMER] getCandidateFiles: Build index filter took ${buildFilterElapsed}ms (${queryFilters.size} query filters, ${validIndexedColumns.size} indexed columns)")
+    logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] getCandidateFiles: Build index filter took ${buildFilterElapsed}ms (${queryFilters.size} query filters, ${validIndexedColumns.size} indexed columns)")
 
     if (indexFilter.equals(TrueLiteral)) {
       // if there are any non indexed cols or we can't translate source expr, we have to read all files and may not benefit from col stats lookup.
-      logInfo(s"$tableTypePrefix [TIMER] getCandidateFiles: Index filter is TrueLiteral, returning all ${fileNamesFromPrunedPartitions.size} files (no filtering)")
+      logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] getCandidateFiles: Index filter is TrueLiteral, returning all ${fileNamesFromPrunedPartitions.size} files (no filtering)")
       val totalElapsed = System.currentTimeMillis() - getCandidateFilesStartTime
-      logInfo(s"$tableTypePrefix [TIMER] getCandidateFiles: Total time ${totalElapsed}ms")
+      logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] getCandidateFiles: Total time ${totalElapsed}ms")
       fileNamesFromPrunedPartitions
     } else {
       // only lookup in col stats if all filters are eligible to be looked up in col stats index in MDT
@@ -154,7 +155,9 @@ abstract class SparkBaseIndexSupport(spark: SparkSession,
           .map(_.getString(0))
           .toSet
       val applyFilterElapsed = System.currentTimeMillis() - applyFilterStartTime
-      logInfo(s"$tableTypePrefix [TIMER] getCandidateFiles: Apply filter and collect took ${applyFilterElapsed}ms (${prunedCandidateFileNames.size} candidate files)")
+      val totalElapsedFromPreLoad = System.currentTimeMillis() - preLoadStartTime
+      logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER][2.0.2] getCandidateFiles: Apply filter and collect took ${totalElapsedFromPreLoad} from preload. " +
+        s"Total time just for filtering ${applyFilterElapsed}ms (${prunedCandidateFileNames.size} candidate files)")
 
       // NOTE: Col-Stats Index isn't guaranteed to have complete set of statistics for every
       //       base-file or log file: since it's bound to clustering, which could occur asynchronously
@@ -171,11 +174,12 @@ abstract class SparkBaseIndexSupport(spark: SparkSession,
         .toSet
       val notIndexedFileNames = fileNamesFromPrunedPartitions -- allIndexedFileNames
       val getUnindexedElapsed = System.currentTimeMillis() - getUnindexedStartTime
-      logInfo(s"$tableTypePrefix [TIMER] getCandidateFiles: Get unindexed files took ${getUnindexedElapsed}ms (${allIndexedFileNames.size} indexed, ${notIndexedFileNames.size} not indexed)")
+      logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] getCandidateFiles: Get unindexed files took ${getUnindexedElapsed}ms (${allIndexedFileNames.size} indexed, ${notIndexedFileNames.size} not indexed)")
 
       val finalCandidates = prunedCandidateFileNames ++ notIndexedFileNames
       val totalElapsed = System.currentTimeMillis() - getCandidateFilesStartTime
-      logInfo(s"$tableTypePrefix [TIMER] getCandidateFiles: Total time ${totalElapsed}ms (${finalCandidates.size} final candidates from ${fileNamesFromPrunedPartitions.size} total files)")
+      val totalTimePostFiltering = System.currentTimeMillis() - getUnindexedStartTime
+      logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER][2.0.3] getCandidateFiles: Total time elapsed post filtering  ${totalTimePostFiltering}ms (${finalCandidates.size} final candidates from ${fileNamesFromPrunedPartitions.size} total files)")
 
       finalCandidates
     }
@@ -194,8 +198,10 @@ abstract class SparkBaseIndexSupport(spark: SparkSession,
     //       threshold (of 100k records)
     Option(metadataConfig.getColumnStatsIndexProcessingModeOverride) match {
       case Some(mode) =>
+        logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] Honoring user configured " + mode)
         mode == HoodieMetadataConfig.COLUMN_STATS_INDEX_PROCESSING_MODE_IN_MEMORY
       case None =>
+        logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] Computing dynamic value for hoodie.metadata.index.column.stats.processing.mode.override")
         fileIndex.getFileSlicesCount * queryReferencedColumns.length < inMemoryProjectionThreshold
     }
   }

@@ -307,7 +307,8 @@ class ColumnStatIndexTestBase extends HoodieSparkClientTestBase {
     val sortedIndexedColumns : Set[String] = TreeSet(indexedColumns.toSeq:_*)
     val (expectedColStatsSchema, _) = composeIndexSchema(sortedIndexedColumns.toSeq, indexedColumns.toSeq, localSourceTableSchema)
 
-    columnStatsIndex.loadTransposed(indexedColumns.toSeq, testCase.shouldReadInMemory) { transposedColStatsDF =>
+    columnStatsIndex.loadTransposed(indexedColumns.toSeq, testCase.shouldReadInMemory, Option.empty, Option.empty,
+      System.currentTimeMillis()) { transposedColStatsDF =>
       // Match against expected column stats table
       val expectedColStatsIndexTableDf =
         spark.read
@@ -356,7 +357,9 @@ class ColumnStatIndexTestBase extends HoodieSparkClientTestBase {
       Seq("c1_maxValue", "c1_minValue", "c2_maxValue", "c2_minValue", "c3_maxValue", "c3_minValue")
     }
 
-    pStatsIndex.loadTransposed(localSourceTableSchema.fieldNames, testCase.shouldReadInMemory) { pTransposedColStatsDF =>
+    pStatsIndex.loadTransposed(localSourceTableSchema.fieldNames, testCase.shouldReadInMemory,
+      Option.empty, Option.empty,
+      System.currentTimeMillis()) { pTransposedColStatsDF =>
       // Match against expected column stats table
       val pExpectedColStatsIndexTableDf = {
         spark.read

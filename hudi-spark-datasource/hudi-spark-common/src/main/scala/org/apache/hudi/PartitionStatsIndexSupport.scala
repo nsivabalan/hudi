@@ -99,11 +99,11 @@ class PartitionStatsIndexSupport(spark: SparkSession,
       }
       // Filter out queries involving null and value count checks
       val filteredQueryFilters: Seq[Expression] = filterExpressionsExcludingNullAndValue(nonSqlFilters, filteredIndexedCols)
-      lazy val queryReferencedColumns = collectReferencedColumns(spark, filteredQueryFilters, tableSchema)
+      lazy val queryReferencedColumns = collectReferencedColumns(spark, filteredQueryFilters, tableSchema, "table_prefix")
 
       if (filteredQueryFilters.nonEmpty && queryReferencedColumns.nonEmpty) {
         val readInMemory = shouldReadInMemory(fileIndex, queryReferencedColumns, inMemoryProjectionThreshold)
-        loadTransposed(queryReferencedColumns, readInMemory, Option.empty, Option.empty) {
+        loadTransposed(queryReferencedColumns, readInMemory) {
           transposedPartitionStatsDF => {
             try {
               transposedPartitionStatsDF.persist(StorageLevel.MEMORY_AND_DISK_SER)

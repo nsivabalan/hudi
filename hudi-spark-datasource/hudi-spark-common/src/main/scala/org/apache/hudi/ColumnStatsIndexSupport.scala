@@ -89,7 +89,10 @@ class ColumnStatsIndexSupport(spark: SparkSession,
                                          shouldPushDownFilesFilter: Boolean
                                         ): Option[Set[String]] = {
     if (isIndexAvailable && queryFilters.nonEmpty && queryReferencedColumns.nonEmpty) {
+      logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] [2.0.1_1] Starting computeCandidateFileNames in ColumnStats Index")
+      val beforeLoadTimer = System.currentTimeMillis()
       val readInMemory = shouldReadInMemory(fileIndex, queryReferencedColumns, inMemoryProjectionThreshold)
+      logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] [2.0.1_2] should read in memory in ColumnStats Index")
       val (prunedPartitions, prunedFileNames) = getPrunedPartitionsAndFileNames(fileIndex, prunedPartitionsAndFileSlices)
       // NOTE: If partition pruning doesn't prune any files, then there's no need to apply file filters
       //       when loading the Column Statistics Index
@@ -97,8 +100,14 @@ class ColumnStatsIndexSupport(spark: SparkSession,
       val getValidIndexedColumnsFunc: HoodieIndexDefinition => Seq[String] = { indexDefinition =>
         getValidIndexedColumns(indexDefinition, schema, metaClient.getTableConfig).asScala.toSeq
       }
-      loadTransposed(queryReferencedColumns, readInMemory, Some(prunedPartitions), prunedFileNamesOpt) { transposedColStatsDF =>
-        Some(getCandidateFiles(transposedColStatsDF, queryFilters, prunedFileNames, getValidIndexedColumnsFunc))
+      val totalTimeForPreLoad = System.currentTimeMillis() - beforeLoadTimer
+      val startTime = System.currentTimeMillis()
+      logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] [2.0.1] preloadTransposed: (${totalTimeForPreLoad}ms)")
+      val readFromColStatsAndTransposeTimer = System.currentTimeMillis()
+      loadTransposed(queryReferencedColumns, readInMemory, Some(prunedPartitions), prunedFileNamesOpt, readFromColStatsAndTransposeTimer) { transposedColStatsDF =>
+        Some(getCandidateFiles(transposedColStatsDF, queryFilters, prunedFileNames, getValidIndexedColumnsFunc, isExpressionIndex = false,
+          indexDefinitionOpt = Option.empty,
+          preLoadStartTime = startTime))
       }
     } else {
       Option.empty
@@ -128,7 +137,8 @@ class ColumnStatsIndexSupport(spark: SparkSession,
   def loadTransposed[T](targetColumns: Seq[String],
                         shouldReadInMemory: Boolean,
                         prunedPartitions: Option[Set[String]] = None,
-                        prunedFileNamesOpt: Option[Set[String]] = None)(block: DataFrame => T): T = {
+                        prunedFileNamesOpt: Option[Set[String]] = None,
+                        readFromColStatsAndTransposeTimer: Long = System.currentTimeMillis()) (block: DataFrame => T): T = {
     val loadTransposedStartTime = System.currentTimeMillis()
     cachedColumnStatsIndexViews.get(targetColumns) match {
       case Some(cachedDF) =>
@@ -148,13 +158,12 @@ class ColumnStatsIndexSupport(spark: SparkSession,
             loadColumnStatsIndexRecords(targetColumns, prunedPartitions, shouldReadInMemory)
         }
         val loadRecordsElapsed = System.currentTimeMillis() - loadRecordsStartTime
-        logInfo(s"$tableTypePrefix [TIMER] loadTransposed: loadColumnStatsIndexRecords took ${loadRecordsElapsed}ms")
+        //logInfo(s"$tableTypePrefix [TIMER] loadTransposed: loadColumnStatsIndexRecords took ${loadRecordsElapsed}ms")
 
         withPersistedData(colStatsRecords, StorageLevel.MEMORY_ONLY) {
           val transposeStartTime = System.currentTimeMillis()
           val (transposedRows, indexSchema) = transpose(colStatsRecords, targetColumns)
           val transposeElapsed = System.currentTimeMillis() - transposeStartTime
-          logInfo(s"$tableTypePrefix [TIMER] loadTransposed: transpose took ${transposeElapsed}ms")
 
           val createDFStartTime = System.currentTimeMillis()
           val df = if (shouldReadInMemory) {
@@ -162,16 +171,20 @@ class ColumnStatsIndexSupport(spark: SparkSession,
             //       of the transposed table in memory, facilitating execution of the subsequently chained operations
             //       on it locally (on the driver; all such operations are actually going to be performed by Spark's
             //       Optimizer)
-            sparkAdapter.getUnsafeUtils.createDataFrameFromRows(spark, transposedRows.collectAsList().asScala.toSeq, indexSchema)
+            val tempSeq =  transposedRows.collectAsList().asScala.toSeq
+            val totalTime =  System.currentTimeMillis() - readFromColStatsAndTransposeTimer;
+            logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER][2.0.2.1] loadTransposed: transpose took ${totalTime}ms")
+            sparkAdapter.getUnsafeUtils.createDataFrameFromRows(spark, tempSeq, indexSchema)
           } else {
+            logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER][2.0.2.1] loadTransposed: cannot be timed due to lazy eval")
             val rdd = HoodieJavaRDD.getJavaRDD(transposedRows)
             spark.createDataFrame(rdd, indexSchema)
           }
           val createDFElapsed = System.currentTimeMillis() - createDFStartTime
-          logInfo(s"$tableTypePrefix [TIMER] loadTransposed: createDataFrame took ${createDFElapsed}ms (shouldReadInMemory=${shouldReadInMemory})")
+          //logInfo(s"$tableTypePrefix [TIMER] loadTransposed: createDataFrame took ${createDFElapsed}ms (shouldReadInMemory=${shouldReadInMemory})")
 
           val totalElapsed = System.currentTimeMillis() - loadTransposedStartTime
-          logInfo(s"$tableTypePrefix [TIMER] loadTransposed: Total time ${totalElapsed}ms")
+          //logInfo(s"$tableTypePrefix [TIMER] loadTransposed: Total time ${totalElapsed}ms")
 
           if (allowCaching) {
             cachedColumnStatsIndexViews.put(targetColumns, df)
@@ -377,6 +390,7 @@ class ColumnStatsIndexSupport(spark: SparkSession,
     }
     val createKeysElapsed = System.currentTimeMillis() - createKeysStartTime
     logInfo(s"$tableTypePrefix [TIMER] loadColumnStatsIndexRecords: Create raw keys took ${createKeysElapsed}ms (${rawKeys.size} keys, ${prunedPartitions.map(_.size).getOrElse(0)} partitions)")
+    logInfo(s"$tableTypePrefix [TIMER] In-memory configuration " + shouldReadInMemory)
 
     val fetchRecordsStartTime = System.currentTimeMillis()
     val metadataRecords: HoodieData[HoodieRecord[HoodieMetadataPayload]] =

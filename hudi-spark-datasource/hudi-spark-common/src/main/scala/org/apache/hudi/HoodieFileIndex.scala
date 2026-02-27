@@ -232,7 +232,7 @@ case class HoodieFileIndex(spark: SparkSession,
     val (isPruned, prunedPartitionsAndFileSlices) =
       prunePartitionsAndGetFileSlices(dataFilters, partitionFilters)
     val prunePartitionsElapsed = System.currentTimeMillis() - prunePartitionsStartTime
-    logInfo(s"$tableTypePrefix [TIMER] filterFileSlices: prunePartitionsAndGetFileSlices took ${prunePartitionsElapsed}ms")
+    logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] [1.0] filterFileSlices: prunePartitionsAndGetFileSlices took ${prunePartitionsElapsed}ms")
 
     hasPushedDownPartitionPredicates = true
 
@@ -241,7 +241,7 @@ case class HoodieFileIndex(spark: SparkSession,
     // If there are no file slices, return empty list.
     if (prunedPartitionsAndFileSlices.isEmpty || dataFilters.isEmpty || isPartitionPruned ) {
       val totalElapsed = System.currentTimeMillis() - filterFileSlicesStartTime
-      logInfo(s"$tableTypePrefix [TIMER] filterFileSlices: Total time ${totalElapsed}ms (early exit: no data filters or partition pruned)")
+      logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER][2.0 - 3.0] filterFileSlices: Total time ${totalElapsed}ms (early exit: no data filters or partition pruned)")
       prunedPartitionsAndFileSlices
     } else {
       // Look up candidate files names in the col-stats or record level index, if all of the following conditions are true
@@ -262,7 +262,7 @@ case class HoodieFileIndex(spark: SparkSession,
           }
       }
       val lookupElapsed = System.currentTimeMillis() - lookupStartTime
-      logInfo(s"$tableTypePrefix [TIMER] filterFileSlices: lookupCandidateFilesInMetadataTable took ${lookupElapsed}ms")
+      logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] [2.0]  filterFileSlices: lookupCandidateFilesInMetadataTable took ${lookupElapsed}ms")
 
       logDebug(s"Overlapping candidate files from Column Stats or Record Level Index: ${candidateFilesNamesOpt.getOrElse(Set.empty)}")
 
@@ -294,7 +294,7 @@ case class HoodieFileIndex(spark: SparkSession,
           (partitionOpt, candidateFileSlices)
       }
       val filterSlicesElapsed = System.currentTimeMillis() - filterSlicesStartTime
-      logInfo(s"$tableTypePrefix [TIMER] filterFileSlices: Filter file slices based on candidates took ${filterSlicesElapsed}ms")
+      logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] [3.0] filterFileSlices: Filter file slices based on candidates took ${filterSlicesElapsed}ms")
 
       val skippingRatio =
         if (!areAllFileSlicesCached) -1
@@ -303,8 +303,8 @@ case class HoodieFileIndex(spark: SparkSession,
         else 0
 
       val totalElapsed = System.currentTimeMillis() - filterFileSlicesStartTime
-      logInfo(s"$tableTypePrefix [TIMER] filterFileSlices: Total time ${totalElapsed}ms")
-      logInfo(s"Total file slices: $totalFileSliceSize; " +
+      logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER][OVERALL] filterFileSlices: Total time ${totalElapsed}ms")
+      logInfo(System.currentTimeMillis() + s"Total file slices: $totalFileSliceSize; " +
         s"candidate file slices after data skipping: $candidateFileSliceSize; " +
         s"skipping percentage $skippingRatio")
 
@@ -347,7 +347,7 @@ case class HoodieFileIndex(spark: SparkSession,
           }
         } else if (isExpressionIndexEnabled) {
           val expressionIndexSupport = getExpressionIndexSupport
-          lazy val filterReferencedColumns = collectReferencedColumns(spark, dataFilters, schema)
+          lazy val filterReferencedColumns = collectReferencedColumns(spark, dataFilters, schema, "table_prefix")
           val exprIndexPrunedPartitionsOpt = expressionIndexSupport.prunePartitions(this, dataFilters, filterReferencedColumns)
           if (exprIndexPrunedPartitionsOpt.nonEmpty) {
             (true, exprIndexPrunedPartitionsOpt.get.map(e => convertToPartitionPath(e)).toSeq)
@@ -421,7 +421,9 @@ case class HoodieFileIndex(spark: SparkSession,
     //       and candidate files are obtained from these file slices.
 
     val lookupStartTime = System.currentTimeMillis()
-    lazy val queryReferencedColumns = collectReferencedColumns(spark, queryFilters, schema)
+    logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] Going to trigger collecting ref cols")
+    lazy val queryReferencedColumns = collectReferencedColumns(spark, queryFilters, schema, tableTypePrefix)
+    logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] Collecting ref cols took " + (System.currentTimeMillis() - lookupStartTime))
     if (isDataSkippingEnabled) {
       for(indexSupport: SparkBaseIndexSupport <- indicesSupport) {
         if (indexSupport.isIndexAvailable && indexSupport.supportsQueryType(options)) {
@@ -429,17 +431,18 @@ case class HoodieFileIndex(spark: SparkSession,
           val prunedFileNames = indexSupport.computeCandidateIsStrict(spark, this, queryFilters, queryReferencedColumns,
             prunedPartitionsAndFileSlices, shouldPushDownFilesFilter)
           val indexElapsed = System.currentTimeMillis() - indexStartTime
-          logInfo(s"$tableTypePrefix [TIMER] ${indexSupport.getIndexName} index lookup took ${indexElapsed}ms")
+          logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] ${indexSupport.getIndexName} index lookup took ${indexElapsed}ms")
           if (prunedFileNames.nonEmpty) {
             val totalLookupElapsed = System.currentTimeMillis() - lookupStartTime
-            logInfo(s"$tableTypePrefix [TIMER] Total lookupCandidateFilesInMetadataTable took ${totalLookupElapsed}ms")
+            logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] Total lookupCandidateFilesInMetadataTable took ${totalLookupElapsed}ms")
             return Try(prunedFileNames)
           }
         }
+        logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] ${indexSupport.getIndexName} being processed")
       }
     }
     val totalLookupElapsed = System.currentTimeMillis() - lookupStartTime
-    logInfo(s"$tableTypePrefix [TIMER] Total lookupCandidateFilesInMetadataTable took ${totalLookupElapsed}ms (no candidates found)")
+    logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] [2.0.summary] Total lookupCandidateFilesInMetadataTable took ${totalLookupElapsed}ms (no candidates found)")
     validateConfig()
     Option.empty
   }
@@ -529,10 +532,14 @@ object HoodieFileIndex extends Logging {
     val Strict: Val   = Val("strict")
   }
 
-  def collectReferencedColumns(spark: SparkSession, queryFilters: Seq[Expression], schema: StructType): Seq[String] = {
+  def collectReferencedColumns(spark: SparkSession, queryFilters: Seq[Expression], schema: StructType, tableTypePrefix: String): Seq[String] = {
+    val startTimer = System.currentTimeMillis()
     val resolver = spark.sessionState.analyzer.resolver
     val refs = queryFilters.flatMap(_.references)
-    schema.fieldNames.filter { colName => refs.exists(r => resolver.apply(colName, r.name)) }
+    val toReturn = schema.fieldNames.filter { colName => refs.exists(r => resolver.apply(colName, r.name)) }
+    val totalTime = System.currentTimeMillis() - startTimer
+    logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] Total collecting referenced columns took ${totalTime}ms")
+    toReturn
   }
 
   def getConfigProperties(spark: SparkSession, options: Map[String, String], tableConfig: HoodieTableConfig): TypedProperties = {

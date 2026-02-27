@@ -75,6 +75,7 @@ public class TestMetadataBenchmarkingTool {
     config.colStatsFileGroupCount = 10;
     config.numFilesToBootstrap = 100;
     config.numPartitions = 3;
+    config.configs.add("hoodie.metadata.index.column.stats.processing.mode.override=in-memory");
 
     LOG.info("Test config: tableBasePath={}, numFilesToBootstrap={}, numPartitions={}, numColumnsToIndex={}, colStatsFileGroupCount={}",
         config.tableBasePath, config.numFilesToBootstrap, config.numPartitions, config.numColumnsToIndex, config.colStatsFileGroupCount);
@@ -97,7 +98,7 @@ public class TestMetadataBenchmarkingTool {
     MetadataBenchmarkingTool.Config config = new MetadataBenchmarkingTool.Config();
     config.tableBasePath = tempDir.resolve("test_table_1col").toString();
     config.numColumnsToIndex = 1; // tenantID only
-    config.colStatsFileGroupCount = 10;
+    config.colStatsFileGroupCount = 1;
     config.numFilesToBootstrap = 100;
     config.numPartitions = 3;
 

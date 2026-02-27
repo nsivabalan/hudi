@@ -682,6 +682,9 @@ public class MetadataBenchmarkingTool implements Closeable {
     Seq<Expression> partitionFiltersSeq = JavaConverters
         .asScalaBuffer(Collections.singletonList(buildPartitionFilter(dataSchema))).toList();
 
+    // populate cache for all file slices count.
+    fileIndex.getFileSlicesCount();
+
     long startTime = System.currentTimeMillis();
     Seq<Tuple2<scala.Option<BaseHoodieTableFileIndex.PartitionPath>, Seq<FileSlice>>> filteredSlices =
         fileIndex.filterFileSlices(dataFiltersSeq, partitionFiltersSeq, false);
@@ -709,6 +712,7 @@ public class MetadataBenchmarkingTool implements Closeable {
     options.put("hoodie.metadata.index.column.stats.enable", "true");
     options.put(HoodieMetadataConfig.ENABLE_METADATA_INDEX_PARTITION_STATS.key(), "false");
     options.put("hoodie.metadata.index.column.stats.column.list", getColumnsToIndexString(cfg.numColumnsToIndex));
+    options.put(HoodieMetadataConfig.COLUMN_STATS_INDEX_PROCESSING_MODE_OVERRIDE.key(), dataConfig.getMetadataConfig().getColumnStatsIndexProcessingModeOverride());
     spark.sqlContext().conf().setConfString("hoodie.fileIndex.dataSkippingFailureMode", "strict");
 
     scala.collection.immutable.Map<String, String> scalaOptions = JavaConverters.mapAsScalaMap(options)
