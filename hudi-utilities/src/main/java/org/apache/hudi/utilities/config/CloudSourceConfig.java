@@ -61,6 +61,13 @@ public class CloudSourceConfig extends HoodieConfig {
           + "Multiple API calls with this batch size are sent to cloud events queue, until we consume hoodie.streamer.source.cloud.meta.max.num.messages.per.sync"
           + "from the queue or hoodie.streamer.source.cloud.meta.max.fetch.time.per.sync.ms amount of time has passed or queue is empty. ");
 
+  public static final ConfigProperty<Integer> META_EVENTS_PER_PARTITION = ConfigProperty
+      .key(STREAMER_CONFIG_PREFIX + "source.cloud.meta.events.per.partition")
+      .defaultValue(10000)
+      .markAdvanced()
+      .sinceVersion("0.14.2")
+      .withDocumentation("Number of metadata events to be grouped into a single partition while creating dataframe from metadata events.");
+
   public static final ConfigProperty<Integer> MAX_NUM_MESSAGES_PER_SYNC = ConfigProperty
       .key(STREAMER_CLOUD_SOURCE_PREFIX + "meta.max.num.messages.per.sync")
       .defaultValue(1000)

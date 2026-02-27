@@ -252,6 +252,8 @@ public class MarkerBasedCommitMetadataResolver implements CommitMetadataResolver
     writeStat.setLogFiles(logFiles);
     writeStat.setBaseFile(originalWriteStat.getBaseFile());
     writeStat.setPrevCommit(logFile.getDeltaCommitTime());
+    // Set numWrites to 1 to indicate the log file contains data (exact count unknown for reconciled files)
+    writeStat.setNumWrites(1);
     return writeStat;
   }
 }

@@ -83,7 +83,7 @@ import static org.apache.hudi.common.table.HoodieTableConfig.TIMELINE_LAYOUT_VER
 import static org.apache.hudi.common.table.HoodieTableConfig.TYPE;
 import static org.apache.hudi.common.table.HoodieTableConfig.VERSION;
 import static org.apache.hudi.common.table.HoodieTableConfig.generateChecksum;
-import static org.apache.hudi.common.table.HoodieTableConfig.validateChecksum;
+import static org.apache.hudi.common.table.HoodieTableConfig.hasValidChecksum;
 import static org.apache.hudi.common.testutils.HoodieTestDataGenerator.DEFAULT_FIRST_PARTITION_PATH;
 import static org.apache.hudi.common.testutils.HoodieTestDataGenerator.TRIP_EXAMPLE_SCHEMA;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -213,7 +213,7 @@ public class TestRepairsCommand extends CLIFunctionalTestHarness {
     Map<String, String> result = tableConfig.propsMap();
     // validate table checksum
     assertTrue(result.containsKey(TABLE_CHECKSUM.key()));
-    assertTrue(validateChecksum(tableConfig.getProps()));
+    assertTrue(hasValidChecksum(tableConfig.getProps()));
     Properties expectProps = new Properties();
     expectProps.load(new FileInputStream(newProps.getPath()));
 

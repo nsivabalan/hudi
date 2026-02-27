@@ -19,6 +19,7 @@
 package org.apache.hudi.client.common;
 
 import org.apache.hudi.common.engine.LocalTaskContextSupplier;
+import org.apache.hudi.common.data.HoodieData;
 import org.apache.hudi.common.util.collection.ImmutablePair;
 
 import org.junit.jupiter.api.Assertions;
@@ -29,6 +30,10 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import static org.apache.hudi.common.testutils.HoodieTestUtils.getDefaultStorageConf;
 
@@ -60,6 +65,21 @@ public class TestHoodieJavaEngineContext {
     List<String> result = context.flatMap(inputList, Collection::stream, 2);
 
     Assertions.assertEquals(9, result.size());
+  }
+
+  @Test
+  public void testUnion() {
+    List<HoodieData<Integer>> dataList = new ArrayList<>();
+    for (int i = 0;i < 50;i++) {
+      dataList.add(context.parallelize(
+          IntStream.rangeClosed(i * 100, (i * 100) + 99).boxed().collect(Collectors.toList()), 6));
+    }
+
+    List<Integer> expected = context.parallelize(
+        IntStream.rangeClosed(0, 50 * 100 - 1).boxed().collect(Collectors.toList()), 6).collectAsList();
+
+    List<Integer> actual = context.union(dataList).collectAsList();
+    assertEquals(expected, actual);
   }
 
   @Test

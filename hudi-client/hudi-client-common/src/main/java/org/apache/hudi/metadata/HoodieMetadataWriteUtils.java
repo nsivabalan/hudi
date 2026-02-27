@@ -123,13 +123,6 @@ public class HoodieMetadataWriteUtils {
   // from the metadata payload schema.
   public static final String RECORD_KEY_FIELD_NAME = HoodieMetadataPayload.KEY_FIELD_NAME;
 
-  // MDT writes are always prepped. Hence, insert and upsert shuffle parallelism are not important to be configured. Same for delete
-  // parallelism as deletes are not used.
-  // The finalize, cleaner and rollback tasks will operate on each fileGroup so their parallelism should be as large as the total file groups.
-  // But it's not possible to accurately get the file group count here so keeping these values large enough. This parallelism would
-  // any ways be limited by the executor counts.
-  private static final int MDT_DEFAULT_PARALLELISM = 512;
-
   // File groups in each partition are fixed at creation time and we do not want them to be split into multiple files
   // ever. Hence, we use a very large basefile size in metadata table. The actual size of the HFiles created will
   // eventually depend on the number of file groups selected for each partition (See estimateFileGroupCount function)
@@ -163,8 +156,9 @@ public class HoodieMetadataWriteUtils {
     HoodieCleanConfig.Builder cleanConfigBuilder = HoodieCleanConfig.newBuilder()
         .withAsyncClean(DEFAULT_METADATA_ASYNC_CLEAN)
         .withAutoClean(false)
-        .withCleanerParallelism(MDT_DEFAULT_PARALLELISM)
+        .withCleanerParallelism(writeConfig.getMetadataConfig().getCleanerParallelism())
         .withFailedWritesCleaningPolicy(failedWritesCleaningPolicy)
+        .withMaxCommitsBeforeCleaning(writeConfig.getCleaningMaxCommits())
         .withCleanerPolicy(dataTableCleaningPolicy);
 
     if (HoodieCleaningPolicy.KEEP_LATEST_COMMITS.equals(dataTableCleaningPolicy)) {
@@ -192,7 +186,7 @@ public class HoodieMetadataWriteUtils {
         .withMetadataConfig(HoodieMetadataConfig.newBuilder().enable(false)
             .withFileListingParallelism(writeConfig.getFileListingParallelism()).build())
         .withAvroSchemaValidate(false)
-        .withEmbeddedTimelineServerEnabled(false)
+        .withEmbeddedTimelineServerEnabled(writeConfig.getMetadataConfig().isEmbeddedTimelineServerEnabled())
         .withMarkersType(MarkerType.DIRECT.name())
         .withRollbackUsingMarkers(false)
         .withPath(HoodieTableMetadata.getMetadataTableBasePath(writeConfig.getBasePath()))
@@ -230,8 +224,8 @@ public class HoodieMetadataWriteUtils {
                                .withBloomFilterFpp(writeConfig.getMetadataConfig().getBloomFilterFpp())
                                .withBloomFilterDynamicMaxEntries(writeConfig.getMetadataConfig().getDynamicBloomFilterMaxNumEntries())
                                .build())
-        .withRollbackParallelism(MDT_DEFAULT_PARALLELISM)
-        .withFinalizeWriteParallelism(MDT_DEFAULT_PARALLELISM)
+        .withRollbackParallelism(writeConfig.getMetadataConfig().getRollbackParallelism())
+        .withFinalizeWriteParallelism(writeConfig.getMetadataConfig().getFinalizeWritesParallelism())
         .withKeyGenerator(HoodieTableMetadataKeyGenerator.class.getCanonicalName())
         .withPopulateMetaFields(DEFAULT_METADATA_POPULATE_META_FIELDS)
         .withWriteStatusClass(FailOnFirstErrorWriteStatus.class)
@@ -243,7 +237,10 @@ public class HoodieMetadataWriteUtils {
         .withRecordMergeImplClasses(HoodieAvroRecordMerger.class.getCanonicalName())
         .withWriteRecordPositionsEnabled(false)
         .withWriteConcurrencyMode(concurrencyMode)
-        .withLockConfig(lockConfig);
+        .withLockConfig(lockConfig)
+        .withEnableFileSliceCacheOptimization(writeConfig.getMetadataConfig().shouldEnableFileSliceCacheOptimization())
+        .withFileSliceCacheMaxSize(writeConfig.getMetadataConfig().getFileSliceCacheMaxSize())
+        .withFileSliceCacheExpirationInMins(writeConfig.getMetadataConfig().getFileSliceCacheExpirationInMins());
 
     // RecordKey properties are needed for the metadata table records
     final Properties properties = new Properties();

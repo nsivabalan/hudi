@@ -73,6 +73,7 @@ import org.apache.hudi.execution.bulkinsert.BulkInsertSortMode;
 import org.apache.hudi.index.HoodieIndex;
 import org.apache.hudi.io.FileGroupReaderBasedMergeHandle;
 import org.apache.hudi.io.HoodieConcatHandle;
+import org.apache.hudi.io.HoodieCreateHandle;
 import org.apache.hudi.keygen.SimpleAvroKeyGenerator;
 import org.apache.hudi.keygen.constant.KeyGeneratorOptions;
 import org.apache.hudi.keygen.constant.KeyGeneratorType;
@@ -929,12 +930,49 @@ public class HoodieWriteConfig extends HoodieConfig {
           + " or when using a custom Hoodie Concat Handle Implementation controlled by the config " + CONCAT_HANDLE_CLASS_NAME.key()
               + ", enabling this config results in fallback to the default implementations if instantiation of the custom implementation fails");
 
+  public static final ConfigProperty<String> CREATE_HANDLE_CLASS_NAME = ConfigProperty
+      .key("hoodie.write.create.handle.class")
+      .defaultValue(HoodieCreateHandle.class.getName())
+      .markAdvanced()
+      .sinceVersion("1.1.1")
+      .withDocumentation("The create handle class to use.");
+
+  public static final ConfigProperty<Boolean> CREATE_HANDLE_PERFORM_FALLBACK = ConfigProperty
+      .key("hoodie.write.create.handle.fallback.enabled")
+      .defaultValue(true)
+      .markAdvanced()
+      .sinceVersion("1.1.1")
+      .withDocumentation("When using a custom Hoodie Create Handle Implementation controlled by the config " + CREATE_HANDLE_CLASS_NAME.key()
+          + " enabling this config results in fallback to the default implementations if instantiation of the custom implementation fails");
+
   public static final ConfigProperty<String> FREEZE_WRITE_CONFIGS = ConfigProperty
       .key("hoodie.write.config.freeze")
       .defaultValue("")
       .markAdvanced()
       .sinceVersion("0.15.1")
       .withDocumentation("Freeze the options to be used for the write. This is useful to prevent options from being overwritten.");
+
+  public static final ConfigProperty<Boolean> ENABLE_FILE_SLICE_CACHE_OPTIMIZATION = ConfigProperty
+      .key("hoodie.write.file.slice.cache.optimization")
+      .defaultValue(false)
+      .markAdvanced()
+      .sinceVersion("0.14.2")
+      .withDocumentation("Enables cache for fetching latest file slice view.");
+
+  public static final ConfigProperty<Integer> FILE_SLICE_CACHE_MAX_SIZE = ConfigProperty
+      .key("hoodie.write.file.slice.cache.max.size")
+      .defaultValue(10000)
+      .markAdvanced()
+      .sinceVersion("0.14.2")
+      .withDocumentation("Max size for file slice cache when " + ENABLE_FILE_SLICE_CACHE_OPTIMIZATION.key() + " is enabled");
+
+  public static final ConfigProperty<Integer> FILE_SLICE_CACHE_EXPIRATION_MINS = ConfigProperty
+      .key("hoodie.write.file.slice.cache.expiration.in.mins")
+      .defaultValue(120)
+      .markAdvanced()
+      .sinceVersion("0.14.2")
+      .withDocumentation("Expiration of file slice cache entries when " + ENABLE_FILE_SLICE_CACHE_OPTIMIZATION.key() + " is enabled");
+
 
   /**
    * Config key with boolean value that indicates whether record being written during MERGE INTO Spark SQL
@@ -1501,6 +1539,10 @@ public class HoodieWriteConfig extends HoodieConfig {
     return getBooleanOrDefault(HoodieWriteConfig.MERGE_HANDLE_PERFORM_FALLBACK);
   }
 
+  public boolean isCreateHandleFallbackEnabled() {
+    return getBooleanOrDefault(HoodieWriteConfig.CREATE_HANDLE_PERFORM_FALLBACK, HoodieWriteConfig.CREATE_HANDLE_PERFORM_FALLBACK.defaultValue());
+  }
+
   public boolean isConsistentLogicalTimestampEnabled() {
     return getBooleanOrDefault(KeyGeneratorOptions.KEYGENERATOR_CONSISTENT_LOGICAL_TIMESTAMP_ENABLED);
   }
@@ -1607,6 +1649,10 @@ public class HoodieWriteConfig extends HoodieConfig {
 
   public String getConcatHandleClassName() {
     return getStringOrDefault(CONCAT_HANDLE_CLASS_NAME);
+  }
+
+  public String getCreateHandleClassName() {
+    return getStringOrDefault(CREATE_HANDLE_CLASS_NAME);
   }
 
   public String getCompactionMergeHandleClassName() {
@@ -1975,6 +2021,10 @@ public class HoodieWriteConfig extends HoodieConfig {
 
   public long getClusteringSmallFileLimit() {
     return getLong(HoodieClusteringConfig.PLAN_STRATEGY_SMALL_FILE_LIMIT);
+  }
+
+  public long getClusteringSmallFileFloorLimit() {
+    return getLong(HoodieClusteringConfig.PLAN_STRATEGY_SMALL_FILE_FLOOR_LIMIT);
   }
 
   public String getClusteringPartitionSelected() {
@@ -2972,6 +3022,18 @@ public class HoodieWriteConfig extends HoodieConfig {
     }
   }
 
+  public Boolean shouldEnableFileSliceCacheOptimization() {
+    return getBoolean(ENABLE_FILE_SLICE_CACHE_OPTIMIZATION);
+  }
+
+  public Integer getFileSliceCacheMaxSize() {
+    return getInt(FILE_SLICE_CACHE_MAX_SIZE);
+  }
+
+  public Integer getFileSliceCacheExpirationInMins() {
+    return getInt(FILE_SLICE_CACHE_EXPIRATION_MINS);
+  }
+
   public static class Builder {
 
     protected final HoodieWriteConfig writeConfig = new HoodieWriteConfig();
@@ -3555,6 +3617,21 @@ public class HoodieWriteConfig extends HoodieConfig {
 
     public Builder withFileGroupReaderMergeHandleClassName(String className) {
       writeConfig.setValue(COMPACT_MERGE_HANDLE_CLASS_NAME, className);
+      return this;
+    }
+    
+    public Builder withEnableFileSliceCacheOptimization(boolean enableFileSliceCacheOpt) {
+      writeConfig.setValue(ENABLE_FILE_SLICE_CACHE_OPTIMIZATION, Boolean.toString(enableFileSliceCacheOpt));
+      return this;
+    }
+
+    public Builder withFileSliceCacheMaxSize(Integer fileSliceCacheMaxSize) {
+      writeConfig.setValue(FILE_SLICE_CACHE_MAX_SIZE, Integer.toString(fileSliceCacheMaxSize));
+      return this;
+    }
+
+    public Builder withFileSliceCacheExpirationInMins(Integer fileSliceCacheExpirationInMins) {
+      writeConfig.setValue(FILE_SLICE_CACHE_EXPIRATION_MINS, Integer.toString(fileSliceCacheExpirationInMins));
       return this;
     }
 

@@ -849,16 +849,17 @@ public class StreamSync implements Serializable, Closeable {
       Map<String, List<String>> partitionToReplacedFileIds = writeClientWriteResult.getPartitionToReplacedFileIds();
       JavaRDD<WriteStatus> writeStatusRDD = writeClientWriteResult.getWriteStatusRDD();
       Option<JavaRDD<WriteStatus>> errorTableWriteStatusRDDOpt = Option.empty();
+      String errorTableInstantTime = null;
       if (errorTableWriter.isPresent() && isErrorTableWriteUnificationEnabled) {
-        errorTableWriteStatusRDDOpt = errorTableWriter.map(w -> w.upsert(instantTime, getLatestCommittedInstant()));
+        errorTableWriteStatusRDDOpt = errorTableWriter.map(w -> w.upsert(errorTableInstantTime, getLatestCommittedInstant()));
       }
 
       Map<String, String> checkpointCommitMetadata = extractCheckpointMetadata(inputBatch, props, writeClient.getConfig().getWriteVersion().versionCode(), cfg);
       AtomicLong totalSuccessfulRecords = new AtomicLong(0);
       Option<String> latestCommittedInstant = getLatestCommittedInstant();
       WriteStatusValidator writeStatusValidator = new HoodieStreamerWriteStatusValidator(cfg.commitOnErrors, instantTime,
-          cfg, errorTableWriter, errorTableWriteStatusRDDOpt, errorWriteFailureStrategy, isErrorTableWriteUnificationEnabled, writeClient, latestCommittedInstant,
-          totalSuccessfulRecords);
+          cfg, errorTableWriter, errorTableWriteStatusRDDOpt, errorWriteFailureStrategy, isErrorTableWriteUnificationEnabled, writeClient,
+              latestCommittedInstant, totalSuccessfulRecords);
       String commitActionType = CommitUtils.getCommitActionType(cfg.operation, HoodieTableType.valueOf(cfg.tableType));
 
       boolean success = writeClient.commit(instantTime, writeStatusRDD, Option.of(checkpointCommitMetadata), commitActionType, partitionToReplacedFileIds, Option.empty(),

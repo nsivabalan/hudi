@@ -43,6 +43,9 @@ public class HoodieAvroWriteSupport<T> extends AvroWriteSupport<T> {
   private final Map<String, String> footerMetadata = new HashMap<>();
   protected final Properties properties;
 
+  // Default value in parquet-avro dependency
+  public static final boolean PARQUET_AVRO_WRITE_OLD_LIST_STRUCTURE_DEFAULT = true;
+
   public HoodieAvroWriteSupport(MessageType schema, Schema avroSchema, Option<BloomFilter> bloomFilterOpt,
                                 Properties properties) {
     super(schema, avroSchema, ConvertingGenericData.INSTANCE);
@@ -52,13 +55,7 @@ public class HoodieAvroWriteSupport<T> extends AvroWriteSupport<T> {
 
   @Override
   public WriteSupport.FinalizedWriteContext finalizeWrite() {
-    Map<String, String> extraMetadata =
-        CollectionUtils.combine(footerMetadata,
-            bloomFilterWriteSupportOpt.map(HoodieBloomFilterWriteSupport::finalizeMetadata)
-                .orElse(Collections.emptyMap())
-        );
-
-    return new WriteSupport.FinalizedWriteContext(extraMetadata);
+    return new WriteSupport.FinalizedWriteContext(getFooterMetadataWithBloom());
   }
 
   public void add(String recordKey) {
@@ -79,5 +76,12 @@ public class HoodieAvroWriteSupport<T> extends AvroWriteSupport<T> {
     protected byte[] getUTF8Bytes(String key) {
       return StringUtils.getUTF8Bytes(key);
     }
+  }
+
+  public Map<String, String> getFooterMetadataWithBloom() {
+    return CollectionUtils.combine(
+        footerMetadata,
+        bloomFilterWriteSupportOpt.map(HoodieBloomFilterWriteSupport::finalizeMetadata)
+            .orElse(Collections.emptyMap()));
   }
 }

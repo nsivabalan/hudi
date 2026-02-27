@@ -53,6 +53,7 @@ import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.ReflectionUtils;
 import org.apache.hudi.common.util.SizeEstimator;
 import org.apache.hudi.common.util.collection.Pair;
+import org.apache.hudi.common.util.collection.Triple;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.exception.HoodieAppendException;
 import org.apache.hudi.exception.HoodieException;
@@ -61,10 +62,12 @@ import org.apache.hudi.metadata.HoodieIndexVersion;
 import org.apache.hudi.metadata.HoodieTableMetadataUtil;
 import org.apache.hudi.stats.HoodieColumnRangeMetadata;
 import org.apache.hudi.storage.StoragePath;
+import org.apache.hudi.metadata.MetadataPartitionType;
 import org.apache.hudi.table.HoodieTable;
 import org.apache.hudi.util.CommonClientUtils;
 import org.apache.hudi.util.Lazy;
 
+import com.github.benmanes.caffeine.cache.Cache;
 import org.apache.avro.Schema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -82,6 +85,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static org.apache.hudi.metadata.HoodieTableMetadataUtil.PARTITION_NAME_COLUMN_STATS;
@@ -215,7 +219,7 @@ public class HoodieAppendHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O
       }
     } else {
       // older table versions.
-      fileSlice = hoodieTable.getSliceView().getLatestFileSlice(partitionPath, fileId);
+      fileSlice = getLatestSliceView(hoodieTable.getSliceView(), partitionPath, fileId);
       if (fileSlice.isPresent()) {
         prevCommit = fileSlice.get().getBaseInstantTime();
         baseFile = fileSlice.get().getBaseFile().map(BaseFile::getFileName).orElse("");
@@ -284,6 +288,26 @@ public class HoodieAppendHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O
       }
     }
     return instantTime;
+  }
+
+  private Option<FileSlice> getLatestSliceView(TableFileSystemView.SliceView sliceView, String partitionPath, String fileId) {
+    long startTime = System.currentTimeMillis();
+    if (hoodieTable.isMetadataTable() && config.shouldEnableFileSliceCacheOptimization() && partitionPath.equals(MetadataPartitionType.RECORD_INDEX.getPartitionPath())) {
+      Cache<Triple<String, String, String>, Option<FileSlice>> latestFileSliceCache = LatestFileSliceCache.getCache(sliceView, instantTime,
+          config.getFileSliceCacheMaxSize(), config.getFileSliceCacheExpirationInMins());
+      Option<FileSlice> toReturn = latestFileSliceCache.get(Triple.of(partitionPath, fileId, instantTime), new Function<Triple<String, String, String>, Option<FileSlice>>() {
+        @Override
+        public Option<FileSlice> apply(Triple<String, String, String> stringStringStringTriple) {
+          return sliceView.getLatestFileSlice(partitionPath, fileId);
+        }
+      });
+      LOG.info("Total time to fetch latest file slice potentially cached : " + (System.currentTimeMillis() - startTime) + " ms, for " + partitionPath + ", " + fileId);
+      return toReturn;
+    } else {
+      Option<FileSlice> toReturn = sliceView.getLatestFileSlice(partitionPath, fileId);
+      LOG.info("Total time to fetch latest file slice: " + (System.currentTimeMillis() - startTime) + " ms, for " + partitionPath + ", " + fileId);
+      return toReturn;
+    }
   }
 
   /**

@@ -33,6 +33,7 @@ import org.apache.hudi.common.table.log.block.HoodieDataBlock;
 import org.apache.hudi.common.table.log.block.HoodieDeleteBlock;
 import org.apache.hudi.common.table.log.block.HoodieLogBlock;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
+import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.util.InternalSchemaCache;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.collection.ClosableIterator;
@@ -274,7 +275,7 @@ public abstract class AbstractHoodieLogRecordScanner {
       Set<HoodieLogFile> scannedLogFiles = new HashSet<>();
       while (logFormatReaderWrapper.hasNext()) {
         HoodieLogFile logFile = logFormatReaderWrapper.getLogFile();
-        LOG.info("Scanning log file {}", logFile);
+        LOG.debug("Scanning log file {}", logFile);
         scannedLogFiles.add(logFile);
         totalLogFiles.set(scannedLogFiles.size());
         // Use the HoodieLogFileReader to iterate through the blocks in the log file
@@ -302,12 +303,12 @@ public abstract class AbstractHoodieLogRecordScanner {
           case HFILE_DATA_BLOCK:
           case AVRO_DATA_BLOCK:
           case PARQUET_DATA_BLOCK:
-            LOG.info("Reading a data block from file {} at instant {}", logFile.getPath(), instantTime);
+            LOG.debug("Reading a data block from file {} at instant {}", logFile.getPath(), instantTime);
             // store the current block
             currentInstantLogBlocks.push(logBlock);
             break;
           case DELETE_BLOCK:
-            LOG.info("Reading a delete block from file {}", logFile.getPath());
+            LOG.debug("Reading a delete block from file {}", logFile.getPath());
             // store deletes so can be rolled back
             currentInstantLogBlocks.push(logBlock);
             break;
@@ -328,7 +329,8 @@ public abstract class AbstractHoodieLogRecordScanner {
             HoodieCommandBlock commandBlock = (HoodieCommandBlock) logBlock;
             String targetInstantForCommandBlock =
                 logBlock.getLogBlockHeader().get(HoodieLogBlock.HeaderMetadataType.TARGET_INSTANT_TIME);
-            LOG.info("Reading a command block {} with targetInstantTime {} from file {}", commandBlock.getType(), targetInstantForCommandBlock, logFile.getPath());
+            LOG.debug("Reading a command block {} with targetInstantTime {} from file {}", commandBlock.getType(), targetInstantForCommandBlock,
+                logFile.getPath());
             switch (commandBlock.getType()) { // there can be different types of command blocks
               case ROLLBACK_BLOCK:
                 // Rollback older read log block(s)
@@ -341,19 +343,20 @@ public abstract class AbstractHoodieLogRecordScanner {
                 currentInstantLogBlocks.removeIf(block -> {
                   // handle corrupt blocks separately since they may not have metadata
                   if (block.getBlockType() == CORRUPT_BLOCK) {
-                    LOG.info("Rolling back the last corrupted log block read in {}", logFile.getPath());
+                    LOG.debug("Rolling back the last corrupted log block read in {}", logFile.getPath());
                     return true;
                   }
                   if (targetInstantForCommandBlock.contentEquals(block.getLogBlockHeader().get(INSTANT_TIME))) {
                     // rollback older data block or delete block
-                    LOG.info("Rolling back an older log block read from {} with instantTime {}", logFile.getPath(), targetInstantForCommandBlock);
+                    LOG.debug("Rolling back an older log block read from {} with instantTime {}",
+                        logFile.getPath(), targetInstantForCommandBlock);
                     return true;
                   }
                   return false;
                 });
                 final int numBlocksRolledBack = instantLogBlockSizeBeforeRollback - currentInstantLogBlocks.size();
                 totalRollbacks.addAndGet(numBlocksRolledBack);
-                LOG.info("Number of applied rollback blocks {}", numBlocksRolledBack);
+                LOG.debug("Number of applied rollback blocks {}", numBlocksRolledBack);
                 if (numBlocksRolledBack == 0) {
                   LOG.warn("TargetInstantTime {} invalid or extra rollback command block in {}", targetInstantForCommandBlock, logFile.getPath());
                 }
@@ -363,7 +366,7 @@ public abstract class AbstractHoodieLogRecordScanner {
             }
             break;
           case CORRUPT_BLOCK:
-            LOG.info("Found a corrupt block in {}", logFile.getPath());
+            LOG.debug("Found a corrupt block in {}", logFile.getPath());
             totalCorruptBlocks.incrementAndGet();
             // If there is a corrupt block - we will assume that this was the next data block
             currentInstantLogBlocks.push(logBlock);
@@ -375,7 +378,7 @@ public abstract class AbstractHoodieLogRecordScanner {
       // merge the last read block when all the blocks are done reading
       if (!currentInstantLogBlocks.isEmpty()) {
         // if there are no dups, we can take currentInstantLogBlocks as is.
-        LOG.info("Merging the final data blocks");
+        LOG.debug("Merging the final data blocks");
         processQueuedBlocksForInstant(currentInstantLogBlocks, scannedLogFiles.size(), keySpecOpt);
       }
 
@@ -395,6 +398,20 @@ public abstract class AbstractHoodieLogRecordScanner {
       } catch (IOException ioe) {
         // Eat exception as we do not want to mask the original exception that can happen
         LOG.error("Unable to close log format reader", ioe);
+      }
+      if (!logFilePaths.isEmpty()) {
+        try {
+          StoragePath path = new StoragePath(logFilePaths.get(0));
+          LOG.info("Finished scanning log files. FileId: {}, LogFileInstantTime: {}, "
+                  + "Total log files: {}, Total log blocks: {}, Total rollbacks: {}, Total corrupt blocks: {}",
+              FSUtils.getFileIdFromLogPath(path), FSUtils.getDeltaCommitTimeFromLogPath(path),
+              totalLogFiles.get(), totalLogBlocks.get(), totalRollbacks.get(), totalCorruptBlocks.get());
+        } catch (Exception e) {
+          LOG.warn("Could not extract fileId from log path", e);
+          LOG.info("Finished scanning log files. "
+                  + "Total log files: {}, Total log blocks: {}, Total rollbacks: {}, Total corrupt blocks: {}",
+              totalLogFiles.get(), totalLogBlocks.get(), totalRollbacks.get(), totalCorruptBlocks.get());
+        }
       }
     }
   }
@@ -461,7 +478,7 @@ public abstract class AbstractHoodieLogRecordScanner {
        */
       while (logFormatReaderWrapper.hasNext()) {
         HoodieLogFile logFile = logFormatReaderWrapper.getLogFile();
-        LOG.info("Scanning log file {}", logFile);
+        LOG.debug("Scanning log file {}", logFile);
         scannedLogFiles.add(logFile);
         totalLogFiles.set(scannedLogFiles.size());
         // Use the HoodieLogFileReader to iterate through the blocks in the log file
@@ -470,7 +487,7 @@ public abstract class AbstractHoodieLogRecordScanner {
         totalLogBlocks.incrementAndGet();
         // Ignore the corrupt blocks. No further handling is required for them.
         if (logBlock.getBlockType().equals(CORRUPT_BLOCK)) {
-          LOG.info("Found a corrupt block in {}", logFile.getPath());
+          LOG.debug("Found a corrupt block in {}", logFile.getPath());
           totalCorruptBlocks.incrementAndGet();
           continue;
         }
@@ -507,7 +524,7 @@ public abstract class AbstractHoodieLogRecordScanner {
             instantToBlocksMap.put(instantTime, logBlocksList);
             break;
           case COMMAND_BLOCK:
-            LOG.info("Reading a command block from file {}", logFile.getPath());
+            LOG.debug("Reading a command block from file {}", logFile.getPath());
             // This is a command block - take appropriate action based on the command
             HoodieCommandBlock commandBlock = (HoodieCommandBlock) logBlock;
 
@@ -584,15 +601,15 @@ public abstract class AbstractHoodieLogRecordScanner {
           validBlockInstants.add(compactedFinalInstantTime);
         }
       }
-      LOG.info("Number of applied rollback blocks {}", numBlocksRolledBack);
+      LOG.debug("Number of applied rollback blocks {}", numBlocksRolledBack);
 
       if (LOG.isDebugEnabled()) {
-        LOG.info("Final view of the Block time to compactionBlockMap {}", blockTimeToCompactionBlockTimeMap);
+        LOG.debug("Final view of the Block time to compactionBlockMap {}", blockTimeToCompactionBlockTimeMap);
       }
 
       // merge the last read block when all the blocks are done reading
       if (!currentInstantLogBlocks.isEmpty() && !skipProcessingBlocks) {
-        LOG.info("Merging the final data blocks");
+        LOG.debug("Merging the final data blocks");
         processQueuedBlocksForInstant(currentInstantLogBlocks, scannedLogFiles.size(), keySpecOption);
       }
       // Done
@@ -611,6 +628,20 @@ public abstract class AbstractHoodieLogRecordScanner {
       } catch (IOException ioe) {
         // Eat exception as we do not want to mask the original exception that can happen
         LOG.error("Unable to close log format reader", ioe);
+      }
+      if (!logFilePaths.isEmpty()) {
+        try {
+          StoragePath path = new StoragePath(logFilePaths.get(0));
+          LOG.info("Finished scanning log files. FileId: {}, LogFileInstantTime: {}, "
+                  + "Total log files: {}, Total log blocks: {}, Total rollbacks: {}, Total corrupt blocks: {}",
+              FSUtils.getFileIdFromLogPath(path), FSUtils.getDeltaCommitTimeFromLogPath(path),
+              totalLogFiles.get(), totalLogBlocks.get(), totalRollbacks.get(), totalCorruptBlocks.get());
+        } catch (Exception e) {
+          LOG.warn("Could not extract fileId from log path", e);
+          LOG.info("Finished scanning log files. "
+                  + "Total log files: {}, Total log blocks: {}, Total rollbacks: {}, Total corrupt blocks: {}",
+              totalLogFiles.get(), totalLogBlocks.get(), totalRollbacks.get(), totalCorruptBlocks.get());
+        }
       }
     }
   }
@@ -666,7 +697,7 @@ public abstract class AbstractHoodieLogRecordScanner {
   private void processQueuedBlocksForInstant(Deque<HoodieLogBlock> logBlocks, int numLogFilesSeen,
                                              Option<KeySpec> keySpecOpt) throws Exception {
     while (!logBlocks.isEmpty()) {
-      LOG.info("Number of remaining logblocks to merge {}", logBlocks.size());
+      LOG.debug("Number of remaining logblocks to merge {}", logBlocks.size());
       // poll the element at the bottom of the stack since that's the order it was inserted
       HoodieLogBlock lastBlock = logBlocks.pollLast();
       switch (lastBlock.getBlockType()) {

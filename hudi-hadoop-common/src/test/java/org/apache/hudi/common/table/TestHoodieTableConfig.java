@@ -25,6 +25,7 @@ import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.model.AWSDmsAvroPayload;
 import org.apache.hudi.common.model.DefaultHoodieRecordPayload;
 import org.apache.hudi.common.model.EventTimeAvroPayload;
+import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.model.OverwriteNonDefaultsWithLatestAvroPayload;
 import org.apache.hudi.common.model.OverwriteWithLatestAvroPayload;
 import org.apache.hudi.common.model.PartialUpdateAvroPayload;
@@ -109,6 +110,8 @@ class TestHoodieTableConfig extends HoodieCommonTestHarness {
     storage = HoodieStorageUtils.getStorage(basePath, HoodieTestUtils.getDefaultStorageConfWithDefaults());
     metaPath = new StoragePath(basePath, HoodieTableMetaClient.METAFOLDER_NAME);
     Properties props = new Properties();
+    props.setProperty(HoodieTableConfig.VERSION.key(),
+        String.valueOf(HoodieTableVersion.current().versionCode()));
     props.setProperty(HoodieTableConfig.NAME.key(), "test-table");
     initializeNewTableConfig(props);
   }
@@ -129,7 +132,7 @@ class TestHoodieTableConfig extends HoodieCommonTestHarness {
     assertTrue(
         storage.exists(new StoragePath(metaPath, HoodieTableConfig.HOODIE_PROPERTIES_FILE)));
     HoodieTableConfig config = new HoodieTableConfig(storage, metaPath);
-    assertEquals(7, config.getProps().size());
+    assertEquals(8, config.getProps().size());
   }
 
   @Test
@@ -142,7 +145,7 @@ class TestHoodieTableConfig extends HoodieCommonTestHarness {
     assertTrue(storage.exists(cfgPath));
     assertFalse(storage.exists(backupCfgPath));
     HoodieTableConfig config = new HoodieTableConfig(storage, metaPath);
-    assertEquals(8, config.getProps().size());
+    assertEquals(9, config.getProps().size());
     assertEquals("test-table2", config.getTableName());
     assertEquals(Collections.singletonList("new_field"), config.getOrderingFields());
     assertEquals(Option.of("new_field"), config.getOrderingFieldsStr());
@@ -157,7 +160,7 @@ class TestHoodieTableConfig extends HoodieCommonTestHarness {
     assertTrue(storage.exists(cfgPath));
     assertFalse(storage.exists(backupCfgPath));
     HoodieTableConfig config = new HoodieTableConfig(storage, metaPath);
-    assertEquals(6, config.getProps().size());
+    assertEquals(7, config.getProps().size());
     assertNull(config.getProps().getProperty("hoodie.invalid.config"));
     assertFalse(config.getProps().contains(HoodieTableConfig.TIMELINE_HISTORY_PATH.key()));
   }
@@ -173,7 +176,7 @@ class TestHoodieTableConfig extends HoodieCommonTestHarness {
     assertTrue(storage.exists(cfgPath));
     assertFalse(storage.exists(backupCfgPath));
     HoodieTableConfig config = new HoodieTableConfig(storage, metaPath);
-    assertEquals(9, config.getProps().size());
+    assertEquals(10, config.getProps().size());
     assertEquals("test-table2", config.getTableName());
     assertEquals(Collections.singletonList("new_field"), config.getOrderingFields());
     assertEquals("partition_path", config.getPartitionFields().get()[0]);
@@ -187,7 +190,7 @@ class TestHoodieTableConfig extends HoodieCommonTestHarness {
     propsToDelete.add(HoodieTableConfig.RECORDKEY_FIELDS.key());
     HoodieTableConfig.updateAndDeleteProps(storage, metaPath, updatedProps, propsToDelete);
     config = new HoodieTableConfig(storage, metaPath);
-    assertEquals(8, config.getProps().size());
+    assertEquals(9, config.getProps().size());
     assertEquals("test-table2", config.getTableName());
     assertEquals(Collections.singletonList("new_field2"), config.getOrderingFields());
     assertFalse(config.getPartitionFields().isPresent());
@@ -196,7 +199,7 @@ class TestHoodieTableConfig extends HoodieCommonTestHarness {
     updatedProps = new Properties();
     HoodieTableConfig.updateAndDeleteProps(storage, metaPath, updatedProps, Collections.singleton(HoodieTableConfig.ORDERING_FIELDS.key()));
     config = new HoodieTableConfig(storage, metaPath);
-    assertEquals(7, config.getProps().size());
+    assertEquals(8, config.getProps().size());
     assertEquals("test-table2", config.getTableName());
     assertTrue(config.getOrderingFields().isEmpty());
     assertFalse(config.getPartitionFields().isPresent());
@@ -221,7 +224,7 @@ class TestHoodieTableConfig extends HoodieCommonTestHarness {
     assertFalse(storage.exists(cfgPath));
     assertTrue(storage.exists(backupCfgPath));
     config = new HoodieTableConfig(storage, metaPath);
-    assertEquals(7, config.getProps().size());
+    assertEquals(8, config.getProps().size());
   }
 
   @ParameterizedTest
@@ -239,7 +242,7 @@ class TestHoodieTableConfig extends HoodieCommonTestHarness {
     assertTrue(storage.exists(cfgPath));
     assertFalse(storage.exists(backupCfgPath));
     config = new HoodieTableConfig(storage, metaPath);
-    assertEquals(7, config.getProps().size());
+    assertEquals(8, config.getProps().size());
   }
 
   @Test
@@ -256,7 +259,7 @@ class TestHoodieTableConfig extends HoodieCommonTestHarness {
     assertTrue(storage.exists(cfgPath));
     assertFalse(storage.exists(backupCfgPath));
     config = new HoodieTableConfig(storage, metaPath);
-    assertEquals(7, config.getProps().size());
+    assertEquals(8, config.getProps().size());
 
     // 2. Backup properties file is also invalid
     try (InputStream in = storage.open(cfgPath);
@@ -794,5 +797,58 @@ class TestHoodieTableConfig extends HoodieCommonTestHarness {
           recordMergeStrategyId, orderingFieldName, tableVersion);
     });
     assertEquals("Unsupported flow for table versions less than 9", ioException.getMessage().toString());
+  }
+
+  /**
+   * Tests that table config can be loaded for older table versions (0-3) without checksum,
+   * and that table config loading fails for newer table versions (4+) without checksum.
+   * Checksum was introduced in table version 4 (0.11.0).
+   */
+  @ParameterizedTest
+  @EnumSource(value = HoodieTableVersion.class)
+  void testLoadTableConfigWithoutChecksum(HoodieTableVersion version) throws IOException {
+    storage.deleteFile(cfgPath);
+
+    Properties props = new Properties();
+    props.setProperty(HoodieTableConfig.NAME.key(), "test-table");
+    props.setProperty(HoodieTableConfig.TYPE.key(), HoodieTableType.COPY_ON_WRITE.name());
+    props.setProperty(HoodieTableConfig.VERSION.key(), String.valueOf(version.versionCode()));
+
+    try (OutputStream out = storage.create(cfgPath)) {
+      props.store(out, "Table config without checksum for version " + version.versionCode());
+    }
+
+    if (version.compareTo(HoodieTableVersion.FOUR) < 0) {
+      HoodieTableConfig config = new HoodieTableConfig(storage, metaPath);
+      assertEquals("test-table", config.getTableName());
+      assertEquals(version, config.getTableVersion());
+    } else {
+      assertThrows(IllegalArgumentException.class, () -> {
+        new HoodieTableConfig(storage, metaPath);
+      });
+    }
+  }
+
+  /**
+   * Tests that hasValidChecksum correctly handles properties without checksum.
+   */
+  @Test
+  public void testValidateChecksumWithoutChecksumProperty() {
+    Properties propsOldVersion = new Properties();
+    propsOldVersion.setProperty(HoodieTableConfig.NAME.key(), "test-table");
+    propsOldVersion.setProperty(HoodieTableConfig.VERSION.key(), "3");
+    assertFalse(HoodieTableConfig.shouldValidateChecksum(propsOldVersion));
+    assertFalse(HoodieTableConfig.hasValidChecksum(propsOldVersion));
+
+    Properties propsNewVersion = new Properties();
+    propsNewVersion.setProperty(HoodieTableConfig.NAME.key(), "test-table");
+    propsNewVersion.setProperty(HoodieTableConfig.VERSION.key(), "4");
+    assertTrue(HoodieTableConfig.shouldValidateChecksum(propsNewVersion));
+    assertFalse(HoodieTableConfig.hasValidChecksum(propsNewVersion));
+
+    Properties propsNoVersion = new Properties();
+    propsNoVersion.setProperty(HoodieTableConfig.NAME.key(), "test-table");
+    assertTrue(HoodieTableConfig.shouldValidateChecksum(propsNoVersion));
+    assertFalse(HoodieTableConfig.hasValidChecksum(propsNoVersion));
   }
 }

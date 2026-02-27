@@ -676,9 +676,9 @@ public class TestHoodieClientMultiWriter extends HoodieClientTestBase {
       setUpMORTestTable();
     }
 
-    lockProperties.setProperty(LockConfiguration.LOCK_ACQUIRE_WAIT_TIMEOUT_MS_PROP_KEY, "3000");
+    lockProperties.setProperty(LockConfiguration.LOCK_ACQUIRE_WAIT_TIMEOUT_MS_PROP_KEY, "6000");
     lockProperties.setProperty(LockConfiguration.LOCK_ACQUIRE_CLIENT_RETRY_WAIT_TIME_IN_MILLIS_PROP_KEY, "3000");
-    lockProperties.setProperty(LockConfiguration.LOCK_ACQUIRE_CLIENT_NUM_RETRIES_PROP_KEY, "20");
+    lockProperties.setProperty(LockConfiguration.LOCK_ACQUIRE_CLIENT_NUM_RETRIES_PROP_KEY, "40");
 
     HoodieWriteConfig cfg = getConfigBuilder()
         .withCleanConfig(HoodieCleanConfig.newBuilder()
@@ -703,19 +703,20 @@ public class TestHoodieClientMultiWriter extends HoodieClientTestBase {
 
     // Create the first commit
     SparkRDDWriteClient<?> client = getHoodieWriteClient(cfg);
-    createCommitWithInsertsForPartition(cfg, client, "000", "001", 100, "2016/03/01");
+    String firstCommitTime = metaClient.createNewInstantTime(false);
+    createCommitWithInsertsForPartition(cfg, client, "000", firstCommitTime, 100, "2016/03/01");
     client.close();
     int numConcurrentWriters = 5;
     ExecutorService executors = Executors.newFixedThreadPool(numConcurrentWriters);
 
     List<Future<?>> futures = new ArrayList<>(numConcurrentWriters);
     for (int loop = 0; loop < numConcurrentWriters; loop++) {
-      String newCommitTime = "00" + (loop + 2);
       String partition = "2016/03/0" + (loop + 2);
       futures.add(executors.submit(() -> {
         try {
           SparkRDDWriteClient<?> writeClient = getHoodieWriteClient(cfg);
-          createCommitWithInsertsForPartition(cfg, writeClient, "001", newCommitTime, 100, partition);
+          createCommitWithInsertsForPartition(
+              cfg, writeClient, firstCommitTime, metaClient.createNewInstantTime(false), 100, partition);
           writeClient.close();
         } catch (Exception e) {
           throw new RuntimeException(e);

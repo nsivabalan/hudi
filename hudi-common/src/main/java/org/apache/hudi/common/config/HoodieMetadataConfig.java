@@ -92,6 +92,16 @@ public final class HoodieMetadataConfig extends HoodieConfig {
 
   public static final boolean DEFAULT_METADATA_ENABLE_FOR_READERS = true;
 
+  public static final ConfigProperty<String> EMBEDDED_TIMELINE_SERVER_ENABLE = ConfigProperty
+      .key(METADATA_PREFIX + ".embed.timeline.server.enable")
+      .defaultValue("false")
+      .markAdvanced()
+      .sinceVersion("1.2.0")
+      .withDocumentation("When true, spins up an instance of the timeline server "
+          + "(meta server that serves cached file listings, statistics), running on "
+          + "each writer's driver process, accepting requests during the write on "
+          + "the metadata table from executors.");
+
   // Enable metrics for internal Metadata Table
   public static final ConfigProperty<Boolean> METRICS_ENABLE = ConfigProperty
       .key(METADATA_PREFIX + ".metrics.enable")
@@ -584,6 +594,56 @@ public final class HoodieMetadataConfig extends HoodieConfig {
           + "honor the set value for number of tasks. If not, number of write status's from data "
           + "table writes will be used for metadata table record preparation");
 
+  public static final ConfigProperty<Integer> CLEANER_PARALLELISM = ConfigProperty
+      .key(METADATA_PREFIX + ".cleaner.parallelism")
+      .defaultValue(512)
+      .markAdvanced()
+      .sinceVersion("0.14.2")
+      .withDocumentation("Cleaner parallelism to use for metadata table.");
+
+  public static final ConfigProperty<Integer> ROLLBACK_PARALLELISM = ConfigProperty
+      .key(METADATA_PREFIX + ".rollback.parallelism")
+      .defaultValue(512)
+      .markAdvanced()
+      .sinceVersion("0.14.2")
+      .withDocumentation("Rollback parallelism to use for metadata table.");
+
+  public static final ConfigProperty<Integer> FINALIZE_WRITES_PARALLELISM = ConfigProperty
+      .key(METADATA_PREFIX + ".finalize.writes.parallelism")
+      .defaultValue(512)
+      .markAdvanced()
+      .sinceVersion("0.14.2")
+      .withDocumentation("Finalize writes parallelism to use for metadata table.");
+
+  public static final ConfigProperty<Boolean> ENABLE_FILE_SLICE_CACHE_OPTIMIZATION = ConfigProperty
+      .key(METADATA_PREFIX + ".file.slice.cache.optimization")
+      .defaultValue(false)
+      .markAdvanced()
+      .sinceVersion("0.14.2")
+      .withDocumentation("Enables cache for fetching latest file slice view. Would help RECORD_INDEX append "
+          + "handles at large scale (10000 file groups or more)");
+
+  public static final ConfigProperty<Integer> FILE_SLICE_CACHE_MAX_SIZE = ConfigProperty
+      .key(METADATA_PREFIX + ".file.slice.cache.max.size")
+      .defaultValue(10000)
+      .markAdvanced()
+      .sinceVersion("0.14.2")
+      .withDocumentation("Max size for file slice cache when " + ENABLE_FILE_SLICE_CACHE_OPTIMIZATION.key() + " is enabled");
+
+  public static final ConfigProperty<Integer> FILE_SLICE_CACHE_EXPIRATION_MINS = ConfigProperty
+      .key(METADATA_PREFIX + ".file.slice.cache.expiration.in.mins")
+      .defaultValue(120)
+      .markAdvanced()
+      .sinceVersion("0.14.2")
+      .withDocumentation("Expiration of file slice cache entries when " + ENABLE_FILE_SLICE_CACHE_OPTIMIZATION.key() + " is enabled");
+
+  public static final ConfigProperty<Boolean> ENABLE_DETAILED_METRICS = ConfigProperty
+      .key(METADATA_PREFIX + ".enable.detailed.metrics")
+      .defaultValue(false)
+      .markAdvanced()
+      .sinceVersion("0.14.2")
+      .withDocumentation("Enables detailed metadata table metrics");
+
   public long getMaxLogFileSize() {
     return getLong(MAX_LOG_FILE_SIZE_BYTES_PROP);
   }
@@ -610,6 +670,10 @@ public final class HoodieMetadataConfig extends HoodieConfig {
 
   public int getStreamingWritesCoalesceDivisorForDataTableWrites() {
     return getInt(HoodieMetadataConfig.STREAMING_WRITE_DATATABLE_WRITE_STATUSES_COALESCE_DIVISOR);
+  }
+
+  public boolean isEmbeddedTimelineServerEnabled() {
+    return getBooleanOrDefault(EMBEDDED_TIMELINE_SERVER_ENABLE);
   }
 
   public boolean isBloomFilterIndexEnabled() {
@@ -889,6 +953,34 @@ public final class HoodieMetadataConfig extends HoodieConfig {
     return subIndexNameToDrop.contains(indexName);
   }
 
+  public int getCleanerParallelism() {
+    return getInt(CLEANER_PARALLELISM);
+  }
+
+  public int getRollbackParallelism() {
+    return getInt(ROLLBACK_PARALLELISM);
+  }
+
+  public int getFinalizeWritesParallelism() {
+    return getInt(FINALIZE_WRITES_PARALLELISM);
+  }
+
+  public boolean shouldEnableFileSliceCacheOptimization() {
+    return getBoolean(ENABLE_FILE_SLICE_CACHE_OPTIMIZATION);
+  }
+
+  public Integer getFileSliceCacheMaxSize() {
+    return getInt(FILE_SLICE_CACHE_MAX_SIZE);
+  }
+
+  public Integer getFileSliceCacheExpirationInMins() {
+    return getInt(FILE_SLICE_CACHE_EXPIRATION_MINS);
+  }
+
+  public boolean shouldEnableDetailedMetrics() {
+    return getBoolean(ENABLE_DETAILED_METRICS);
+  }
+
   public static class Builder {
 
     private EngineType engineType = EngineType.SPARK;
@@ -1166,6 +1258,16 @@ public final class HoodieMetadataConfig extends HoodieConfig {
 
     public Builder withRepartitionDefaultPartitions(int defaultPartitions) {
       metadataConfig.setValue(REPARTITION_DEFAULT_PARTITIONS, String.valueOf(defaultPartitions));
+      return this;
+    }
+
+    public Builder withEnableFileSliceCacheOptimization(boolean shouldEnable) {
+      metadataConfig.setValue(ENABLE_FILE_SLICE_CACHE_OPTIMIZATION, Boolean.toString(shouldEnable));
+      return this;
+    }
+
+    public Builder enableDetailedMetadataMetrics(boolean enableMetrics) {
+      metadataConfig.setValue(ENABLE_DETAILED_METRICS, String.valueOf(enableMetrics));
       return this;
     }
 

@@ -61,6 +61,8 @@ import static org.apache.hudi.common.config.HoodieMemoryConfig.MAX_MEMORY_FOR_ME
 import static org.apache.hudi.common.config.HoodieMemoryConfig.SPILLABLE_MAP_BASE_PATH;
 import static org.apache.hudi.common.table.HoodieTableConfig.NAME;
 import static org.apache.hudi.common.table.HoodieTableConfig.TABLE_CHECKSUM;
+import static org.apache.hudi.common.table.HoodieTableConfig.hasValidChecksum;
+import static org.apache.hudi.common.table.HoodieTableConfig.shouldValidateChecksum;
 import static org.apache.hudi.keygen.constant.KeyGeneratorOptions.KEYGENERATOR_CONSISTENT_LOGICAL_TIMESTAMP_ENABLED;
 
 public class ConfigUtils {
@@ -676,8 +678,8 @@ public class ConfigUtils {
           props.clear();
           props.load(is);
           found = true;
-          if (props.containsKey(TABLE_CHECKSUM.key())) {
-            ValidationUtils.checkArgument(HoodieTableConfig.validateChecksum(props));
+          if (shouldValidateChecksum(props)) {
+            ValidationUtils.checkArgument(hasValidChecksum(props));
           }
           return props;
         } catch (IOException e) {
@@ -713,7 +715,7 @@ public class ConfigUtils {
     }
 
     // If checkSum is present we need to validate
-    return !HoodieTableConfig.validateChecksum(props);
+    return !HoodieTableConfig.hasValidChecksum(props);
   }
 
   public static void recoverIfNeeded(HoodieStorage storage, StoragePath cfgPath,

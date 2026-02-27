@@ -46,9 +46,25 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 
+/**
+ * Abstract base class for CreateHandle
+ * <p>
+ * This class provides common functionality used by CreateHandle.
+ * It manages the lifecycle of file creation including:
+ * <ul>
+ *   <li>File writer initialization and management</li>
+ *   <li>Record writing and validation</li>
+ *   <li>Partition metadata and marker file creation</li>
+ *   <li>Write statistics tracking (records written, deleted, file size, ...)</li>
+ * </ul>
+ * <p>
+ * Concrete implementations should extend this class and implement table format-specific
+ * details for file creation and record writing.
+ */
 public abstract class BaseCreateHandle<T, I, K, O> extends HoodieWriteHandle<T, I, K, O> {
   private static final Logger LOG = LoggerFactory.getLogger(BaseCreateHandle.class);
 
+  protected HoodieTable hoodieTable;
   protected HoodieFileWriter fileWriter;
   protected final StoragePath path;
   protected long recordsWritten = 0;
@@ -62,6 +78,7 @@ public abstract class BaseCreateHandle<T, I, K, O> extends HoodieWriteHandle<T, 
                           TaskContextSupplier taskContextSupplier, boolean preserveMetadata) {
     super(config, instantTime, partitionPath, fileId, hoodieTable, overriddenSchema,
         taskContextSupplier, preserveMetadata);
+    this.hoodieTable = hoodieTable;
     writeStatus.setFileId(fileId);
     writeStatus.setPartitionPath(partitionPath);
     writeStatus.setStat(new HoodieWriteStat());
@@ -81,6 +98,12 @@ public abstract class BaseCreateHandle<T, I, K, O> extends HoodieWriteHandle<T, 
         FSUtils.makeBaseFileName(this.instantTime, this.writeToken, this.fileId, hoodieTable.getBaseFileExtension()));
   }
 
+  /**
+   * Checks if the given record can be written to this handle.
+   *
+   * @param record The record to check
+   * @return true if the record can be written to this handle, false otherwise
+   */
   @Override
   public boolean canWrite(HoodieRecord record) {
     return (fileWriter.canWrite() && record.getPartitionPath().equals(writeStatus.getPartitionPath()))
