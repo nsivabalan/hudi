@@ -29,6 +29,7 @@ import org.apache.hudi.common.util.StringUtils
 import org.apache.hudi.exception.HoodieException
 import org.apache.hudi.index.bucket.partition.PartitionBucketIndexUtils
 import org.apache.hudi.keygen.{TimestampBasedAvroKeyGenerator, TimestampBasedKeyGenerator}
+import org.apache.hudi.metadata.MetadataPartitionType
 import org.apache.hudi.storage.{StoragePath, StoragePathInfo}
 import org.apache.hudi.util.JFunction
 
@@ -114,19 +115,46 @@ case class HoodieFileIndex(spark: SparkSession,
    * The order of elements is important as in this order indices will be applied
    * during `lookupCandidateFilesInMetadataTable`
    */
-  @transient private lazy val indicesSupport: List[SparkBaseIndexSupport] = List(
-    new RecordLevelIndexSupport(spark, metadataConfig, metaClient),
+  @transient private lazy val indicesSupport: List[SparkBaseIndexSupport] = {
+    val enabledPartitions = MetadataPartitionType.getEnabledFullyInitializedPartitions(metadataConfig, metaClient).asScala.toSet
+    val indices = scala.collection.mutable.ListBuffer[SparkBaseIndexSupport]()
+
+    // Record Level Index
+    if (enabledPartitions.contains(MetadataPartitionType.RECORD_INDEX)) {
+      indices += new RecordLevelIndexSupport(spark, metadataConfig, metaClient)
+    }
+
+    // Bucket Index (handles both regular and partition-aware bucket index)
+    // Note: Bucket index doesn't have a dedicated metadata partition type
     if (PartitionBucketIndexUtils.isPartitionSimpleBucketIndex(metaClient.getStorageConf, metaClient.getBasePath.toString)) {
-      new PartitionBucketIndexSupport(spark, metadataConfig, metaClient,
+      indices += new PartitionBucketIndexSupport(spark, metadataConfig, metaClient,
         options.get(DataSourceReadOptions.TIME_TRAVEL_AS_OF_INSTANT.key).map(HoodieSqlCommonUtils.formatQueryInstant))
     } else {
-      new BucketIndexSupport(spark, metadataConfig, metaClient)
-    },
-    new SecondaryIndexSupport(spark, metadataConfig, metaClient),
-    new ExpressionIndexSupport(spark, schema, metadataConfig, metaClient),
-    new BloomFiltersIndexSupport(spark, metadataConfig, metaClient),
-    new ColumnStatsIndexSupport(spark, schema, rawHoodieSchema, metadataConfig, metaClient)
-  )
+      indices += new BucketIndexSupport(spark, metadataConfig, metaClient)
+    }
+
+    // Secondary Index
+    if (enabledPartitions.contains(MetadataPartitionType.SECONDARY_INDEX)) {
+      indices += new SecondaryIndexSupport(spark, metadataConfig, metaClient)
+    }
+
+    // Expression Index
+    if (enabledPartitions.contains(MetadataPartitionType.EXPRESSION_INDEX)) {
+      indices += new ExpressionIndexSupport(spark, schema, metadataConfig, metaClient)
+    }
+
+    // Bloom Filters Index
+    if (enabledPartitions.contains(MetadataPartitionType.BLOOM_FILTERS)) {
+      indices += new BloomFiltersIndexSupport(spark, metadataConfig, metaClient)
+    }
+
+    // Column Stats Index
+    if (enabledPartitions.contains(MetadataPartitionType.COLUMN_STATS)) {
+      indices += new ColumnStatsIndexSupport(spark, schema, rawHoodieSchema, metadataConfig, metaClient)
+    }
+
+    indices.toList
+  }
 
   private val enableHoodieExtension = spark.sessionState.conf.getConfString("spark.sql.extensions", "")
     .split(",")
@@ -426,6 +454,7 @@ case class HoodieFileIndex(spark: SparkSession,
     logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] Collecting ref cols took " + (System.currentTimeMillis() - lookupStartTime))
     if (isDataSkippingEnabled) {
       for(indexSupport: SparkBaseIndexSupport <- indicesSupport) {
+        logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] ${indexSupport.getIndexName} to process")
         if (indexSupport.isIndexAvailable && indexSupport.supportsQueryType(options)) {
           val indexStartTime = System.currentTimeMillis()
           val prunedFileNames = indexSupport.computeCandidateIsStrict(spark, this, queryFilters, queryReferencedColumns,
@@ -438,7 +467,8 @@ case class HoodieFileIndex(spark: SparkSession,
             return Try(prunedFileNames)
           }
         }
-        logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] ${indexSupport.getIndexName} being processed")
+        logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] ${indexSupport.getIndexName} process completed")
+        Thread.sleep(1000)
       }
     }
     val totalLookupElapsed = System.currentTimeMillis() - lookupStartTime
