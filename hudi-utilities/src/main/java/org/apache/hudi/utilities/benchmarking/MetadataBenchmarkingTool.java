@@ -389,6 +389,7 @@ public class MetadataBenchmarkingTool implements Closeable {
     }
     LOG.info("Time taken to perform bootstrapping metadata table is {}", timer.endTimer());
 
+    commitMetadata = createCommitMetadataAndAddToTimeline(partitions.subList(0, 1), 1, InProcessTimeGenerator.createNewInstantTime(), dataTableMetaClient);
     return Pair.of(filesPerPartition * numPartitions, partitions);
   }
 
