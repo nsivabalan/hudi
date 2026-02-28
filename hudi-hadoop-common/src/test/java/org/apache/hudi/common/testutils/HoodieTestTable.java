@@ -1452,6 +1452,8 @@ public class HoodieTestTable implements AutoCloseable {
         writeStat.setPath(StringUtils.isNullOrEmpty(partition) ? fileName : partition + "/" + fileName);
         writeStat.setTotalWriteBytes(fileIdInfo.getValue());
         writeStat.setFileSizeInBytes(fileIdInfo.getValue());
+        writeStat.setNumInserts(1);
+        writeStat.setNumUpdateWrites(1);
         writeStats.add(writeStat);
       }
     }
