@@ -709,6 +709,9 @@ public class MetadataBenchmarkingTool implements Closeable {
   @SuppressWarnings("deprecation")
   private HoodieFileIndex createHoodieFileIndex(HoodieWriteConfig dataConfig, HoodieTableMetaClient metaClient) {
     Map<String, String> options = new HashMap<>();
+    for (Map.Entry<Object, Object> entry : dataConfig.getProps().entrySet()) {
+      options.put(entry.getKey().toString(), entry.getValue().toString());
+    }
     options.put("path", dataConfig.getBasePath());
     options.put("hoodie.datasource.read.data.skipping.enable", "true");
     options.put("hoodie.metadata.enable", "true");
@@ -935,6 +938,7 @@ public class MetadataBenchmarkingTool implements Closeable {
         .withProperties(props)
         .forTable(TABLE_NAME)
         .withMetadataConfig(HoodieMetadataConfig.newBuilder()
+            .withProperties(props)
             .enable(true)
             .withMetadataIndexColumnStats(true)
             .withMetadataIndexColumnStatsFileGroupCount(cfg.colStatsFileGroupCount)

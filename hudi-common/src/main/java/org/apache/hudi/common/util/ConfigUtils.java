@@ -833,7 +833,7 @@ public class ConfigUtils {
                                                                boolean shouldReuse) {
     HoodieCommonConfig commonConfig = HoodieCommonConfig.newBuilder()
         .fromProperties(metadataConfig.getProps()).build();
-    TypedProperties props = new TypedProperties();
+    TypedProperties props = commonConfig.getProps();
     props.setProperty(
         MAX_MEMORY_FOR_MERGE.key(),
         Long.toString(metadataConfig.getMaxReaderMemory()));
