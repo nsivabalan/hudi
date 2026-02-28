@@ -190,6 +190,19 @@ public class HoodieNativeAvroHFileReader extends HoodieAvroHFileReaderImplBase {
     return schema.get();
   }
 
+  public HoodieSchema getSchema(HFileReader reader) {
+    // If meta info is not loaded yet, use the provided reader to load it
+    // instead of creating a new one
+    if (!isMetaInfoLoaded) {
+      try {
+        loadMetaInfoFromReader(reader);
+      } catch (IOException e) {
+        throw new HoodieIOException("Unable to load meta info from HFile", e);
+      }
+    }
+    return schema.get();
+  }
+
   @Override
   public void close() {
     isMetaInfoLoaded = false;
@@ -303,18 +316,25 @@ public class HoodieNativeAvroHFileReader extends HoodieAvroHFileReaderImplBase {
     return metaInfoMap.get(key);
   }
 
+  private synchronized void loadMetaInfoFromReader(HFileReader reader) throws IOException {
+    // Double-check inside synchronized block
+    if (!isMetaInfoLoaded) {
+      this.numKeyValueEntries = reader.getNumKeyValueEntries();
+      for (String metaInfoKey : PRELOADED_META_INFO_KEYS) {
+        Option<byte[]> metaInfo = reader.getMetaInfo(new UTF8StringKey(metaInfoKey));
+        if (metaInfo.isPresent()) {
+          metaInfoMap.put(metaInfoKey, metaInfo.get());
+        }
+      }
+      isMetaInfoLoaded = true;
+    }
+  }
+
   private synchronized void loadAllMetaInfoIntoCacheIfNeeded() throws IOException {
     if (!isMetaInfoLoaded) {
       // Load all meta info that are small into cache
       try (HFileReader reader = readerFactory.createHFileReader()) {
-        this.numKeyValueEntries = reader.getNumKeyValueEntries();
-        for (String metaInfoKey : PRELOADED_META_INFO_KEYS) {
-          Option<byte[]> metaInfo = reader.getMetaInfo(new UTF8StringKey(metaInfoKey));
-          if (metaInfo.isPresent()) {
-            metaInfoMap.put(metaInfoKey, metaInfo.get());
-          }
-        }
-        isMetaInfoLoaded = true;
+        loadMetaInfoFromReader(reader);
       } catch (Exception e) {
         throw new IOException("Unable to construct HFile reader", e);
       }
@@ -324,14 +344,14 @@ public class HoodieNativeAvroHFileReader extends HoodieAvroHFileReaderImplBase {
   public ClosableIterator<IndexedRecord> getIndexedRecordsByKeysIterator(List<String> sortedKeys,
                                                                          HoodieSchema readerSchema) throws IOException {
     HFileReader reader = readerFactory.createHFileReader();
-    return new RecordByKeyIterator(reader, sortedKeys, getSchema(), readerSchema, useBloomFilter);
+    return new RecordByKeyIterator(reader, sortedKeys, getSchema(reader), readerSchema, useBloomFilter);
   }
 
   @Override
   public ClosableIterator<IndexedRecord> getIndexedRecordsByKeyPrefixIterator(List<String> sortedKeyPrefixes,
                                                                               HoodieSchema readerSchema) throws IOException {
     HFileReader reader = readerFactory.createHFileReader();
-    return new RecordByKeyPrefixIterator(reader, sortedKeyPrefixes, getSchema(), readerSchema);
+    return new RecordByKeyPrefixIterator(reader, sortedKeyPrefixes, getSchema(reader), readerSchema);
   }
 
   private static BloomFilter readBloomFilter(HFileReader reader) throws HoodieException {
