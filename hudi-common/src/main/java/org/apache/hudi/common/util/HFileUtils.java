@@ -269,7 +269,7 @@ public class HFileUtils extends FileFormatUtils {
     return Option.ofNullable(record.getRecordKey(readerSchema.toAvroSchema(), keyFieldName));
   }
 
-  private static byte[] serializeRecord(HoodieRecord<?> record, HoodieSchema schema, Option<HoodieSchemaField> keyField) throws IOException {
+  public static byte[] serializeRecord(HoodieRecord<?> record, HoodieSchema schema, Option<HoodieSchemaField> keyField) throws IOException {
     return record.toIndexedRecord(schema.toAvroSchema(), CollectionUtils.emptyProps()).map(HoodieAvroIndexedRecord::getData).map(indexedRecord -> {
       keyField.ifPresent(field -> indexedRecord.put(field.pos(), StringUtils.EMPTY_STRING));
       return HoodieAvroUtils.avroToBytes(indexedRecord);

@@ -115,7 +115,10 @@ public class HFileReaderFactory {
           buffer = new byte[(int) storage.getPathInfo(path).getLength()];
           stream.readFully(buffer);
         }
-        return new ByteArraySeekableDataInputStream(new ByteBufferBackedInputStream(buffer));
+        LOG.info("XXX Downloaded file " + fileSource.asLeft());
+        SeekableDataInputStream inputStream = new ByteArraySeekableDataInputStream(new ByteBufferBackedInputStream(buffer));
+        LOG.info("XXX Created seekable input stream " + fileSource.asLeft());
+        return inputStream;
       } else {
         LOG.warn("XXX Downloading not entire file " + fileSource.asLeft());
       }
