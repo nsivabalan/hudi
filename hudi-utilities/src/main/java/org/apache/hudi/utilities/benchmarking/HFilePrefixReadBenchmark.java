@@ -19,10 +19,15 @@
 package org.apache.hudi.utilities.benchmarking;
 
 import org.apache.hudi.avro.HoodieAvroUtils;
+import org.apache.hudi.avro.model.HoodieMetadataColumnStats;
+import org.apache.hudi.avro.model.StringWrapper;
 import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.collection.ClosableIterator;
+import org.apache.hudi.common.util.hash.ColumnIndexID;
+import org.apache.hudi.common.util.hash.FileIndexID;
+import org.apache.hudi.common.util.hash.PartitionIndexID;
 import org.apache.hudi.io.compress.CompressionCodec;
 import org.apache.hudi.io.hfile.HFileContext;
 import org.apache.hudi.io.hfile.HFileWriterImpl;
@@ -36,8 +41,6 @@ import org.apache.hudi.storage.hadoop.HoodieHadoopStorage;
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.Parameter;
 import org.apache.avro.Schema;
-import org.apache.avro.SchemaBuilder;
-import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.generic.IndexedRecord;
 import org.apache.spark.sql.SparkSession;
@@ -48,19 +51,33 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.TreeMap;
+import java.util.UUID;
+
+import static org.apache.hudi.metadata.HoodieTableMetadataUtil.getColumnStatsIndexPartitionIdentifier;
 
 /**
- * Benchmark tool to measure HFile prefix read performance.
+ * Benchmark tool to measure HFile prefix read performance for column stats index.
  *
- * Creates an HFile with 1M entries where each prefix matches 10,000 entries.
- * Tests prefix read performance for 1, 10, 30, and 50 keys under three scenarios:
- * a) Normal prefix read (without downloading entire file upfront)
- * b) Download entire file upfront, then do prefix read
- * c) Download entire file upfront, then iteratively read all entries and filter
+ * Creates an HFile with 1M entries in the same format as the metadata table's column_stats partition:
+ * - 365 partitions (daily partitions in yyyy-MM-dd format)
+ * - ~2,740 files per partition
+ * - 1 column stats entry per file (for column "tenantId")
+ * - Keys: columnIndexID + partitionIndexID + fileIndexID (base64 encoded)
+ * - Each prefix lookup returns ~2,740 entries (all files in one partition)
+ *
+ * Three benchmark scenarios (select with --scenario):
+ * A) Prefix read without downloading entire file (no cache)
+ * B) Download entire file upfront, then do prefix read (with cache)
+ * C) Download entire file upfront, then iteratively read all entries and filter (with cache + scan)
+ *
+ * NOTE: Run each scenario separately to avoid cache interference between scenarios.
+ * Use --scenario A, B, or C to run a single scenario, or --scenario all to run all three.
  */
 public class HFilePrefixReadBenchmark {
 
@@ -68,25 +85,23 @@ public class HFilePrefixReadBenchmark {
 
   // Constants for HFile generation
   private static final int TOTAL_ENTRIES = 1_000_000;
-  private static final int ENTRIES_PER_PREFIX = 10_000;
-  private static final int NUM_PREFIXES = TOTAL_ENTRIES / ENTRIES_PER_PREFIX; // 100 prefixes
-  private static final String BASE_PREFIX = "aaaaaaaa";
+  private static final int NUM_PARTITIONS = 365; // One year of daily partitions
+  private static final int FILES_PER_PARTITION = TOTAL_ENTRIES / NUM_PARTITIONS; // ~2,740 files per partition
+  private static final int ENTRIES_PER_PREFIX = FILES_PER_PARTITION; // 1 entry per file
+  private static final String COLUMN_NAME = "tenantId";
 
-  // Value payload size
-  private static final int VALUE_SIZE = 100;
-
-  private static final Schema SCHEMA = SchemaBuilder.record("TestRecord")
-      .fields()
-      .name("key").type().stringType().noDefault()
-      .name("value").type().stringType().noDefault()
-      .endRecord();
+  // Use the actual HoodieMetadataColumnStats schema
+  private static final Schema COLUMN_STATS_SCHEMA = HoodieMetadataColumnStats.SCHEMA$;
 
   public static class Config implements Serializable {
     @Parameter(names = {"--output-dir", "-o"}, description = "Output directory for HFile", required = true)
-    public String outputDir = null;
+    public String outputDir = "/tmp/hfile_bench/";
 
     @Parameter(names = {"--num-keys", "-n"}, description = "Number of prefix keys to test (comma-separated, e.g., '1,10,30,50')")
     public String numKeys = "1,10,30,50";
+
+    @Parameter(names = {"--scenario", "-s"}, description = "Scenario to run: A (no cache), B (with cache + prefix read), C (with cache + full scan). Default: all")
+    public String scenario = "all";
 
     @Parameter(names = {"--help", "-h"}, help = true)
     public Boolean help = false;
@@ -95,7 +110,8 @@ public class HFilePrefixReadBenchmark {
     public String toString() {
       return "HFilePrefixReadBenchmark {\n"
           + "   --output-dir " + outputDir + ",\n"
-          + "   --num-keys " + numKeys + "\n"
+          + "   --num-keys " + numKeys + ",\n"
+          + "   --scenario " + scenario + "\n"
           + "}";
     }
   }
@@ -109,14 +125,18 @@ public class HFilePrefixReadBenchmark {
     StoragePath outputDirPath = new StoragePath(cfg.outputDir);
     this.storage = new HoodieHadoopStorage(outputDirPath, new HadoopStorageConfiguration(spark.sparkContext().hadoopConfiguration()));
 
-    // Generate filename with first and last prefix
-    String firstPrefix = generatePrefix(0);
-    String lastPrefix = generatePrefix(NUM_PREFIXES - 1);
-    String filename = String.format("hfile_1M_entries_prefix_%s_to_%s.hfile", firstPrefix, lastPrefix);
+    // Generate filename with first and last partition date and current timestamp
+    String firstPartition = generatePartitionName(0);
+    String lastPartition = generatePartitionName(NUM_PARTITIONS - 1);
+    String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmm"));
+    String filename = String.format("hfile_colstats_%s_partition_%s_to_%s_%s.hfile",
+        COLUMN_NAME, firstPartition, lastPartition, timestamp);
     this.hfilePath = new StoragePath(outputDirPath, filename);
 
     LOG.info("HFile will be created at: {}", hfilePath);
-    LOG.info("First prefix: {}, Last prefix: {}", firstPrefix, lastPrefix);
+    LOG.info("Column: {}", COLUMN_NAME);
+    LOG.info("Partitions: {} to {} ({} total)", firstPartition, lastPartition, NUM_PARTITIONS);
+    LOG.info("Entries per partition: {}", ENTRIES_PER_PREFIX);
   }
 
   public static void main(String[] args) {
@@ -147,12 +167,13 @@ public class HFilePrefixReadBenchmark {
   }
 
   public void run() throws Exception {
-    LOG.info("Starting HFile Prefix Read Benchmark");
+    LOG.info("Starting HFile Prefix Read Benchmark (Column Stats Index Format)");
     LOG.info("Config: {}", cfg);
 
     // Step 1: Create HFile with 1M entries
-    LOG.info("Step 1: Creating HFile with {} entries ({} prefixes, {} entries per prefix)",
-        TOTAL_ENTRIES, NUM_PREFIXES, ENTRIES_PER_PREFIX);
+    LOG.info("Step 1: Creating HFile with {} entries ({} partitions, {} entries per partition)",
+        TOTAL_ENTRIES, NUM_PARTITIONS, ENTRIES_PER_PREFIX);
+    LOG.info("Column: {}", COLUMN_NAME);
     createHFile();
     LOG.info("HFile created successfully at: {}", hfilePath);
 
@@ -177,15 +198,19 @@ public class HFilePrefixReadBenchmark {
 
   /**
    * Creates an HFile with 1M entries using Hudi's HFileWriterImpl.
-   * Key format: BASE_PREFIX + 2-char prefix + 4-digit suffix
-   * Example: aaaaaaaaaaa0000, aaaaaaaaaaa0001, ..., aaaaaaaadr9999
+   * Key format: columnIndexID + partitionIndexID + fileIndexID (all base64 encoded)
+   * Uses real column stats index key format with:
+   * - Column: tenantId (fixed)
+   * - Partitions: 365 daily partitions (yyyy-MM-dd format)
+   * - Files: ~2,740 files per partition with Hoodie naming convention
+   * - 1 entry per file (representing column stats for that file)
    */
   private void createHFile() throws IOException {
     long startTime = System.currentTimeMillis();
 
     // Create Hudi HFileContext
     HFileContext context = HFileContext.builder()
-        .blockSize(64 * 1024) // 64KB blocks
+        .blockSize(1024 * 1024) // 64KB blocks
         .compressionCodec(CompressionCodec.GZIP)
         .build();
 
@@ -196,38 +221,59 @@ public class HFilePrefixReadBenchmark {
     HFileWriterImpl writer = new HFileWriterImpl(context, outputStream);
 
     // Write schema metadata
-    writer.appendFileInfo("schema", SCHEMA.toString().getBytes(StandardCharsets.UTF_8));
-    HoodieSchema hoodieSchema = HoodieSchema.fromAvroSchema(SCHEMA);
+    writer.appendFileInfo("schema", COLUMN_STATS_SCHEMA.toString().getBytes(StandardCharsets.UTF_8));
+    HoodieSchema hoodieSchema = HoodieSchema.fromAvroSchema(COLUMN_STATS_SCHEMA);
 
+    // Step 1: Collect all entries in a TreeMap to ensure sorted order (required by HFile)
+    LOG.info("Step 1a: Collecting entries in sorted order...");
+    TreeMap<String, HoodieMetadataColumnStats> sortedEntries = new TreeMap<>();
+    int entriesGenerated = 0;
+
+    // For each partition, generate one entry per file
+    for (int partitionIdx = 0; partitionIdx < NUM_PARTITIONS; partitionIdx++) {
+      String partitionName = generatePartitionName(partitionIdx);
+
+      // Generate FILES_PER_PARTITION files for this partition, with 1 entry per file
+      for (int fileIdx = 0; fileIdx < FILES_PER_PARTITION; fileIdx++) {
+        String fileName = generateHoodieFileName(partitionIdx * FILES_PER_PARTITION + fileIdx);
+
+        // Create one entry for this file
+        String key = getColumnStatsIndexKey(partitionName, COLUMN_NAME, fileName);
+
+        // Create HoodieMetadataColumnStats record (realistic column stats data)
+        HoodieMetadataColumnStats colStats = createColumnStatsRecord(fileName, partitionIdx, fileIdx);
+
+        sortedEntries.put(key, colStats);
+        entriesGenerated++;
+
+        if (entriesGenerated % 100000 == 0) {
+          LOG.info("Generated {} entries... (partition: {})", entriesGenerated, partitionName);
+        }
+      }
+    }
+
+    LOG.info("Step 1b: Generated {} entries, now writing to HFile in sorted order...", sortedEntries.size());
+
+    // Step 2: Write all entries to HFile in sorted order
     String minRecordKey = null;
     String maxRecordKey = null;
     int entriesWritten = 0;
-    for (int prefixIdx = 0; prefixIdx < NUM_PREFIXES; prefixIdx++) {
-      String prefix = generatePrefix(prefixIdx);
 
-      for (int suffix = 0; suffix < ENTRIES_PER_PREFIX; suffix++) {
-        String key = generateKey(prefix, suffix);
-        String value = generateValue(key);
+    for (java.util.Map.Entry<String, HoodieMetadataColumnStats> entry : sortedEntries.entrySet()) {
+      String key = entry.getKey();
+      HoodieMetadataColumnStats colStats = entry.getValue();
 
-        GenericRecord record = new GenericData.Record(SCHEMA);
-        record.put("key", key);
-        record.put("value", value);
+      // Track min and max record keys
+      if (minRecordKey == null) {
+        minRecordKey = key;
+      }
+      maxRecordKey = key;
 
-        // Track min and max record keys
-        if (minRecordKey == null) {
-          minRecordKey = key;
-        }
-        maxRecordKey = key;
+      writer.append(key, HoodieAvroUtils.avroToBytes(colStats));
+      entriesWritten++;
 
-        // Use HFileWriterImpl's append method which takes String key and byte[] value
-        //Option<HoodieSchemaField> keyFieldOpt = hoodieSchema.getField("key");
-        //final byte[] recordBytes = serializeRecord(record, hoodieSchema, keyFieldOpt);
-        writer.append(key, HoodieAvroUtils.avroToBytes(record));
-        entriesWritten++;
-
-        if (entriesWritten % 100000 == 0) {
-          LOG.info("Written {} entries...", entriesWritten);
-        }
+      if (entriesWritten % 100000 == 0) {
+        LOG.info("Written {} entries to HFile...", entriesWritten);
       }
     }
 
@@ -246,32 +292,69 @@ public class HFilePrefixReadBenchmark {
   }
 
   /**
-   * Generates a 2-character prefix for the given index.
-   * Uses base-26 (a-z) to generate prefixes: aa, ab, ac, ..., zz
+   * Generates a partition name (date string) for the given index.
+   * Uses yyyy-MM-dd format starting from 2024-01-01
    */
-  private String generatePrefix(int index) {
-    char first = (char) ('a' + (index / 26));
-    char second = (char) ('a' + (index % 26));
-    return "" + first + second;
+  private String generatePartitionName(int index) {
+    LocalDate startDate = LocalDate.of(2024, 1, 1);
+    LocalDate partitionDate = startDate.plusDays(index);
+    return partitionDate.format(DateTimeFormatter.ISO_LOCAL_DATE);
   }
 
   /**
-   * Generates a key: BASE_PREFIX + prefix + 4-digit suffix
+   * Generates a Hoodie base file name.
+   * Format: <fileId>_<writeToken>_<instantTime>.parquet
    */
-  private String generateKey(String prefix, int suffix) {
-    return BASE_PREFIX + prefix + String.format("%04d", suffix);
+  private String generateHoodieFileName(int index) {
+    String fileId = UUID.randomUUID().toString();
+    String writeToken = "1-0-1";
+    String instantTime = String.format("20240101%06d", index);
+    return String.format("%s_%s_%s.parquet", fileId, writeToken, instantTime);
+  }
+
+  public static String getColumnStatsIndexKey(String partitionName, String colName, String fileName) {
+    final PartitionIndexID partitionIndexID = new PartitionIndexID(getColumnStatsIndexPartitionIdentifier(partitionName));
+    final FileIndexID fileIndexID = new FileIndexID(fileName);
+    final ColumnIndexID columnIndexID = new ColumnIndexID(colName);
+
+    return columnIndexID.asBase64EncodedString()
+        .concat(partitionIndexID.asBase64EncodedString())
+        .concat(fileIndexID.asBase64EncodedString());
   }
 
   /**
-   * Generates a value string of fixed size
+   * Generates the prefix for lookup: columnIndexID + partitionIndexID
    */
-  private String generateValue(String key) {
-    StringBuilder sb = new StringBuilder(VALUE_SIZE);
-    sb.append("value_for_").append(key);
-    while (sb.length() < VALUE_SIZE) {
-      sb.append("_padding");
-    }
-    return sb.substring(0, VALUE_SIZE);
+  private String generateLookupPrefix(String partitionName) {
+    final PartitionIndexID partitionIndexID = new PartitionIndexID(getColumnStatsIndexPartitionIdentifier(partitionName));
+    final ColumnIndexID columnIndexID = new ColumnIndexID(COLUMN_NAME);
+
+    return columnIndexID.asBase64EncodedString()
+        .concat(partitionIndexID.asBase64EncodedString());
+  }
+
+  /**
+   * Creates a realistic HoodieMetadataColumnStats record for a file.
+   * This matches the actual format stored in the metadata table's column_stats partition.
+   */
+  private HoodieMetadataColumnStats createColumnStatsRecord(String fileName, int partitionIdx, int fileIdx) {
+    // Generate realistic min/max values for a string column (tenantId)
+    // Use partition and file index to create varied but deterministic values
+    String minTenantId = String.format("tenant_%05d", partitionIdx * 100);
+    String maxTenantId = String.format("tenant_%05d", partitionIdx * 100 + 99);
+
+    return HoodieMetadataColumnStats.newBuilder()
+        .setFileName(fileName)
+        .setColumnName(COLUMN_NAME)
+        .setMinValue(StringWrapper.newBuilder().setValue(minTenantId).build())
+        .setMaxValue(StringWrapper.newBuilder().setValue(maxTenantId).build())
+        .setValueCount(10000L)  // Assume 10K rows per file
+        .setNullCount(100L)     // Assume 100 nulls per file
+        .setTotalSize(1024L * 1024L)  // 1MB compressed
+        .setTotalUncompressedSize(2048L * 1024L)  // 2MB uncompressed
+        .setIsDeleted(false)
+        .setIsTightBound(true)
+        .build();
   }
 
   /**
@@ -287,34 +370,66 @@ public class HFilePrefixReadBenchmark {
 
   /**
    * Selects prefix keys for testing.
-   * Distributes them evenly across the prefix range.
+   * Distributes them evenly across the partition range.
+   * Returns columnIndexID + partitionIndexID prefixes in SORTED order.
+   *
+   * NOTE: The prefix keys MUST be sorted for HFile prefix lookup to work correctly.
    */
   private List<String> selectPrefixKeys(int count) {
     List<String> prefixes = new ArrayList<>();
-    int step = NUM_PREFIXES / count;
+    int step = NUM_PARTITIONS / count;
     if (step == 0) {
       step = 1;
     }
 
-    for (int i = 0; i < count && i * step < NUM_PREFIXES; i++) {
-      prefixes.add(BASE_PREFIX + generatePrefix(i * step));
+    for (int i = 0; i < count && i * step < NUM_PARTITIONS; i++) {
+      String partitionName = generatePartitionName(i * step);
+      prefixes.add(generateLookupPrefix(partitionName));
     }
+
+    // Sort the prefixes to ensure they're in the correct order for HFile lookup
+    java.util.Collections.sort(prefixes);
 
     return prefixes;
   }
 
   /**
-   * Runs all three benchmark scenarios
+   * Runs the selected benchmark scenario(s)
    */
   private void runBenchmarks(List<String> prefixKeys) throws Exception {
-    LOG.info("\n--- Scenario A: Prefix read without downloading entire file ---");
-    runScenarioA(prefixKeys);
+    String scenario = cfg.scenario.toUpperCase();
 
-    LOG.info("\n--- Scenario B: Download entire file, then prefix read ---");
-    runScenarioB(prefixKeys);
+    switch (scenario) {
+      case "A":
+        LOG.info("\n--- Scenario A: Prefix read without downloading entire file ---");
+        runScenarioA(prefixKeys);
+        break;
 
-    LOG.info("\n--- Scenario C: Download entire file, then iterative read with filter ---");
-    runScenarioC(prefixKeys);
+      case "B":
+        LOG.info("\n--- Scenario B: Download entire file, then prefix read ---");
+        runScenarioB(prefixKeys);
+        break;
+
+      case "C":
+        LOG.info("\n--- Scenario C: Download entire file, then iterative read with filter ---");
+        runScenarioC(prefixKeys);
+        break;
+
+      case "ALL":
+        LOG.info("\n--- Running all scenarios (note: cache may affect results) ---");
+        LOG.info("\n--- Scenario A: Prefix read without downloading entire file ---");
+        runScenarioA(prefixKeys);
+
+        LOG.info("\n--- Scenario B: Download entire file, then prefix read ---");
+        runScenarioB(prefixKeys);
+
+        LOG.info("\n--- Scenario C: Download entire file, then iterative read with filter ---");
+        runScenarioC(prefixKeys);
+        break;
+
+      default:
+        throw new IllegalArgumentException("Invalid scenario: " + cfg.scenario + ". Valid values: A, B, C, all");
+    }
   }
 
   /**
@@ -333,7 +448,7 @@ public class HFilePrefixReadBenchmark {
         .withProps(props)
         .build();
 
-    HoodieSchema hoodieSchema = HoodieSchema.fromAvroSchema(SCHEMA);
+    HoodieSchema hoodieSchema = HoodieSchema.fromAvroSchema(COLUMN_STATS_SCHEMA);
     HoodieNativeAvroHFileReader reader = HoodieNativeAvroHFileReader.builder()
         .readerFactory(readerFactory)
         .schema(Option.of(hoodieSchema))
@@ -383,7 +498,7 @@ public class HFilePrefixReadBenchmark {
         .path(hfilePath)
         .build();
 
-    HoodieSchema hoodieSchema = HoodieSchema.fromAvroSchema(SCHEMA);
+    HoodieSchema hoodieSchema = HoodieSchema.fromAvroSchema(COLUMN_STATS_SCHEMA);
 
     int totalRecordsRead = 0;
     try (ClosableIterator<IndexedRecord> iterator =
@@ -428,26 +543,25 @@ public class HFilePrefixReadBenchmark {
         .path(hfilePath)
         .build();
 
-    HoodieSchema hoodieSchema = HoodieSchema.fromAvroSchema(SCHEMA);
+    HoodieSchema hoodieSchema = HoodieSchema.fromAvroSchema(COLUMN_STATS_SCHEMA);
 
     int totalRecordsRead = 0;
     int totalRecordsScanned = 0;
 
+    // In Scenario C, we scan all records and count those matching our column
+    // This simulates the worst-case scenario of scanning entire file
     try (ClosableIterator<IndexedRecord> iterator =
             reader.getIndexedRecordIterator(hoodieSchema, hoodieSchema, new java.util.HashMap<>())) {
       while (iterator.hasNext()) {
         IndexedRecord record = iterator.next();
         totalRecordsScanned++;
 
-        // Extract key and check if it matches any prefix
+        // Check if this record is for our target column
         GenericRecord genericRecord = (GenericRecord) record;
-        String key = genericRecord.get("key").toString();
+        Object columnNameObj = genericRecord.get("columnName");
 
-        for (String fullPrefix : prefixKeys) {
-          if (key.startsWith(fullPrefix)) {
-            totalRecordsRead++;
-            break;
-          }
+        if (columnNameObj != null && columnNameObj.toString().equals(COLUMN_NAME)) {
+          totalRecordsRead++;
         }
       }
     }
@@ -455,13 +569,17 @@ public class HFilePrefixReadBenchmark {
     reader.close();
 
     long duration = System.currentTimeMillis() - startTime;
-    int expectedRecords = prefixKeys.size() * ENTRIES_PER_PREFIX;
+    // In Scenario C, we scan ALL records and count those matching the column
+    // Since all 1M records are for COLUMN_NAME, we expect all of them
+    int expectedRecords = TOTAL_ENTRIES;
+    int expectedMatches = TOTAL_ENTRIES;  // All records match since they're all for the same column
 
     LOG.info("Scenario C Results:");
     LOG.info("  Duration: {} ms", duration);
     LOG.info("  Records scanned: {}", totalRecordsScanned);
-    LOG.info("  Records matched: {}", totalRecordsRead);
-    LOG.info("  Expected records: {}", expectedRecords);
-    LOG.info("  Match: {}", totalRecordsRead == expectedRecords);
+    LOG.info("  Records matched (for column '{}'): {}", COLUMN_NAME, totalRecordsRead);
+    LOG.info("  Expected scanned: {}", expectedRecords);
+    LOG.info("  Expected matched: {}", expectedMatches);
+    LOG.info("  Match: {}", totalRecordsRead == expectedMatches && totalRecordsScanned == expectedRecords);
   }
 }
