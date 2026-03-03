@@ -3,6 +3,12 @@ name: publish-adhoc-jar
 on:
   pull_request_review:
     types: [ submitted ]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag for the artifact (e.g. hudi-1.1.0-t1-mar2)'
+        required: true
+        type: string
 
 env:
   MVN_ARGS: -ntp -B -V -Pci-log -Pwarn-log -Dorg.slf4j.simpleLogger.log.org.apache.maven.plugins.shade=warn -Dorg.slf4j.simpleLogger.log.org.apache.maven.plugins.dependency=warn
@@ -16,7 +22,7 @@ permissions:
 
 jobs:
   deploy:
-    if: ${{ github.event.pull_request && contains(github.event.review.body, '/push-jar') }}
+    if: ${{ (github.event_name == 'workflow_dispatch') || (github.event.pull_request && contains(github.event.review.body, '/push-jar')) }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -47,8 +53,13 @@ jobs:
           server-username: AWS
           server-password: CODEARTIFACT_AUTH_TOKEN
 
-      - name: Parse tag from PR review
-        run: echo "ADHOC_JAR_VERSION=$(echo ${{ github.event.review.body }} | sed -e s/\\/push-jar\ //)" >> $GITHUB_ENV
+      - name: Set ADHOC_JAR_VERSION
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "ADHOC_JAR_VERSION=${{ inputs.version }}" >> $GITHUB_ENV
+          else
+            echo "ADHOC_JAR_VERSION=$(echo ${{ github.event.review.body }} | sed -e s/\\/push-jar\ //)" >> $GITHUB_ENV
+          fi
 
       - name: Fail if version is reserved or empty
         if: contains(env.ADHOC_JAR_VERSION, 'release-v') || env.ADHOC_JAR_VERSION == 'latest' || env.ADHOC_JAR_VERSION == ''
