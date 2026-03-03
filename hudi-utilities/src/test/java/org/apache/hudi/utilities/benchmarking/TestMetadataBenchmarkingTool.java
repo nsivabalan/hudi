@@ -67,29 +67,24 @@ public class TestMetadataBenchmarkingTool {
   }
 
   @Test
-  public void testMetadataBenchmarkingToolRunWithTwoColumns(@TempDir Path tempDir) {
+  public void testMetadataBenchmarkingToolRunWithTwoColumns(@TempDir Path tempDir) throws Exception {
     LOG.info("Running MetadataBenchmarkingTool test with temp directory: {}", tempDir);
 
     // Create config for MetadataBenchmarkingTool with 2 columns (tenantID & age)
     MetadataBenchmarkingTool.Config config = new MetadataBenchmarkingTool.Config();
-    config.tableBasePath = tempDir.resolve("test_table_2cols").toString();
-    config.numColumnsToIndex = 2; // tenantID & age
-    config.colStatsFileGroupCount = 10;
-    config.numFilesToBootstrap = 100;
-    config.numPartitions = 3;
+    config.tableBasePath = "/tmp/1M_fg1_p100_incr0_1/";
+    config.numColumnsToIndex = 1; // tenantID & age
+    config.colStatsFileGroupCount = 1;
+    config.numFilesToBootstrap = 1000000;
+    config.numPartitions = 100;
     config.configs.add("hoodie.metadata.index.column.stats.processing.mode.override=in-memory");
-
-    LOG.info("Test config: tableBasePath={}, numFilesToBootstrap={}, numPartitions={}, numColumnsToIndex={}, colStatsFileGroupCount={}",
-        config.tableBasePath, config.numFilesToBootstrap, config.numPartitions, config.numColumnsToIndex, config.colStatsFileGroupCount);
-
-    // Run MetadataBenchmarkingTool
-    assertDoesNotThrow(() -> {
-      try (MetadataBenchmarkingTool metadataBenchmarkingTool = new MetadataBenchmarkingTool(sparkSession, config)) {
-        metadataBenchmarkingTool.run();
-      }
-    }, "MetadataBenchmarkingTool.run1() should complete without throwing exceptions");
-
-    LOG.info("MetadataBenchmarkingTool test with 2 columns completed successfully");
+    config.mode = MetadataBenchmarkingTool.Config.BenchmarkMode.QUERY;
+    config.configs.add("hoodie.metadata.file.cache.max.size.mb=1000");
+    config.dataFilters = "tenantID = 41000";
+    config.partitionFilter = "dt = '2025-02-01'";
+    config.tenantIdRange = 3000000;
+    MetadataBenchmarkingTool metadataBenchmarkingTool = new MetadataBenchmarkingTool(sparkSession, config);
+    metadataBenchmarkingTool.run();
   }
 
   @Test
