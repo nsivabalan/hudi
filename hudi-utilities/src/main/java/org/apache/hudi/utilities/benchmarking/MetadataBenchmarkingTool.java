@@ -687,7 +687,7 @@ public class MetadataBenchmarkingTool implements Closeable {
         .asScalaBuffer(Collections.singletonList(buildPartitionFilter(dataSchema))).toList();
 
     // populate cache for all file slices count.
-    fileIndex.getFileSlicesCount();
+    //fileIndex.getFileSlicesCount();
 
     long startTime = System.currentTimeMillis();
     Seq<Tuple2<scala.Option<BaseHoodieTableFileIndex.PartitionPath>, Seq<FileSlice>>> filteredSlices =

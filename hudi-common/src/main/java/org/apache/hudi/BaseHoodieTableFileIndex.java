@@ -282,7 +282,8 @@ public abstract class BaseHoodieTableFileIndex implements AutoCloseable {
       // API.  Note that for COW table, the merging logic of two slices does not happen as there
       // is no compaction, thus there is no performance impact.
       HoodieTableFileSystemView finalFileSystemView = fileSystemView;
-      return partitions.stream().collect(
+      long startTime = System.currentTimeMillis();
+      Map<PartitionPath, List<FileSlice>> toReturn = partitions.stream().collect(
           Collectors.toMap(
               Function.identity(),
               partitionPath ->
@@ -292,6 +293,8 @@ public abstract class BaseHoodieTableFileIndex implements AutoCloseable {
                       .orElseGet(() -> finalFileSystemView.getLatestFileSlices(partitionPath.path))
                       .collect(Collectors.toList())
           ));
+      log.info(System.currentTimeMillis() + "[DATA] [TIMER] 1.0.2, Loading file slices for partitions took " + (System.currentTimeMillis() - startTime));
+      return toReturn;
     }
   }
 
