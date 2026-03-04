@@ -85,9 +85,9 @@ public class HFilePrefixReadBenchmark {
 
   // Constants for HFile generation
   private static final int TOTAL_ENTRIES = 1_000_000;
-  private static final int NUM_PARTITIONS = 400; // One year of daily partitions
-  private static final int FILES_PER_PARTITION = TOTAL_ENTRIES / NUM_PARTITIONS; // ~2,740 files per partition
-  private static final int ENTRIES_PER_PREFIX = FILES_PER_PARTITION; // 1 entry per file
+  private static final int NUM_PARTITIONS = 365; // One year of daily partitions
+  private static final int FILES_PER_PARTITION_BASE = TOTAL_ENTRIES / NUM_PARTITIONS; // 2,739 files per partition (base)
+  private static final int REMAINDER_ENTRIES = TOTAL_ENTRIES % NUM_PARTITIONS; // 385 extra entries to distribute
   private static final String COLUMN_NAME = "tenantId";
 
   // Use the actual HoodieMetadataColumnStats schema
@@ -136,7 +136,7 @@ public class HFilePrefixReadBenchmark {
     LOG.info("HFile will be created at: {}", hfilePath);
     LOG.info("Column: {}", COLUMN_NAME);
     LOG.info("Partitions: {} to {} ({} total)", firstPartition, lastPartition, NUM_PARTITIONS);
-    LOG.info("Entries per partition: {}", ENTRIES_PER_PREFIX);
+    LOG.info("Entries per partition: {} or {} ({} total entries)", FILES_PER_PARTITION_BASE, FILES_PER_PARTITION_BASE + 1, TOTAL_ENTRIES);
   }
 
   public static void main(String[] args) {
@@ -171,8 +171,8 @@ public class HFilePrefixReadBenchmark {
     LOG.info("Config: {}", cfg);
 
     // Step 1: Create HFile with 1M entries
-    LOG.info("Step 1: Creating HFile with {} entries ({} partitions, {} entries per partition)",
-        TOTAL_ENTRIES, NUM_PARTITIONS, ENTRIES_PER_PREFIX);
+    LOG.info("Step 1: Creating HFile with {} entries ({} partitions, {} or {} entries per partition)",
+        TOTAL_ENTRIES, NUM_PARTITIONS, FILES_PER_PARTITION_BASE, FILES_PER_PARTITION_BASE + 1);
     LOG.info("Column: {}", COLUMN_NAME);
     createHFile();
     LOG.info("HFile created successfully at: {}", hfilePath);
@@ -188,7 +188,10 @@ public class HFilePrefixReadBenchmark {
       LOG.info("========================================");
 
       List<String> prefixKeys = selectPrefixKeys(numKeys);
-      LOG.info("Selected prefixes: {}", prefixKeys);
+      LOG.info("Selected {} prefix keys", prefixKeys.size());
+      for (int i = 0; i < prefixKeys.size(); i++) {
+        LOG.info("  Prefix {}: {}", i, prefixKeys.get(i));
+      }
 
       runBenchmarks(prefixKeys);
     }
@@ -230,12 +233,14 @@ public class HFilePrefixReadBenchmark {
     int entriesGenerated = 0;
 
     // For each partition, generate one entry per file
+    int globalFileIdx = 0;
     for (int partitionIdx = 0; partitionIdx < NUM_PARTITIONS; partitionIdx++) {
       String partitionName = generatePartitionName(partitionIdx);
+      int filesInPartition = getFilesForPartition(partitionIdx);
 
-      // Generate FILES_PER_PARTITION files for this partition, with 1 entry per file
-      for (int fileIdx = 0; fileIdx < FILES_PER_PARTITION; fileIdx++) {
-        String fileName = generateHoodieFileName(partitionIdx * FILES_PER_PARTITION + fileIdx);
+      // Generate entries for all files in this partition
+      for (int fileIdx = 0; fileIdx < filesInPartition; fileIdx++) {
+        String fileName = generateHoodieFileName(globalFileIdx++);
 
         // Create one entry for this file
         String key = getColumnStatsIndexKey(partitionName, COLUMN_NAME, fileName);
@@ -289,6 +294,19 @@ public class HFilePrefixReadBenchmark {
     long fileSizeBytes = storage.getPathInfo(hfilePath).getLength();
     LOG.info("Created HFile with {} entries in {} ms", entriesWritten, duration);
     LOG.info("File size: {} MB", fileSizeBytes / (1024 * 1024));
+  }
+
+  /**
+   * Calculates how many files a partition should have.
+   * Distributes the TOTAL_ENTRIES evenly across NUM_PARTITIONS.
+   * First REMAINDER_ENTRIES partitions get one extra entry.
+   */
+  private int getFilesForPartition(int partitionIdx) {
+    // First REMAINDER_ENTRIES partitions get (FILES_PER_PARTITION_BASE + 1) files
+    // Remaining partitions get FILES_PER_PARTITION_BASE files
+    return partitionIdx < REMAINDER_ENTRIES
+        ? FILES_PER_PARTITION_BASE + 1
+        : FILES_PER_PARTITION_BASE;
   }
 
   /**
@@ -377,13 +395,16 @@ public class HFilePrefixReadBenchmark {
    */
   private List<String> selectPrefixKeys(int count) {
     List<String> prefixes = new ArrayList<>();
+    List<Integer> partitionIndices = new ArrayList<>();
     int step = NUM_PARTITIONS / count;
     if (step == 0) {
       step = 1;
     }
 
     for (int i = 0; i < count && i * step < NUM_PARTITIONS; i++) {
-      String partitionName = generatePartitionName(i * step);
+      int partitionIdx = i * step;
+      partitionIndices.add(partitionIdx);
+      String partitionName = generatePartitionName(partitionIdx);
       prefixes.add(generateLookupPrefix(partitionName));
     }
 
@@ -391,6 +412,28 @@ public class HFilePrefixReadBenchmark {
     java.util.Collections.sort(prefixes);
 
     return prefixes;
+  }
+
+  /**
+   * Calculates the expected number of records for the given prefix keys.
+   * Each prefix corresponds to a partition, and partitions may have different numbers of files.
+   */
+  private int calculateExpectedRecords(List<String> prefixKeys) {
+    int totalExpected = 0;
+    for (String prefix : prefixKeys) {
+      // Need to determine which partition this prefix corresponds to
+      // We'll need to track this when we select prefixes
+      // For now, iterate through all partitions and check which ones match
+      for (int partitionIdx = 0; partitionIdx < NUM_PARTITIONS; partitionIdx++) {
+        String partitionName = generatePartitionName(partitionIdx);
+        String partitionPrefix = generateLookupPrefix(partitionName);
+        if (partitionPrefix.equals(prefix)) {
+          totalExpected += getFilesForPartition(partitionIdx);
+          break;
+        }
+      }
+    }
+    return totalExpected;
   }
 
   /**
@@ -467,10 +510,11 @@ public class HFilePrefixReadBenchmark {
     reader.close();
 
     long duration = System.currentTimeMillis() - startTime;
-    int expectedRecords = prefixKeys.size() * ENTRIES_PER_PREFIX;
+    int expectedRecords = calculateExpectedRecords(prefixKeys);
 
     LOG.info("Scenario A Results:");
     LOG.info("  Duration: {} ms", duration);
+    LOG.info("  Number of prefix keys: {}", prefixKeys.size());
     LOG.info("  Records read: {}", totalRecordsRead);
     LOG.info("  Expected records: {}", expectedRecords);
     LOG.info("  Match: {}", totalRecordsRead == expectedRecords);
@@ -501,23 +545,36 @@ public class HFilePrefixReadBenchmark {
     HoodieSchema hoodieSchema = HoodieSchema.fromAvroSchema(COLUMN_STATS_SCHEMA);
 
     int totalRecordsRead = 0;
+    java.util.Map<String, Integer> recordsPerPrefix = new java.util.HashMap<>();
+
     try (ClosableIterator<IndexedRecord> iterator =
             reader.getIndexedRecordsByKeyPrefixIterator(prefixKeys, hoodieSchema)) {
       while (iterator.hasNext()) {
         IndexedRecord record = iterator.next();
         totalRecordsRead++;
+
+        // Track which prefix this record belongs to for debugging
+        GenericRecord genericRecord = (GenericRecord) record;
+        String fileName = genericRecord.get("fileName").toString();
+
+        // Determine which prefix this record matches
+        for (String prefix : prefixKeys) {
+          recordsPerPrefix.putIfAbsent(prefix, 0);
+        }
       }
     }
 
     reader.close();
 
     long duration = System.currentTimeMillis() - startTime;
-    int expectedRecords = prefixKeys.size() * ENTRIES_PER_PREFIX;
+    int expectedRecords = calculateExpectedRecords(prefixKeys);
 
     LOG.info("Scenario B Results:");
     LOG.info("  Duration: {} ms", duration);
+    LOG.info("  Number of prefix keys: {}", prefixKeys.size());
     LOG.info("  Records read: {}", totalRecordsRead);
     LOG.info("  Expected records: {}", expectedRecords);
+    LOG.info("  Average records per prefix: {}", totalRecordsRead / (double) prefixKeys.size());
     LOG.info("  Match: {}", totalRecordsRead == expectedRecords);
   }
 
@@ -550,6 +607,7 @@ public class HFilePrefixReadBenchmark {
 
     // In Scenario C, we scan all records and count those matching our column
     // This simulates the worst-case scenario of scanning entire file
+    LOG.info("Starting the reader iterator ");
     try (ClosableIterator<IndexedRecord> iterator =
             reader.getIndexedRecordIterator(hoodieSchema, hoodieSchema, new java.util.HashMap<>())) {
       while (iterator.hasNext()) {
