@@ -110,12 +110,13 @@ public class HFileReaderFactory {
         LOG.warn("XXX Downloading entire file " + fileSource.asLeft());
         // Download the whole file if the file size is below a configured threshold
         StoragePath path = fileSource.asLeft();
+        long startTime = System.currentTimeMillis();
         byte[] buffer;
         try (SeekableDataInputStream stream = storage.openSeekable(path, false)) {
           buffer = new byte[(int) storage.getPathInfo(path).getLength()];
           stream.readFully(buffer);
         }
-        LOG.info("XXX Downloaded file " + fileSource.asLeft());
+        LOG.info("XXX Downloaded file " + fileSource.asLeft() + " in " + (System.currentTimeMillis() - startTime) + " ms");
         SeekableDataInputStream inputStream = new ByteArraySeekableDataInputStream(new ByteBufferBackedInputStream(buffer));
         LOG.info("XXX Created seekable input stream " + fileSource.asLeft());
         return inputStream;
