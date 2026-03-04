@@ -351,6 +351,7 @@ case class HoodieFileIndex(spark: SparkSession,
   def prunePartitionsAndGetFileSlices(dataFilters: Seq[Expression],
                                       partitionFilters: Seq[Expression]):
   (Boolean, Seq[(Option[BaseHoodieTableFileIndex.PartitionPath], Seq[FileSlice])]) = {
+    val startTime = System.currentTimeMillis();
     val isPartitionedTable = getPartitionColumns.length > 0
     val prunedPartitionsTuple: (Boolean, Seq[PartitionPath]) =
       if (isPartitionedTable && partitionFilters.nonEmpty) {
@@ -394,7 +395,7 @@ case class HoodieFileIndex(spark: SparkSession,
         // or partitioned table without partition filter or data skipping or PARTITION_STATS index
         (false, listMatchingPartitionPaths(Seq.empty))
       }
-
+    log.info(System.currentTimeMillis + "[DATA] [TIMER] 1.0.1, Loading partitions took " + (System.currentTimeMillis - startTime))
     (prunedPartitionsTuple._1, getInputFileSlices(prunedPartitionsTuple._2: _*).asScala.map(
       { case (partition, fileSlices) =>
         (Option.apply(partition), fileSlices.asScala.map(f => f.withLogFiles(includeLogFiles)).toSeq) }).toSeq)
