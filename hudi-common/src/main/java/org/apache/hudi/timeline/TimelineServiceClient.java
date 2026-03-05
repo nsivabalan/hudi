@@ -26,7 +26,9 @@ import org.apache.http.entity.ContentType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.nio.charset.Charset;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -42,12 +44,14 @@ public class TimelineServiceClient extends TimelineServiceClientBase {
   protected final String timelineServerHost;
   protected final int timelineServerPort;
   protected final int timeoutMs;
+  protected final String responseCharsetName;
 
   public TimelineServiceClient(FileSystemViewStorageConfig config) {
     super(config);
     this.timelineServerHost = config.getRemoteViewServerHost();
     this.timelineServerPort = config.getRemoteViewServerPort();
     this.timeoutMs = (int) TimeUnit.SECONDS.toMillis(config.getRemoteTimelineClientTimeoutSecs());
+    this.responseCharsetName = config.getStringOrDefault(FileSystemViewStorageConfig.REMOTE_RESPONSE_CHARSET);
   }
 
   @Override
@@ -62,7 +66,7 @@ public class TimelineServiceClient extends TimelineServiceClientBase {
     String url = builder.toString();
     LOG.debug("Sending request : ({})", url);
     org.apache.http.client.fluent.Response response = get(request.getMethod(), url, timeoutMs, request.getBody());
-    return new Response(response.returnContent().asStream());
+    return new Response(new ByteArrayInputStream(response.returnContent().asString(Charset.forName(responseCharsetName)).getBytes(Charset.forName(responseCharsetName))));
   }
 
   private org.apache.http.client.fluent.Response get(RequestMethod method, String url, int timeoutMs, String body) throws IOException {
