@@ -45,9 +45,9 @@ import static org.apache.hudi.common.config.HoodieCommonConfig.BASE_PATH;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.when;
 
 @Disabled("HUDI-9160 The dockerized tests do not work. Disabling them to unblock Azure CI")
 public class TestGCSStorageBasedLockProvider
@@ -92,8 +92,10 @@ public class TestGCSStorageBasedLockProvider
       StorageOptions.Builder builderMock = mock(StorageOptions.Builder.class);
       StorageOptions storageOptionsInstanceMock = mock(StorageOptions.class);
       storageOptionsMock.when(StorageOptions::newBuilder).thenReturn(builderMock);
-      when(builderMock.build()).thenReturn(storageOptionsInstanceMock);
-      when(storageOptionsInstanceMock.getService()).thenReturn(storage);
+      // Mock setRetrySettings to support the new retry configuration
+      lenient().when(builderMock.setRetrySettings(org.mockito.ArgumentMatchers.any())).thenReturn(builderMock);
+      lenient().when(builderMock.build()).thenReturn(storageOptionsInstanceMock);
+      lenient().when(storageOptionsInstanceMock.getService()).thenReturn(storage);
       return new StorageBasedLockProvider(
           lockConf,
           null);
