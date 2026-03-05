@@ -85,7 +85,7 @@ public class HFilePrefixReadBenchmark {
 
   // Constants for HFile generation
   private static final int TOTAL_ENTRIES = 1_000_000;
-  private static final int NUM_PARTITIONS = 365; // One year of daily partitions
+  private static final int NUM_PARTITIONS = 400; // One year of daily partitions
   private static final int FILES_PER_PARTITION = TOTAL_ENTRIES / NUM_PARTITIONS; // ~2,740 files per partition
   private static final int ENTRIES_PER_PREFIX = FILES_PER_PARTITION; // 1 entry per file
   private static final String COLUMN_NAME = "tenantId";
