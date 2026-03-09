@@ -18,6 +18,7 @@
 
 package org.apache.hudi.client;
 
+import org.apache.hudi.avro.model.HoodieCleanMetadata;
 import org.apache.hudi.callback.common.WriteStatusValidator;
 import org.apache.hudi.client.embedded.EmbeddedTimelineService;
 import org.apache.hudi.client.transaction.TransactionManager;
@@ -39,6 +40,8 @@ import org.apache.hudi.common.table.view.SyncableFileSystemView;
 import org.apache.hudi.common.testutils.HoodieCommonTestHarness;
 import org.apache.hudi.common.testutils.HoodieTestUtils;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.config.HoodieArchivalConfig;
+import org.apache.hudi.config.HoodieCleanConfig;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.index.HoodieIndex;
 import org.apache.hudi.index.simple.HoodieSimpleIndex;
@@ -52,6 +55,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InOrder;
 import org.mockito.Mockito;
 
@@ -71,6 +75,8 @@ import static org.apache.hudi.common.testutils.HoodieTestUtils.getDefaultStorage
 import static org.apache.hudi.testutils.Assertions.assertComplexKeyGeneratorValidationThrows;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -107,6 +113,34 @@ class TestBaseHoodieWriteClient extends HoodieCommonTestHarness {
     writeClient.close();
     verify(table, never()).getHoodieView();
     verify(tableServiceClient).close();
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void testOptimizeArchivalPostClean(boolean optimizeArchivalPostClean) throws IOException {
+    initMetaClient();
+    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
+        .withPath(basePath)
+        .withCleanConfig(HoodieCleanConfig.newBuilder()
+            .withAutoClean(true)
+            .build())
+        .withArchivalConfig(HoodieArchivalConfig.newBuilder()
+            .withAutoArchive(true)
+            .doOptimizeArchivalToRunPostClean(optimizeArchivalPostClean)
+            .build())
+        .build();
+    HoodieTable<String, String, String, String> table = mock(HoodieTable.class);
+    HoodieTableMetaClient mockMetaClient = mock(HoodieTableMetaClient.class);
+    when(table.getMetaClient()).thenReturn(mockMetaClient);
+    BaseHoodieTableServiceClient<String, String, String> tableServiceClient = mock(BaseHoodieTableServiceClient.class);
+    HoodieCleanMetadata cleanMetadata = mock(HoodieCleanMetadata.class);
+    when(tableServiceClient.clean(any(), eq(true))).thenReturn(optimizeArchivalPostClean ? cleanMetadata : null);
+    TestWriteClient writeClient = new TestWriteClient(writeConfig, table, Option.empty(), tableServiceClient);
+
+    writeClient.mayBeCleanAndArchive(table);
+    verify(tableServiceClient).clean(any(), eq(true));
+    verify(tableServiceClient).archive(table);
+    verify(mockMetaClient).reloadActiveTimeline();
   }
 
   private HoodieWriteConfig getHoodieWriteConfigForRemoteView(FileSystemViewStorageType viewStorageType) {

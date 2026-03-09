@@ -102,6 +102,13 @@ public class HoodieArchivalConfig extends HoodieConfig {
       .withDocumentation("If enabled, archival will proceed beyond savepoint, skipping savepoint commits."
           + " If disabled, archival will stop at the earliest savepoint commit.");
 
+  public static final ConfigProperty<String> OPTIMIZE_ARCHIVE_TO_RUN_POST_CLEAN = ConfigProperty
+      .key("hoodie.archive.optimize.to.run.post.clean")
+      .defaultValue("false")
+      .markAdvanced()
+      .sinceVersion("1.1.0")
+      .withDocumentation("Optimizing archival to run only when clean commit is triggered (inline table services are enabled.");
+
   /**
    * @deprecated Use {@link #MAX_COMMITS_TO_KEEP} and its methods instead
    */
@@ -190,6 +197,11 @@ public class HoodieArchivalConfig extends HoodieConfig {
 
     public Builder withArchiveBeyondSavepoint(boolean archiveBeyondSavepoint) {
       archivalConfig.setValue(ARCHIVE_BEYOND_SAVEPOINT, String.valueOf(archiveBeyondSavepoint));
+      return this;
+    }
+
+    public Builder doOptimizeArchivalToRunPostClean(boolean optimizeArhivalToRunPostClean) {
+      archivalConfig.setValue(OPTIMIZE_ARCHIVE_TO_RUN_POST_CLEAN, String.valueOf(optimizeArhivalToRunPostClean));
       return this;
     }
 

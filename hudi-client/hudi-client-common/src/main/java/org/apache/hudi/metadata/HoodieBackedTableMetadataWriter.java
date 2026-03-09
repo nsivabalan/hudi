@@ -1715,7 +1715,7 @@ public abstract class HoodieBackedTableMetadataWriter<I, O> implements HoodieTab
       // The commit which is being rolled back on the dataset
       final String commitToRollbackInstantTime = rollbackMetadata.getCommitsRollback().get(0);
       // The deltacommit that will be rolled back
-      Option<HoodieInstant> deltaCommitInstantOpt = metadataMetaClient.getActiveTimeline()
+      Option<HoodieInstant> deltaCommitInstantOpt = metadataMetaClient.reloadActiveTimeline()
           .getDeltaCommitTimeline()
           .filter(s -> s.requestedTime().equals(commitToRollbackInstantTime))
           .firstInstant();
@@ -1839,10 +1839,9 @@ public abstract class HoodieBackedTableMetadataWriter<I, O> implements HoodieTab
       upsertAndCommit(writeClient, instantTime, preppedRecordInputs);
     }
 
-    metadataMetaClient.reloadActiveTimeline();
-
     // Update total size of the metadata and count of base/log files
     if (metrics.isPresent() && metrics.get().shouldEnableDetailedMetadataMetrics()) {
+      metadataMetaClient.reloadActiveTimeline();
       metrics.get().updateSizeMetrics(metadataMetaClient, metadata, dataMetaClient.getTableConfig().getMetadataPartitions());
     }
   }

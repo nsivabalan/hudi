@@ -136,6 +136,20 @@ public class TestHoodieMetadataBase extends HoodieSparkClientTestHarness {
     }
   }
 
+  protected void resetMetadataWriterAndTestTable() throws Exception {
+    resetMetadataWriterAndTestTable(false);
+  }
+
+  protected void resetMetadataWriterAndTestTable(boolean nonPartitioned) throws Exception {
+    metaClient.reloadActiveTimeline();
+    metadataWriter.close();
+    metadataWriter = SparkHoodieBackedTableMetadataWriter.create(storageConf, writeConfig, context, Option.empty());
+    testTable = HoodieMetadataTestTable.of(metaClient, metadataWriter, Option.of(context));
+    if (nonPartitioned) {
+      testTable.setNonPartitioned();
+    }
+  }
+
   protected void doWriteInsertAndUpsert(HoodieTestTable testTable, String commit1, String commit2, boolean nonPartitioned) throws Exception {
     testTable.doWriteOperation(commit1, INSERT, nonPartitioned ? asList("") : asList("p1", "p2"), nonPartitioned ? asList("") : asList("p1", "p2"),
         4, false);

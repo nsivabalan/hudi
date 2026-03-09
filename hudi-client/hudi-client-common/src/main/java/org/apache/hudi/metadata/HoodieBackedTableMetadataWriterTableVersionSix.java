@@ -196,7 +196,7 @@ public abstract class HoodieBackedTableMetadataWriterTableVersionSix<I, O> exten
       final String commitToRollbackInstantTime = rollbackMetadata.getCommitsRollback().get(0);
       // Find the deltacommits since the last compaction
       Option<Pair<HoodieTimeline, HoodieInstant>> deltaCommitsInfo =
-          CompactionUtils.getDeltaCommitsSinceLatestCompaction(metadataMetaClient.getActiveTimeline());
+          CompactionUtils.getDeltaCommitsSinceLatestCompaction(metadataMetaClient.reloadActiveTimeline());
 
       // This could be a compaction or deltacommit instant (See CompactionUtils.getDeltaCommitsSinceLatestCompaction)
       HoodieInstant compactionInstant = deltaCommitsInfo.get().getValue();
