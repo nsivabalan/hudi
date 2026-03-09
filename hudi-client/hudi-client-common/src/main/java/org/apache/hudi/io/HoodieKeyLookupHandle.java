@@ -32,8 +32,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.Set;
 
 import static org.apache.hudi.metadata.MetadataPartitionType.BLOOM_FILTERS;
 
@@ -45,13 +46,13 @@ public class HoodieKeyLookupHandle<T, I, K, O> extends HoodieReadHandle<T, I, K,
   private static final Logger LOG = LoggerFactory.getLogger(HoodieKeyLookupHandle.class);
 
   private final BloomFilter bloomFilter;
-  private final List<String> candidateRecordKeys;
+  private final Set<String> candidateRecordKeys;
   private long totalKeysChecked;
 
   public HoodieKeyLookupHandle(HoodieWriteConfig config, HoodieTable<T, I, K, O> hoodieTable,
                                Pair<String, String> partitionPathFileIDPair) {
     super(config, hoodieTable, partitionPathFileIDPair);
-    this.candidateRecordKeys = new ArrayList<>();
+    this.candidateRecordKeys = new HashSet<>();
     this.totalKeysChecked = 0;
     this.bloomFilter = getBloomFilter();
   }
@@ -96,7 +97,7 @@ public class HoodieKeyLookupHandle<T, I, K, O> extends HoodieReadHandle<T, I, K,
     LOG.debug("#The candidate row keys for {} => {}", partitionPathFileIDPair, candidateRecordKeys);
 
     HoodieBaseFile baseFile = getLatestBaseFile();
-    List<Pair<String, Long>> matchingKeysAndPositions = HoodieIndexUtils.filterKeysFromFile(
+    Collection<Pair<String, Long>> matchingKeysAndPositions = HoodieIndexUtils.filterKeysFromFile(
         baseFile.getStoragePath(), candidateRecordKeys, hoodieTable.getStorage());
     LOG.info("Total records ({}), bloom filter candidates ({})/fp({}), actual matches ({})", totalKeysChecked,
             candidateRecordKeys.size(), candidateRecordKeys.size() - matchingKeysAndPositions.size(), matchingKeysAndPositions.size());
