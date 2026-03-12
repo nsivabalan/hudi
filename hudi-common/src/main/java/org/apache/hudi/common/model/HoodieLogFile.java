@@ -198,6 +198,10 @@ public class HoodieLogFile implements Serializable {
     return LOG_FILE_COMPARATOR_REVERSED;
   }
 
+  public static Comparator<String> getLogFileWriteTokenComparator() {
+    return Comparator.nullsFirst(Comparator.naturalOrder());
+  }
+
   /**
    * Comparator to order log-files.
    */
@@ -242,7 +246,7 @@ public class HoodieLogFile implements Serializable {
       return deltaCommitTime1.compareTo(deltaCommitTime2);
     }
   }
-
+  
   @Override
   public boolean equals(Object o) {
     if (this == o) {

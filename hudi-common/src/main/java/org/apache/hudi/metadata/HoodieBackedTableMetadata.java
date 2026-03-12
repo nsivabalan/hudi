@@ -72,6 +72,7 @@ import org.apache.hudi.storage.HoodieStorage;
 import org.apache.hudi.storage.StoragePath;
 import org.apache.hudi.storage.StoragePathInfo;
 
+import com.github.benmanes.caffeine.cache.Cache;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.generic.IndexedRecord;
@@ -464,13 +465,41 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
   protected HoodieData<HoodieRecord<HoodieMetadataPayload>> readIndexRecords(HoodieData<? extends RawKey> rawKeys,
                                                                              String partitionName,
                                                                              Option<String> dataTablePartition) {
-    List<FileSlice> fileSlices = partitionFileSliceMap.computeIfAbsent(partitionName,
-        k -> HoodieTableMetadataUtil.getPartitionLatestMergedFileSlices(metadataMetaClient, getMetadataFileSystemView(), partitionName));
-    checkState(!fileSlices.isEmpty(), "No file slices found for partition: " + partitionName);
+    List<FileSlice> sortedPartitionFileSlices = partitionFileSliceMap.computeIfAbsent(partitionName,
+        k ->  {
+          HoodieTableFileSystemView mdtFSV = getMetadataFileSystemView();
+          String latestInstantTime = null;
+          if (metadataMetaClient.getActiveTimeline().filterCompletedInstants().lastInstant().isPresent()) {
+            latestInstantTime = metadataMetaClient.getActiveTimeline().filterCompletedInstants().lastInstant().get().requestedTime();
+          } else {
+            // for fresh table return right away.
+            return Collections.emptyList();
+          }
+
+          long startTime = System.currentTimeMillis();
+          List<FileSlice> toReturn = null;
+          if (metadataConfig.shouldEnableFileSliceCacheOptimizationForRliLookup() && partitionName.equals(RECORD_INDEX.getPartitionPath())) {
+            Cache<LatestFileSliceCacheForPartition.CacheKey, List<FileSlice>> latestFileSliceCacheForPartition = LatestFileSliceCacheForPartition
+                .getCache(mdtFSV, LatestFileSliceCacheForPartition.CacheKey.of(latestInstantTime, partitionName),
+                    metadataConfig.getFileSliceCacheMaxSize(), metadataConfig.getFileSliceCacheExpirationInMins());
+            toReturn = latestFileSliceCacheForPartition.get(
+                LatestFileSliceCacheForPartition.CacheKey.of(latestInstantTime, partitionName),
+                e -> HoodieTableMetadataUtil.getPartitionLatestMergedFileSlices(metadataMetaClient, mdtFSV, partitionName));
+            LOG.info("Total time to fetch latest file slice for partition {} and instant time {} potentially cached : {} ms",
+                partitionName, latestInstantTime, (System.currentTimeMillis() - startTime));
+          } else {
+            toReturn = HoodieTableMetadataUtil.getPartitionLatestMergedFileSlices(metadataMetaClient, mdtFSV, partitionName);
+            LOG.info("Total time to fetch latest file slice for partition {} and instant time {} without caching : {} ms",
+                partitionName, latestInstantTime, (System.currentTimeMillis() - startTime));
+          }
+          return toReturn;
+        }
+    );
+    checkState(!sortedPartitionFileSlices.isEmpty(), "No file slices found for partition: " + partitionName);
 
     // Convert RawKey to String using encode()
     HoodieData<String> keys = rawKeys.map(key -> key.encode());
-    return lookupIndexRecords(keys, partitionName, fileSlices, dataTablePartition);
+    return lookupIndexRecords(keys, partitionName, sortedPartitionFileSlices, dataTablePartition);
   }
 
   // When testing we noticed that the parallelism can be very low which hurts the performance. so we should start with a reasonable

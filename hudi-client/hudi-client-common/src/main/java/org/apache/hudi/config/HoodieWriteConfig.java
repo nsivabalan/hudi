@@ -973,6 +973,13 @@ public class HoodieWriteConfig extends HoodieConfig {
       .sinceVersion("0.14.2")
       .withDocumentation("Expiration of file slice cache entries when " + ENABLE_FILE_SLICE_CACHE_OPTIMIZATION.key() + " is enabled");
 
+  public static final ConfigProperty<Boolean> ENABLE_FILE_SLICE_CACHE_OPTIMIZATION_MOR_ROLLBACKS = ConfigProperty
+      .key("hoodie.write.file.slice.cache.optimization.mor.rollbacks")
+      .defaultValue(false)
+      .markAdvanced()
+      .sinceVersion("0.14.2")
+      .withDocumentation("Enables cache for fetching latest file slice view for mor rollback executions");
+
 
   /**
    * Config key with boolean value that indicates whether record being written during MERGE INTO Spark SQL
@@ -3038,6 +3045,10 @@ public class HoodieWriteConfig extends HoodieConfig {
     return getInt(FILE_SLICE_CACHE_EXPIRATION_MINS);
   }
 
+  public Boolean shouldEnableFileSliceCacheOptimizationForMorRollbacks() {
+    return getBoolean(ENABLE_FILE_SLICE_CACHE_OPTIMIZATION_MOR_ROLLBACKS);
+  }
+
   public static class Builder {
 
     protected final HoodieWriteConfig writeConfig = new HoodieWriteConfig();
@@ -3636,6 +3647,11 @@ public class HoodieWriteConfig extends HoodieConfig {
 
     public Builder withFileSliceCacheExpirationInMins(Integer fileSliceCacheExpirationInMins) {
       writeConfig.setValue(FILE_SLICE_CACHE_EXPIRATION_MINS, Integer.toString(fileSliceCacheExpirationInMins));
+      return this;
+    }
+
+    public Builder withEnableFileSliceCacheOptimizationMorRollback(boolean enableFileSliceCache) {
+      writeConfig.setValue(ENABLE_FILE_SLICE_CACHE_OPTIMIZATION_MOR_ROLLBACKS, Boolean.toString(enableFileSliceCache));
       return this;
     }
 

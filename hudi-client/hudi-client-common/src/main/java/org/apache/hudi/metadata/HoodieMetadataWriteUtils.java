@@ -240,7 +240,8 @@ public class HoodieMetadataWriteUtils {
         .withLockConfig(lockConfig)
         .withEnableFileSliceCacheOptimization(writeConfig.getMetadataConfig().shouldEnableFileSliceCacheOptimization())
         .withFileSliceCacheMaxSize(writeConfig.getMetadataConfig().getFileSliceCacheMaxSize())
-        .withFileSliceCacheExpirationInMins(writeConfig.getMetadataConfig().getFileSliceCacheExpirationInMins());
+        .withFileSliceCacheExpirationInMins(writeConfig.getMetadataConfig().getFileSliceCacheExpirationInMins())
+        .withEnableFileSliceCacheOptimizationMorRollback(writeConfig.getMetadataConfig().shouldEnableFileSliceCacheOptimizationForRollbacks());
 
     // RecordKey properties are needed for the metadata table records
     final Properties properties = new Properties();
