@@ -106,8 +106,7 @@ class ColumnStatsIndexSupport(spark: SparkSession,
       val readFromColStatsAndTransposeTimer = System.currentTimeMillis()
       loadTransposed(queryReferencedColumns, readInMemory, Some(prunedPartitions), prunedFileNamesOpt, readFromColStatsAndTransposeTimer) { transposedColStatsDF =>
         Some(getCandidateFiles(transposedColStatsDF, queryFilters, prunedFileNames, getValidIndexedColumnsFunc, isExpressionIndex = false,
-          indexDefinitionOpt = Option.empty,
-          preLoadStartTime = startTime))
+          indexDefinitionOpt = Option.empty, preLoadStartTime = startTime, tableType = metaClient.getTableConfig.getTableType))
       }
     } else {
       Option.empty

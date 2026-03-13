@@ -21,7 +21,7 @@ package org.apache.hudi
 import org.apache.hudi.HoodieFileIndex.DataSkippingFailureMode
 import org.apache.hudi.client.common.HoodieSparkEngineContext
 import org.apache.hudi.common.config.HoodieMetadataConfig
-import org.apache.hudi.common.model.{FileSlice, HoodieIndexDefinition}
+import org.apache.hudi.common.model.{FileSlice, HoodieIndexDefinition, HoodieTableType}
 import org.apache.hudi.common.table.HoodieTableMetaClient
 import org.apache.hudi.keygen.{KeyGenerator, KeyGenUtils}
 import org.apache.hudi.metadata.{HoodieMetadataPayload, HoodieTableMetadata}
@@ -29,7 +29,7 @@ import org.apache.hudi.metadata.HoodieTableMetadataUtil.PARTITION_NAME_COLUMN_ST
 
 import org.apache.spark.api.java.JavaSparkContext
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.{DataFrame, Dataset, Encoders, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.{And, Expression}
 import org.apache.spark.sql.catalyst.expressions.Literal.TrueLiteral
 import org.apache.spark.sql.hudi.DataSkippingUtils.translateIntoColumnStatsIndexFilterExpr
@@ -120,7 +120,8 @@ abstract class SparkBaseIndexSupport(spark: SparkSession,
   protected def getCandidateFiles(indexDf: DataFrame, queryFilters: Seq[Expression], fileNamesFromPrunedPartitions: Set[String],
                                   getValidIndexedColumnsFunc: HoodieIndexDefinition => Seq[String], isExpressionIndex: Boolean = false,
                                   indexDefinitionOpt: Option[HoodieIndexDefinition] = Option.empty,
-                                  preLoadStartTime : Long = System.currentTimeMillis()): Set[String] = {
+                                  preLoadStartTime : Long = System.currentTimeMillis(),
+                                  tableType: HoodieTableType): Set[String] = {
     val getCandidateFilesStartTime = System.currentTimeMillis()
 
     val getIndexDefStartTime = System.currentTimeMillis()
@@ -167,14 +168,18 @@ abstract class SparkBaseIndexSupport(spark: SparkSession,
       //       files and all outstanding base-files or log files, and make sure that all base files and
       //       log file not represented w/in the index are included in the output of this method
       val getUnindexedStartTime = System.currentTimeMillis()
-      val allIndexedFileNames =
-      indexDf.select(HoodieMetadataPayload.COLUMN_STATS_FIELD_FILE_NAME)
-        .collect()
-        .map(_.getString(0))
-        .toSet
-      val notIndexedFileNames = fileNamesFromPrunedPartitions -- allIndexedFileNames
-      val getUnindexedElapsed = System.currentTimeMillis() - getUnindexedStartTime
-      logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] getCandidateFiles: Get unindexed files took ${getUnindexedElapsed}ms (${allIndexedFileNames.size} indexed, ${notIndexedFileNames.size} not indexed)")
+      val notIndexedFileNames = if (!tableType.equals(HoodieTableType.COPY_ON_WRITE)) {
+        val df = indexDf.select(HoodieMetadataPayload.COLUMN_STATS_FIELD_FILE_NAME)
+        val allIndexedFileNames = df
+          .map(row => row.getString(0))(Encoders.STRING)
+          .collect()
+        val notIndexedFileNames = fileNamesFromPrunedPartitions -- allIndexedFileNames
+        val getUnindexedElapsed = System.currentTimeMillis() - getUnindexedStartTime
+        logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] getCandidateFiles: Get unindexed files took ${getUnindexedElapsed}ms (${allIndexedFileNames.size} indexed, ${notIndexedFileNames.size} not indexed)")
+        notIndexedFileNames
+      } else {
+        Set.empty
+      }
 
       val finalCandidates = prunedCandidateFileNames ++ notIndexedFileNames
       val totalElapsed = System.currentTimeMillis() - getCandidateFilesStartTime

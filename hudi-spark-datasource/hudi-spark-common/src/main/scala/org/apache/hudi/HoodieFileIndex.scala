@@ -114,19 +114,47 @@ case class HoodieFileIndex(spark: SparkSession,
    * The order of elements is important as in this order indices will be applied
    * during `lookupCandidateFilesInMetadataTable`
    */
-  @transient private lazy val indicesSupport: List[SparkBaseIndexSupport] = List(
-    new RecordLevelIndexSupport(spark, metadataConfig, metaClient),
-    if (PartitionBucketIndexUtils.isPartitionSimpleBucketIndex(metaClient.getStorageConf, metaClient.getBasePath.toString)) {
-      new PartitionBucketIndexSupport(spark, metadataConfig, metaClient,
+  @transient private lazy val indicesSupport: List[SparkBaseIndexSupport] = {
+    val initStartTime = System.currentTimeMillis()
+    logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] [INIT] Starting indicesSupport initialization")
+
+    val recordLevelStart = System.currentTimeMillis()
+    val recordLevelIndex = new RecordLevelIndexSupport(spark, metadataConfig, metaClient)
+    logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] [INIT] RecordLevelIndexSupport creation took ${System.currentTimeMillis() - recordLevelStart}ms")
+
+    val bucketIndexStart = System.currentTimeMillis()
+    val bucketIndex = if (PartitionBucketIndexUtils.isPartitionSimpleBucketIndex(metaClient.getStorageConf, metaClient.getBasePath.toString)) {
+      val partitionBucketIndex = new PartitionBucketIndexSupport(spark, metadataConfig, metaClient,
         options.get(DataSourceReadOptions.TIME_TRAVEL_AS_OF_INSTANT.key).map(HoodieSqlCommonUtils.formatQueryInstant))
+      logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] [INIT] PartitionBucketIndexSupport creation took ${System.currentTimeMillis() - bucketIndexStart}ms")
+      partitionBucketIndex
     } else {
-      new BucketIndexSupport(spark, metadataConfig, metaClient)
-    },
-    new SecondaryIndexSupport(spark, metadataConfig, metaClient),
-    new ExpressionIndexSupport(spark, schema, metadataConfig, metaClient),
-    new BloomFiltersIndexSupport(spark, metadataConfig, metaClient),
-    new ColumnStatsIndexSupport(spark, schema, rawHoodieSchema, metadataConfig, metaClient)
-  )
+      val bucketIndexSupport = new BucketIndexSupport(spark, metadataConfig, metaClient)
+      logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] [INIT] BucketIndexSupport creation took ${System.currentTimeMillis() - bucketIndexStart}ms")
+      bucketIndexSupport
+    }
+
+    val secondaryIndexStart = System.currentTimeMillis()
+    val secondaryIndex = new SecondaryIndexSupport(spark, metadataConfig, metaClient)
+    logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] [INIT] SecondaryIndexSupport creation took ${System.currentTimeMillis() - secondaryIndexStart}ms")
+
+    val expressionIndexStart = System.currentTimeMillis()
+    val expressionIndex = new ExpressionIndexSupport(spark, schema, metadataConfig, metaClient)
+    logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] [INIT] ExpressionIndexSupport creation took ${System.currentTimeMillis() - expressionIndexStart}ms")
+
+    val bloomFiltersStart = System.currentTimeMillis()
+    val bloomFiltersIndex = new BloomFiltersIndexSupport(spark, metadataConfig, metaClient)
+    logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] [INIT] BloomFiltersIndexSupport creation took ${System.currentTimeMillis() - bloomFiltersStart}ms")
+
+    val columnStatsStart = System.currentTimeMillis()
+    val columnStatsIndex = new ColumnStatsIndexSupport(spark, schema, rawHoodieSchema, metadataConfig, metaClient)
+    logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] [INIT] ColumnStatsIndexSupport creation took ${System.currentTimeMillis() - columnStatsStart}ms")
+
+    val totalInitTime = System.currentTimeMillis() - initStartTime
+    logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] [INIT] Total indicesSupport initialization took ${totalInitTime}ms")
+
+    List(recordLevelIndex, bucketIndex, secondaryIndex, expressionIndex, bloomFiltersIndex, columnStatsIndex)
+  }
 
   private val enableHoodieExtension = spark.sessionState.conf.getConfString("spark.sql.extensions", "")
     .split(",")
@@ -426,21 +454,43 @@ case class HoodieFileIndex(spark: SparkSession,
     lazy val queryReferencedColumns = collectReferencedColumns(spark, queryFilters, schema, tableTypePrefix)
     logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] Collecting ref cols took " + (System.currentTimeMillis() - lookupStartTime))
     if (isDataSkippingEnabled) {
-      for(indexSupport: SparkBaseIndexSupport <- indicesSupport) {
+      val indicesSupportAccessStart = System.currentTimeMillis()
+      logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] [2.0.1] About to access indicesSupport (may trigger lazy initialization)")
+      val indices = indicesSupport
+      val indicesSupportAccessElapsed = System.currentTimeMillis() - indicesSupportAccessStart
+      logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] [2.0.2] indicesSupport access/initialization took ${indicesSupportAccessElapsed}ms")
+
+      val loopStartTime = System.currentTimeMillis()
+      for(indexSupport: SparkBaseIndexSupport <- indices) {
+        val indexIterationStart = System.currentTimeMillis()
+        logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] [2.0.3] Processing ${indexSupport.getIndexName} - checking availability and query type support")
+
         if (indexSupport.isIndexAvailable && indexSupport.supportsQueryType(options)) {
+          val availabilityCheckElapsed = System.currentTimeMillis() - indexIterationStart
+          logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] [2.0.4] ${indexSupport.getIndexName} is available (check took ${availabilityCheckElapsed}ms), computing candidates")
+
           val indexStartTime = System.currentTimeMillis()
           val prunedFileNames = indexSupport.computeCandidateIsStrict(spark, this, queryFilters, queryReferencedColumns,
             prunedPartitionsAndFileSlices, shouldPushDownFilesFilter)
           val indexElapsed = System.currentTimeMillis() - indexStartTime
-          logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] ${indexSupport.getIndexName} index lookup took ${indexElapsed}ms")
+          logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] [2.0.5] ${indexSupport.getIndexName} index lookup took ${indexElapsed}ms")
+
           if (prunedFileNames.nonEmpty) {
             val totalLookupElapsed = System.currentTimeMillis() - lookupStartTime
-            logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] Total lookupCandidateFilesInMetadataTable took ${totalLookupElapsed}ms")
+            logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] [2.0.6] Total lookupCandidateFilesInMetadataTable took ${totalLookupElapsed}ms (found candidates)")
             return Try(prunedFileNames)
           }
+          logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] [2.0.7] ${indexSupport.getIndexName} returned no candidates")
+        } else {
+          val availabilityCheckElapsed = System.currentTimeMillis() - indexIterationStart
+          logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] [2.0.8] ${indexSupport.getIndexName} skipped (not available or doesn't support query type, check took ${availabilityCheckElapsed}ms)")
         }
-        logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] ${indexSupport.getIndexName} being processed")
+
+        val indexIterationElapsed = System.currentTimeMillis() - indexIterationStart
+        logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] [2.0.9] ${indexSupport.getIndexName} total iteration took ${indexIterationElapsed}ms")
       }
+      val loopElapsed = System.currentTimeMillis() - loopStartTime
+      logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] [2.0.10] Total loop through all indices took ${loopElapsed}ms")
     }
     val totalLookupElapsed = System.currentTimeMillis() - lookupStartTime
     logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] [2.0.summary] Total lookupCandidateFilesInMetadataTable took ${totalLookupElapsed}ms (no candidates found)")

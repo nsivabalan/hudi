@@ -87,7 +87,7 @@ class ExpressionIndexSupport(spark: SparkSession,
         }
         loadTransposed(queryReferencedColumns, readInMemory, expressionIndexRecords, expressionIndexQuery) {
           transposedColStatsDF =>Some(getCandidateFiles(transposedColStatsDF, Seq(expressionIndexQuery), prunedFileNames, getValidIndexedColumnsFunc,
-            isExpressionIndex = true, Option.apply(indexDefinition)))
+            isExpressionIndex = true, Option.apply(indexDefinition), tableType = metaClient.getTableConfig.getTableType))
         }
       } else if (indexDefinition.getIndexType.equals(HoodieTableMetadataUtil.PARTITION_NAME_BLOOM_FILTERS)) {
         val prunedPartitionAndFileNames = getPrunedPartitionsAndFileNamesMap(prunedPartitionsAndFileSlices, includeLogFiles = true)

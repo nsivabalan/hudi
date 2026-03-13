@@ -83,6 +83,7 @@ public class TestMetadataBenchmarkingTool {
     config.dataFilters = "tenantID = 41000";
     config.partitionFilter = "dt = '2025-02-01'";
     config.tenantIdRange = 3000000;
+    config.mode = MetadataBenchmarkingTool.Config.BenchmarkMode.QUERY;
     MetadataBenchmarkingTool metadataBenchmarkingTool = new MetadataBenchmarkingTool(sparkSession, config);
     metadataBenchmarkingTool.run();
   }
