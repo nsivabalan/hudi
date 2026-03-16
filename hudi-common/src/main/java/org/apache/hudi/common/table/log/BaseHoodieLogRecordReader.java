@@ -203,6 +203,9 @@ public abstract class BaseHoodieLogRecordReader<T> {
   }
 
   private void scanInternalV1(Option<KeySpec> keySpecOpt) {
+    long scanStartTime = System.currentTimeMillis();
+    LOG.info("[TIMER] [scanInternalV1] START at {}", scanStartTime);
+
     currentInstantLogBlocks = new ArrayDeque<>();
 
     progress = 0.0f;
@@ -214,38 +217,66 @@ public abstract class BaseHoodieLogRecordReader<T> {
     HoodieLogFormatReader logFormatReaderWrapper = null;
     try {
       // Iterate over the paths
+      long readerInitStart = System.currentTimeMillis();
       logFormatReaderWrapper = new HoodieLogFormatReader(storage, logFiles,
           readerSchema, reverseReader, bufferSize, shouldLookupRecords(), recordKeyField, internalSchema);
+      long readerInitElapsed = System.currentTimeMillis() - readerInitStart;
+      LOG.info("[TIMER] [scanInternalV1] HoodieLogFormatReader initialization took {}ms for {} log files",
+          readerInitElapsed, logFiles.size());
 
       Set<HoodieLogFile> scannedLogFiles = new HashSet<>();
+      long blockIterationTotalTime = 0;
+      long timelineCheckTotalTime = 0;
+      long blockProcessingTotalTime = 0;
+      int blockCount = 0;
+
+      long loopStartTime = System.currentTimeMillis();
       while (logFormatReaderWrapper.hasNext()) {
+        long blockStartTime = System.currentTimeMillis();
+
         HoodieLogFile logFile = logFormatReaderWrapper.getLogFile();
         LOG.debug("Scanning log file {}", logFile);
         scannedLogFiles.add(logFile);
         totalLogFiles.set(scannedLogFiles.size());
+
         // Use the HoodieLogFileReader to iterate through the blocks in the log file
+        long readBlockStart = System.currentTimeMillis();
         HoodieLogBlock logBlock = logFormatReaderWrapper.next();
+        long readBlockElapsed = System.currentTimeMillis() - readBlockStart;
+
         final String instantTime = logBlock.getLogBlockHeader().get(INSTANT_TIME);
         totalLogBlocks.incrementAndGet();
+        blockCount++;
+
+        long timelineCheckStart = System.currentTimeMillis();
         if (logBlock.isDataOrDeleteBlock()) {
           if (this.tableVersion.lesserThan(HoodieTableVersion.EIGHT) && !allowInflightInstants) {
             HoodieTimeline commitsTimeline = this.hoodieTableMetaClient.getCommitsTimeline();
             if (commitsTimeline.filterInflights().containsInstant(instantTime)
                 || !commitsTimeline.filterCompletedInstants().containsOrBeforeTimelineStarts(instantTime)) {
               // hit an uncommitted block possibly from a failed write, move to the next one and skip processing this one
+              long timelineCheckElapsed = System.currentTimeMillis() - timelineCheckStart;
+              timelineCheckTotalTime += timelineCheckElapsed;
               continue;
             }
           }
           if (compareTimestamps(logBlock.getLogBlockHeader().get(INSTANT_TIME), GREATER_THAN, this.latestInstantTime)) {
             // Skip processing a data or delete block with the instant time greater than the latest instant time used by this log record reader
+            long timelineCheckElapsed = System.currentTimeMillis() - timelineCheckStart;
+            timelineCheckTotalTime += timelineCheckElapsed;
             continue;
           }
           if (instantRange.isPresent() && !instantRange.get().isInRange(instantTime)) {
             // filter the log block by instant range
+            long timelineCheckElapsed = System.currentTimeMillis() - timelineCheckStart;
+            timelineCheckTotalTime += timelineCheckElapsed;
             continue;
           }
         }
+        long timelineCheckElapsed = System.currentTimeMillis() - timelineCheckStart;
+        timelineCheckTotalTime += timelineCheckElapsed;
 
+        long blockTypeProcessStart = System.currentTimeMillis();
         switch (logBlock.getBlockType()) {
           case HFILE_DATA_BLOCK:
           case AVRO_DATA_BLOCK:
@@ -323,16 +354,43 @@ public abstract class BaseHoodieLogRecordReader<T> {
           default:
             throw new UnsupportedOperationException("Block type not supported yet");
         }
+        long blockTypeProcessElapsed = System.currentTimeMillis() - blockTypeProcessStart;
+        blockProcessingTotalTime += blockTypeProcessElapsed;
+
+        long blockTotalElapsed = System.currentTimeMillis() - blockStartTime;
+        blockIterationTotalTime += blockTotalElapsed;
+
+        // Log every 100 blocks or if a single block takes more than 100ms
+        if (blockCount % 100 == 0 || blockTotalElapsed > 100) {
+          LOG.info("[TIMER] [scanInternalV1] Block #{}: total={}ms (read={}ms, timelineCheck={}ms, processing={}ms), blockType={}, instantTime={}",
+              blockCount, blockTotalElapsed, readBlockElapsed, timelineCheckElapsed, blockTypeProcessElapsed,
+              logBlock.getBlockType(), instantTime);
+        }
       }
+
+      long loopElapsed = System.currentTimeMillis() - loopStartTime;
+      LOG.info("[TIMER] [scanInternalV1] Block iteration loop completed: total={}ms for {} blocks, avg={}ms/block",
+          loopElapsed, blockCount, blockCount > 0 ? loopElapsed / blockCount : 0);
+      LOG.info("[TIMER] [scanInternalV1] Block iteration breakdown: read/next={}ms, timelineChecks={}ms, processing={}ms",
+          blockIterationTotalTime, timelineCheckTotalTime, blockProcessingTotalTime);
+
       // merge the last read block when all the blocks are done reading
       if (!currentInstantLogBlocks.isEmpty()) {
         LOG.debug("Merging the final data blocks");
+        long mergeStartTime = System.currentTimeMillis();
         processQueuedBlocksForInstant(currentInstantLogBlocks, scannedLogFiles.size(), keySpecOpt);
+        long mergeElapsed = System.currentTimeMillis() - mergeStartTime;
+        LOG.info("[TIMER] [scanInternalV1] processQueuedBlocksForInstant took {}ms for {} blocks",
+            mergeElapsed, currentInstantLogBlocks.size());
       }
 
       // Done
       progress = 1.0f;
       totalLogRecords.set(recordBuffer.getTotalLogRecords());
+
+      long totalScanElapsed = System.currentTimeMillis() - scanStartTime;
+      LOG.info("[TIMER] [scanInternalV1] COMPLETE: total={}ms, records={}",
+          totalScanElapsed, totalLogRecords.get());
     } catch (IOException e) {
       LOG.error("Got IOException when reading log file", e);
       throw new HoodieIOException("IOException when reading log file ", e);

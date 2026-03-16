@@ -34,7 +34,7 @@ public class AvroRecordSizeEstimator implements SizeEstimator<BufferedRecord<Ind
   private final long sizeOfSchema;
 
   public AvroRecordSizeEstimator(Schema recordSchema) {
-    sizeOfSchema = ObjectSizeCalculator.getObjectSize(recordSchema);
+    sizeOfSchema = 56792L;
   }
 
   @Override
