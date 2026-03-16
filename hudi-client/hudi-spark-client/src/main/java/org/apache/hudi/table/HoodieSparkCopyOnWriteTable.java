@@ -67,6 +67,7 @@ import org.apache.hudi.table.action.commit.SparkBulkInsertPreppedCommitActionExe
 import org.apache.hudi.table.action.commit.SparkDeleteCommitActionExecutor;
 import org.apache.hudi.table.action.commit.SparkDeletePartitionCommitActionExecutor;
 import org.apache.hudi.table.action.commit.SparkDeletePreppedCommitActionExecutor;
+import org.apache.hudi.table.action.commit.SparkRestorePartitionsCommitActionExecutor;
 import org.apache.hudi.table.action.commit.SparkInsertCommitActionExecutor;
 import org.apache.hudi.table.action.commit.SparkInsertOverwriteCommitActionExecutor;
 import org.apache.hudi.table.action.commit.SparkInsertOverwriteTableCommitActionExecutor;
@@ -138,7 +139,20 @@ public class HoodieSparkCopyOnWriteTable<T>
 
   @Override
   public HoodieWriteMetadata<HoodieData<WriteStatus>> deletePartitions(HoodieEngineContext context, String instantTime, List<String> partitions) {
-    return new SparkDeletePartitionCommitActionExecutor<>(context, config, this, instantTime, partitions).execute();
+    return new SparkDeletePartitionCommitActionExecutor<>(context, config, this, instantTime, partitions, Option.empty()).execute();
+  }
+
+  @Override
+  public HoodieWriteMetadata<HoodieData<WriteStatus>> deletePartitions(HoodieEngineContext context, String instantTime, List<String> partitions,
+                                                                       Option<String> backupLocation) {
+    return new SparkDeletePartitionCommitActionExecutor<>(context, config, this, instantTime, partitions, backupLocation).execute();
+  }
+
+  @Override
+  public HoodieWriteMetadata<HoodieData<WriteStatus>> restorePartitions(HoodieEngineContext context, String instantTime,
+                                                                        List<String> partitions, String backupLocation) {
+    return new SparkRestorePartitionsCommitActionExecutor<>(context, config, this, instantTime, partitions,
+        backupLocation).execute();
   }
 
   @Override

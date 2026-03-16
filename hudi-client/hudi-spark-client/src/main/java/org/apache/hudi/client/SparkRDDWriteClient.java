@@ -56,6 +56,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.function.BiConsumer;
@@ -258,11 +259,29 @@ public class SparkRDDWriteClient<T> extends
   }
 
   public HoodieWriteResult deletePartitions(List<String> partitions, String instantTime) {
+    return deletePartitions(partitions, instantTime, Option.empty());
+  }
+
+  public HoodieWriteResult deletePartitions(List<String> partitions, String instantTime, String backupLocation) {
+    return deletePartitions(partitions, instantTime, Option.of(backupLocation));
+  }
+
+  public HoodieWriteResult deletePartitions(List<String> partitions, String instantTime, Option<String> backupLocation) {
     HoodieTable<T, HoodieData<HoodieRecord<T>>, HoodieData<HoodieKey>, HoodieData<WriteStatus>> table = initTable(WriteOperationType.DELETE_PARTITION, Option.ofNullable(instantTime));
     preWrite(instantTime, WriteOperationType.DELETE_PARTITION, table.getMetaClient());
-    HoodieWriteMetadata<HoodieData<WriteStatus>> result = table.deletePartitions(context, instantTime, partitions);
+    HoodieWriteMetadata<HoodieData<WriteStatus>> result = table.deletePartitions(context, instantTime, partitions, backupLocation);
     HoodieWriteMetadata<JavaRDD<WriteStatus>> resultRDD = result.clone(HoodieJavaRDD.getJavaRDD(result.getWriteStatuses()));
-    return new HoodieWriteResult(postWrite(resultRDD, instantTime, table), result.getPartitionToReplaceFileIds());
+    return new HoodieWriteResult(postWrite(resultRDD, instantTime, table), result.getPartitionToReplaceFileIds(),
+        result.getCommitMetadata().isPresent() ? result.getCommitMetadata().get().getExtraMetadata() : Collections.emptyMap());
+  }
+
+  public HoodieWriteResult restorePartitions(List<String> partitions, String instantTime, String backupLocation) {
+    HoodieTable<T, HoodieData<HoodieRecord<T>>, HoodieData<HoodieKey>, HoodieData<WriteStatus>> table = initTable(WriteOperationType.DELETE_PARTITION, Option.ofNullable(instantTime));
+    preWrite(instantTime, WriteOperationType.RESTORE_PARTITION, table.getMetaClient());
+    HoodieWriteMetadata<HoodieData<WriteStatus>> result = table.restorePartitions(context, instantTime, partitions, backupLocation);
+    HoodieWriteMetadata<JavaRDD<WriteStatus>> resultRDD = result.clone(HoodieJavaRDD.getJavaRDD(result.getWriteStatuses()));
+    return new HoodieWriteResult(postWrite(resultRDD, instantTime, table), result.getPartitionToReplaceFileIds(),
+        result.getCommitMetadata().isPresent() ? result.getCommitMetadata().get().getExtraMetadata() : Collections.emptyMap());
   }
 
   @Override

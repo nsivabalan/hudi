@@ -32,6 +32,7 @@ public class HoodieWriteResult implements Serializable {
 
   private JavaRDD<WriteStatus> writeStatuses;
   private Map<String, List<String>> partitionToReplaceFileIds;
+  private Map<String, String> operationStatus;
 
   public HoodieWriteResult(JavaRDD<WriteStatus> writeStatuses) {
     this(writeStatuses, Collections.emptyMap());
@@ -40,6 +41,14 @@ public class HoodieWriteResult implements Serializable {
   public HoodieWriteResult(JavaRDD<WriteStatus> writeStatuses, Map<String, List<String>> partitionToReplaceFileIds) {
     this.writeStatuses = writeStatuses;
     this.partitionToReplaceFileIds = partitionToReplaceFileIds;
+    this.operationStatus = Collections.emptyMap();
+  }
+
+  public HoodieWriteResult(JavaRDD<WriteStatus> writeStatuses, Map<String, List<String>> partitionToReplaceFileIds,
+                           Map<String, String> opStatus) {
+    this.writeStatuses = writeStatuses;
+    this.partitionToReplaceFileIds = partitionToReplaceFileIds;
+    this.operationStatus = opStatus;
   }
 
   public JavaRDD<WriteStatus> getWriteStatuses() {
@@ -58,11 +67,20 @@ public class HoodieWriteResult implements Serializable {
     this.partitionToReplaceFileIds = partitionToReplaceFileIds;
   }
 
+  public Map<String, String> getOperationStatus() {
+    return this.operationStatus;
+  }
+
+  public void setOperationStatus(final Map<String, String> opStatus) {
+    this.operationStatus = opStatus;
+  }
+
   @Override
   public String toString() {
     return "HoodieWriteResult{"
         + "writeStatuses=" + writeStatuses
         + ", partitionToReplaceFileIds=" + partitionToReplaceFileIds
+        + ", OperationStatus=" + operationStatus
         + '}';
   }
 }

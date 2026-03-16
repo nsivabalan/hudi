@@ -21,26 +21,39 @@ package org.apache.hudi.table.action.commit;
 import org.apache.hudi.client.WriteStatus;
 import org.apache.hudi.common.data.HoodieData;
 import org.apache.hudi.common.engine.HoodieEngineContext;
+import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.FileSlice;
+import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.model.HoodieRecord;
+import org.apache.hudi.common.model.HoodieWriteStat;
 import org.apache.hudi.common.model.WriteOperationType;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
+import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.StringUtils;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.config.HoodieInternalConfig;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.data.HoodieJavaPairRDD;
+import org.apache.hudi.exception.MetadataNotFoundException;
+import org.apache.hudi.io.storage.HoodieFileReader;
+import org.apache.hudi.io.storage.HoodieFileReaderFactory;
 import org.apache.hudi.table.HoodieTable;
 import org.apache.hudi.table.WorkloadProfile;
 import org.apache.hudi.table.action.HoodieWriteMetadata;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
 import org.apache.spark.Partitioner;
 
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+
+import static java.util.stream.Collectors.toList;
 
 public class SparkInsertOverwriteCommitActionExecutor<T>
     extends BaseSparkCommitActionExecutor<T> {
@@ -58,6 +71,15 @@ public class SparkInsertOverwriteCommitActionExecutor<T>
                                                   String instantTime, HoodieData<HoodieRecord<T>> inputRecordsRDD,
                                                   WriteOperationType writeOperationType) {
     super(context, config, table, instantTime, writeOperationType);
+    this.inputRecordsRDD = inputRecordsRDD;
+  }
+
+  public SparkInsertOverwriteCommitActionExecutor(HoodieEngineContext context,
+                                                  HoodieWriteConfig config, HoodieTable table,
+                                                  String instantTime, HoodieData<HoodieRecord<T>> inputRecordsRDD,
+                                                  WriteOperationType writeOperationType,
+                                                  Option<Map<String, String>> extraMetadata) {
+    super(context, config, table, instantTime, writeOperationType, extraMetadata);
     this.inputRecordsRDD = inputRecordsRDD;
   }
 
@@ -111,5 +133,56 @@ public class SparkInsertOverwriteCommitActionExecutor<T>
       default:
         throw new AssertionError("Expect INSERT bucketType for insert overwrite, please correct the logical of " + partitioner.getClass().getName());
     }
+  }
+
+  protected List<Option<HoodieBaseFile>> getAllExistingBaseFiles(String partitionPath) {
+    return table
+        .getSliceView()
+        .getAllFileSlices(partitionPath)
+        .map(fg -> fg.getBaseFile()).distinct().collect(Collectors.toList());
+  }
+
+  protected WriteStatus generateWriteStatus(HoodieBaseFile baseFile, String fileId, String partition,
+                                            String baseLocation, Path filePath) {
+    try {
+      HoodieFileReader reader = HoodieFileReaderFactory.getReaderFactory(HoodieRecord.HoodieRecordType.AVRO)
+          .getFileReader(table.getHadoopConf(), filePath);
+      long totalRecords = reader.getTotalRecords();
+      long fileSizeInBytes = baseFile.getFileSize();
+      WriteStatus ws = new WriteStatus(false, config.getWriteStatusFailureFraction());
+      ws.setFileId(fileId);
+      ws.setPartitionPath(partition);
+      ws.setTotalRecords(totalRecords);
+      HoodieWriteStat stat = new HoodieWriteStat();
+      stat.setNumWrites(totalRecords);
+      stat.setNumInserts(totalRecords);
+      stat.setFileId(ws.getFileId());
+      stat.setTotalWriteBytes(fileSizeInBytes);
+      stat.setFileSizeInBytes(fileSizeInBytes);
+      stat.setPartitionPath(ws.getPartitionPath());
+      stat.setPrevCommit(HoodieWriteStat.NULL_COMMIT);
+      stat.setFileId(ws.getFileId());
+      stat.setPath(FSUtils.getRelativePartitionPath(new Path(baseLocation), filePath));
+      ws.setStat(stat);
+      return ws;
+    } catch (IOException | MetadataNotFoundException me) {
+      return new WriteStatus(false, config.getWriteStatusFailureFraction());
+    }
+  }
+
+  protected List<Pair<String, HoodieBaseFile>> generateListOfPartitionFiles(HoodieEngineContext context,
+                                                                            String baseLocation, List<String> partitions) {
+    context.setJobStatus(SparkInsertOverwriteCommitActionExecutor.class.getSimpleName(), String.format(
+        "Generating partition to files map for partitions %s ", partitions));
+    return context.flatMap(partitions, partition -> {
+      Configuration hadoopConf = table.getHadoopConf();
+      Path partitionPath = new Path(baseLocation, partition);
+      FileSystem fileSystem = partitionPath.getFileSystem(hadoopConf);
+      List<Pair<String, HoodieBaseFile>> filteredFiles = Arrays.stream(fileSystem.listStatus(partitionPath))
+          .filter(fileStatus -> fileStatus.getPath().getName().endsWith(table.getBaseFileExtension()))
+          .map(status -> Pair.of(partition, new HoodieBaseFile(status)))
+          .collect(toList());
+      return filteredFiles.stream();
+    }, Math.max(partitions.size(), 1)).stream().collect(toList());
   }
 }

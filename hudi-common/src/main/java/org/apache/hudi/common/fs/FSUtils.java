@@ -211,6 +211,10 @@ public class FSUtils {
     return fullFileName.split("_", 2)[0];
   }
 
+  public static String getWriteToken(String fullFileName) {
+    return fullFileName.split("_")[1];
+  }
+
   /**
    * Gets all partition paths assuming date partitioning (year, month, day) three levels down.
    */

@@ -227,13 +227,42 @@ public abstract class HoodieTable<T, I, K, O> implements Serializable {
   public abstract HoodieWriteMetadata<O> deletePrepped(HoodieEngineContext context, String instantTime, I preppedRecords);
 
   /**
+   * Deletes all data of partitions (without stashing).
+   * @param context    HoodieEngineContext
+   * @param instantTime Instant Time for the action
+   * @param partitions   {@link List} of partition to be deleted
+   * @return HoodieWriteMetadata
+   */
+  public HoodieWriteMetadata deletePartitions(HoodieEngineContext context, String instantTime,
+                                              List<String> partitions) {
+    return deletePartitions(context, instantTime, partitions, Option.empty());
+  }
+
+  /**
    * Deletes all data of partitions.
    * @param context HoodieEngineContext
    * @param instantTime Instant Time for the action
    * @param partitions {@link List} of partition to be deleted
+   * @param backupLocation optional location to stash the deleted partition data
    * @return HoodieWriteMetadata
    */
-  public abstract HoodieWriteMetadata<O> deletePartitions(HoodieEngineContext context, String instantTime, List<String> partitions);
+  public HoodieWriteMetadata deletePartitions(HoodieEngineContext context, String instantTime,
+                                              List<String> partitions, Option<String> backupLocation) {
+    throw new UnsupportedOperationException("deletePartitions with backup location is not supported");
+  }
+
+  /**
+   * Restores previously stashed partition data back to the table.
+   * @param context     HoodieEngineContext
+   * @param instantTime Instant time for the action
+   * @param partitions  {@link List} of partition to be restored
+   * @param backupLocation Location where the deleted partitions are stashed
+   * @return            HoodieWriteMetadata
+   */
+  public HoodieWriteMetadata restorePartitions(HoodieEngineContext context, String instantTime,
+                                               List<String> partitions, String backupLocation) {
+    throw new UnsupportedOperationException("restorePartitions is not supported");
+  }
 
   /**
    * Upserts the given prepared records into the Hoodie table, at the supplied instantTime.
