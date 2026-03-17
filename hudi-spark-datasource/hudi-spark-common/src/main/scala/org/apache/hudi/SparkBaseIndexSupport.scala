@@ -158,7 +158,7 @@ abstract class SparkBaseIndexSupport(spark: SparkSession,
       val totalElapsedFromPreLoad = System.currentTimeMillis() - preLoadStartTime
       logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER][2.0.2] getCandidateFiles: Apply filter and collect took ${totalElapsedFromPreLoad} from preload. " +
         s"Total time just for filtering ${applyFilterElapsed}ms (${prunedCandidateFileNames.size} candidate files)")
-
+      val getUnindexedStartTime = System.currentTimeMillis()
       // NOTE: Col-Stats Index isn't guaranteed to have complete set of statistics for every
       //       base-file or log file: since it's bound to clustering, which could occur asynchronously
       //       at arbitrary point in time, and is not likely to be touching all of the base files.
@@ -166,7 +166,7 @@ abstract class SparkBaseIndexSupport(spark: SparkSession,
       //       To close that gap, we manually compute the difference b/w all indexed (by col-stats-index)
       //       files and all outstanding base-files or log files, and make sure that all base files and
       //       log file not represented w/in the index are included in the output of this method
-      val getUnindexedStartTime = System.currentTimeMillis()
+      /*val getUnindexedStartTime = System.currentTimeMillis()
       val allIndexedFileNames =
       indexDf.select(HoodieMetadataPayload.COLUMN_STATS_FIELD_FILE_NAME)
         .collect()
@@ -175,8 +175,10 @@ abstract class SparkBaseIndexSupport(spark: SparkSession,
       val notIndexedFileNames = fileNamesFromPrunedPartitions -- allIndexedFileNames
       val getUnindexedElapsed = System.currentTimeMillis() - getUnindexedStartTime
       logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER] getCandidateFiles: Get unindexed files took ${getUnindexedElapsed}ms (${allIndexedFileNames.size} indexed, ${notIndexedFileNames.size} not indexed)")
-
       val finalCandidates = prunedCandidateFileNames ++ notIndexedFileNames
+       */
+      val getUnindexedElapsed = System.currentTimeMillis() - getUnindexedStartTime
+      val finalCandidates = prunedCandidateFileNames
       val totalElapsed = System.currentTimeMillis() - getCandidateFilesStartTime
       val totalTimePostFiltering = System.currentTimeMillis() - getUnindexedStartTime
       logInfo(System.currentTimeMillis() + s"$tableTypePrefix [TIMER][2.0.3] getCandidateFiles: Total time elapsed post filtering  ${totalTimePostFiltering}ms (${finalCandidates.size} final candidates from ${fileNamesFromPrunedPartitions.size} total files)")
