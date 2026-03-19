@@ -51,10 +51,12 @@ import org.apache.avro.Schema;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
 
@@ -318,6 +320,17 @@ public final class HoodieFileGroupReader<T> implements Closeable {
   public ClosableIterator<BufferedRecord<T>> getLogRecordsOnly() throws IOException {
     initRecordIterators();
     return recordBuffer.getLogRecordIterator();
+  }
+
+  /**
+   * Returns the log records as a map keyed by record key or position.
+   *
+   * @return a map from record key or position to the corresponding {@link BufferedRecord} from the log files
+   * @throws IOException if an error occurs during initialization of record iterators
+   */
+  public Map<Serializable, BufferedRecord<T>> getLogRecordsMap() throws IOException {
+    initRecordIterators();
+    return recordBuffer.getLogRecords();
   }
 
   public static class HoodieFileGroupReaderIterator<T> implements ClosableIterator<BufferedRecord<T>> {
