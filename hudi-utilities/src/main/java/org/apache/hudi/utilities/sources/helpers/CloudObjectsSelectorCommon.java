@@ -151,16 +151,17 @@ public class CloudObjectsSelectorCommon {
             .map(row -> CompletableFuture.supplyAsync(
                 () -> processRow(row, storageUrlSchemePrefix, storageConf, true), executor))
             .collect(Collectors.toList());
+        try {
+          CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        } catch (CompletionException e) {
+          throw new HoodieException("Failed during parallel cloud object existence check", e.getCause());
+        }
+        // All futures are complete — join() on already-completed futures returns immediately
         return futures.stream()
-            .map(future -> {
-              try {
-                return future.join();
-              } catch (CompletionException e) {
-                throw new HoodieException("Failed during parallel cloud object existence check", e.getCause());
-              }
-            })
+            .map(CompletableFuture::join)
             .filter(Option::isPresent)
             .map(Option::get)
+            .collect(Collectors.toList())
             .iterator();
       } finally {
         executor.shutdownNow();
