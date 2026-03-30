@@ -160,8 +160,8 @@ public class DFSPropertiesConfiguration extends PropertiesConfig {
     );
 
     try {
-      if (filePath.equals(DEFAULT_PATH) && !storage.exists(filePath)) {
-        LOG.debug("Properties file {} not found. Ignoring to load props file", filePath);
+      if (!storage.exists(filePath)) {
+        LOG.warn("Properties file " + filePath + " not found. Ignoring to load props file");
         return;
       }
     } catch (IOException ioe) {
