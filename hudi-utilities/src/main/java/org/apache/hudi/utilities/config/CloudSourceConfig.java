@@ -192,4 +192,13 @@ public class CloudSourceConfig extends HoodieConfig {
       .defaultValue(false)
       .markAdvanced()
       .withDocumentation("When enabled, adds a column containing source file path of each record");
+
+  public static final ConfigProperty<Integer> EXISTS_CHECK_PARALLELISM = ConfigProperty
+      .key(STREAMER_CLOUD_SOURCE_PREFIX + "data.check.file.exists.parallelism")
+      .defaultValue(16)
+      .sinceVersion("1.2.0")
+      .markAdvanced()
+      .withDocumentation("Number of threads per Spark task for parallel cloud object existence checks. "
+          + "Each task uses a fixed thread pool of this size to issue HEAD requests concurrently. "
+          + "If not explicitly set, defaults to 4 × spark.executor.cores.");
 }

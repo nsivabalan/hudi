@@ -21,12 +21,18 @@ package org.apache.hudi.utilities.sources.helpers;
 import org.apache.hudi.AvroConversionUtils;
 import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.storage.StorageConfiguration;
+import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
 import org.apache.hudi.testutils.HoodieSparkClientTestHarness;
+import org.apache.hudi.utilities.config.CloudSourceConfig;
+import org.apache.hudi.utilities.config.S3EventsHoodieIncrSourceConfig;
 import org.apache.hudi.utilities.schema.FilebasedSchemaProvider;
 
 import org.apache.avro.Schema;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Encoders;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.RowFactory;
 import org.apache.spark.sql.types.StructType;
@@ -43,7 +49,11 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public class TestCloudObjectsSelectorCommon extends HoodieSparkClientTestHarness {
 
@@ -298,6 +308,133 @@ public class TestCloudObjectsSelectorCommon extends HoodieSparkClientTestHarness
       expectedRow = RowFactory.create("some data", nestedMetadata);
     }
     Assertions.assertEquals(Collections.singletonList(expectedRow), result.get().collectAsList());
+  }
+
+  @Test
+  void testGetObjectMetadataRepartitions() {
+    // Create a DataFrame simulating S3 event metadata with the nested column structure
+    // that getObjectMetadata expects: s3.bucket.name, s3.object.key, s3.object.size
+    List<String> jsonRecords = Arrays.asList(
+        "{\"s3\":{\"bucket\":{\"name\":\"test-bucket\"},\"object\":{\"key\":\"path/file1.json\",\"size\":100}}}",
+        "{\"s3\":{\"bucket\":{\"name\":\"test-bucket\"},\"object\":{\"key\":\"path/file2.json\",\"size\":200}}}",
+        "{\"s3\":{\"bucket\":{\"name\":\"test-bucket\"},\"object\":{\"key\":\"path/file3.json\",\"size\":300}}}",
+        // duplicate to verify distinct() works
+        "{\"s3\":{\"bucket\":{\"name\":\"test-bucket\"},\"object\":{\"key\":\"path/file1.json\",\"size\":100}}}"
+    );
+    Dataset<Row> cloudObjectMetadataDF = sparkSession.read().json(
+        sparkSession.createDataset(jsonRecords, Encoders.STRING()));
+
+    TypedProperties props = new TypedProperties();
+    props.put(CloudSourceConfig.ENABLE_EXISTS_CHECK.key(), "false");
+    props.put(CloudSourceConfig.EXISTS_CHECK_PARALLELISM.key(), "2");
+    // s3FS prefix required for S3 type
+    props.put(S3EventsHoodieIncrSourceConfig.S3_FS_PREFIX.key(), "s3");
+
+    List<CloudObjectMetadata> result = CloudObjectsSelectorCommon.getObjectMetadata(
+        CloudObjectsSelectorCommon.Type.S3, jsc, cloudObjectMetadataDF, false, props);
+
+    // Should return 3 distinct files (duplicate removed)
+    Assertions.assertEquals(3, result.size());
+    Set<String> paths = result.stream().map(CloudObjectMetadata::getPath).collect(Collectors.toSet());
+    Assertions.assertTrue(paths.contains("s3://test-bucket/path/file1.json"));
+    Assertions.assertTrue(paths.contains("s3://test-bucket/path/file2.json"));
+    Assertions.assertTrue(paths.contains("s3://test-bucket/path/file3.json"));
+
+    // Also validate sizes
+    Map<String, Long> pathToSize = result.stream()
+        .collect(Collectors.toMap(CloudObjectMetadata::getPath, CloudObjectMetadata::getSize));
+    Assertions.assertEquals(100L, pathToSize.get("s3://test-bucket/path/file1.json"));
+    Assertions.assertEquals(200L, pathToSize.get("s3://test-bucket/path/file2.json"));
+    Assertions.assertEquals(300L, pathToSize.get("s3://test-bucket/path/file3.json"));
+  }
+
+  @Test
+  void testGetObjectMetadataWithExistsCheck() {
+    // Test the full getObjectMetadata path with checkIfExists=true using real local files.
+    // Use file:// as the S3 FS prefix so URLs resolve to local filesystem.
+    String existingFile = new File("src/test/resources/data/partitioned/country=US/state=CA/data.json")
+        .toURI().getPath().substring(1);
+    String nonExistentFile = "tmp/non_existent_file_" + System.nanoTime() + ".json";
+
+    List<String> jsonRecords = Arrays.asList(
+        String.format("{\"s3\":{\"bucket\":{\"name\":\"\"},\"object\":{\"key\":\"%s\",\"size\":100}}}", existingFile),
+        String.format("{\"s3\":{\"bucket\":{\"name\":\"\"},\"object\":{\"key\":\"%s\",\"size\":200}}}", nonExistentFile),
+        // duplicate of existing file
+        String.format("{\"s3\":{\"bucket\":{\"name\":\"\"},\"object\":{\"key\":\"%s\",\"size\":100}}}", existingFile)
+    );
+    Dataset<Row> cloudObjectMetadataDF = sparkSession.read().json(
+        sparkSession.createDataset(jsonRecords, Encoders.STRING()));
+
+    TypedProperties props = new TypedProperties();
+    props.put(CloudSourceConfig.EXISTS_CHECK_PARALLELISM.key(), "4");
+    props.put(S3EventsHoodieIncrSourceConfig.S3_FS_PREFIX.key(), "file");
+
+    List<CloudObjectMetadata> result = CloudObjectsSelectorCommon.getObjectMetadata(
+        CloudObjectsSelectorCommon.Type.S3, jsc, cloudObjectMetadataDF, true, props);
+
+    // Only the existing file should be returned (non-existent filtered, duplicate deduped)
+    Assertions.assertEquals(1, result.size());
+    Assertions.assertEquals("file:///" + existingFile, result.get(0).getPath());
+    Assertions.assertEquals(100L, result.get(0).getSize());
+  }
+
+  @Test
+  void testParallelExistsCheck() throws Exception {
+    StorageConfiguration<Configuration> storageConf = new HadoopStorageConfiguration(jsc.hadoopConfiguration());
+
+    // Use real test resource files (strip leading "/" so URL becomes file:///abs/path)
+    String existingFile1 = new File("src/test/resources/data/partitioned/country=US/state=CA/data.json")
+        .toURI().getPath().substring(1);
+    String existingFile2 = new File("src/test/resources/data/partitioned/country=US/state=TX/data.json")
+        .toURI().getPath().substring(1);
+    String nonExistentFile = "tmp/non_existent_file_" + System.nanoTime() + ".json";
+
+    // Row schema: [bucket, key, size] — URL = prefix + bucket + "/" + key
+    List<Row> rows = Arrays.asList(
+        RowFactory.create("", existingFile1, 100L),
+        RowFactory.create("", existingFile2, 200L),
+        RowFactory.create("", nonExistentFile, 300L)
+    );
+
+    // Parallel path: checkIfExists=true, parallelism=8
+    Iterator<CloudObjectMetadata> iter = CloudObjectsSelectorCommon
+        .getCloudObjectMetadataPerPartition("file://", storageConf, true, 8)
+        .call(rows.iterator());
+    List<CloudObjectMetadata> result = new ArrayList<>();
+    iter.forEachRemaining(result::add);
+
+    // Non-existent file should be filtered out
+    Assertions.assertEquals(2, result.size());
+    Map<String, Long> pathToSize = result.stream()
+        .collect(Collectors.toMap(CloudObjectMetadata::getPath, CloudObjectMetadata::getSize));
+    Assertions.assertEquals(100L, pathToSize.get("file:///" + existingFile1));
+    Assertions.assertEquals(200L, pathToSize.get("file:///" + existingFile2));
+    Assertions.assertFalse(pathToSize.containsKey("file:///" + nonExistentFile));
+  }
+
+  @Test
+  void testSequentialExistsCheckFallback() throws Exception {
+    StorageConfiguration<Configuration> storageConf = new HadoopStorageConfiguration(jsc.hadoopConfiguration());
+
+    String existingFile = new File("src/test/resources/data/partitioned/country=US/state=CA/data.json")
+        .toURI().getPath().substring(1);
+    String nonExistentFile = "tmp/non_existent_file_" + System.nanoTime() + ".json";
+
+    List<Row> rows = Arrays.asList(
+        RowFactory.create("", existingFile, 100L),
+        RowFactory.create("", nonExistentFile, 200L)
+    );
+
+    // Sequential fallback: checkIfExists=true, parallelism=1
+    Iterator<CloudObjectMetadata> iter = CloudObjectsSelectorCommon
+        .getCloudObjectMetadataPerPartition("file://", storageConf, true, 1)
+        .call(rows.iterator());
+    List<CloudObjectMetadata> result = new ArrayList<>();
+    iter.forEachRemaining(result::add);
+
+    Assertions.assertEquals(1, result.size());
+    Assertions.assertEquals("file:///" + existingFile, result.get(0).getPath());
+    Assertions.assertEquals(100L, result.get(0).getSize());
   }
 
   /**
