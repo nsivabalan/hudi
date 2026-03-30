@@ -9,6 +9,10 @@ on:
         description: 'Version tag for the artifact (e.g. hudi-1.1.0-t1-mar2)'
         required: true
         type: string
+      branch:
+        description: 'Branch to checkout and build from (e.g. hudi-1.1.0-t1)'
+        required: true
+        type: string
 
 env:
   MVN_ARGS: -ntp -B -V -Pci-log -Pwarn-log -Dorg.slf4j.simpleLogger.log.org.apache.maven.plugins.shade=warn -Dorg.slf4j.simpleLogger.log.org.apache.maven.plugins.dependency=warn
@@ -23,7 +27,7 @@ permissions:
 jobs:
   deploy:
     if: ${{ (github.event_name == 'workflow_dispatch') || (github.event.pull_request && contains(github.event.review.body, '/push-jar')) }}
-    runs-on: ubuntu-latest
+    runs-on: arc-4-cores-ondemand-staging-arm
     strategy:
       matrix:
         include:
@@ -31,6 +35,8 @@ jobs:
     steps:
       - uses: actions/checkout@v2
         name: Checkout self
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.branch || github.ref }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v1
@@ -52,6 +58,11 @@ jobs:
           server-id: codeartifact
           server-username: AWS
           server-password: CODEARTIFACT_AUTH_TOKEN
+
+      - name: Set up Maven
+        uses: stCarolas/setup-maven@v5
+        with:
+          maven-version: 3.9.9
 
       - name: Set ADHOC_JAR_VERSION
         run: |
