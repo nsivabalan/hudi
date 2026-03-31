@@ -50,11 +50,10 @@ jobs:
         run: echo "CODEARTIFACT_AUTH_TOKEN=$(aws codeartifact get-authorization-token --domain onehouse --domain-owner 194159489498 --query authorizationToken --output text)" >> $GITHUB_ENV
 
       - name: Set up JDK 8
-        uses: actions/setup-java@v2
+        uses: actions/setup-java@v3
         with:
           java-version: '8'
           distribution: 'adopt'
-          architecture: x64
           server-id: codeartifact
           server-username: AWS
           server-password: CODEARTIFACT_AUTH_TOKEN
