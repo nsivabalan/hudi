@@ -38,7 +38,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
@@ -52,9 +51,9 @@ public class HoodieMergeHandleWithChangeLog<T, I, K, O> extends HoodieWriteMerge
   protected final HoodieCDCLogger cdcLogger;
 
   public HoodieMergeHandleWithChangeLog(HoodieWriteConfig config, String instantTime, HoodieTable<T, I, K, O> hoodieTable,
-                                        Iterator<HoodieRecord<T>> recordItr, String partitionPath, String fileId,
+                                        MergeContext<T> mergeContext, String partitionPath, String fileId,
                                         TaskContextSupplier taskContextSupplier, Option<BaseKeyGenerator> keyGeneratorOpt) {
-    super(config, instantTime, hoodieTable, recordItr, partitionPath, fileId, taskContextSupplier, keyGeneratorOpt);
+    super(config, instantTime, hoodieTable, mergeContext, partitionPath, fileId, taskContextSupplier, keyGeneratorOpt);
     this.cdcLogger = new HoodieCDCLogger(
         instantTime,
         config,

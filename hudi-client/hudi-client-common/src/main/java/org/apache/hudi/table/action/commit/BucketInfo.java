@@ -29,11 +29,18 @@ public class BucketInfo implements Serializable {
   BucketType bucketType;
   String fileIdPrefix;
   String partitionPath;
+  // The number of update and delete records from input based on tagging; -1 means unknown
+  long numUpdates;
 
   public BucketInfo(BucketType bucketType, String fileIdPrefix, String partitionPath) {
+    this(bucketType, fileIdPrefix, partitionPath, -1L);
+  }
+
+  public BucketInfo(BucketType bucketType, String fileIdPrefix, String partitionPath, long numUpdates) {
     this.bucketType = bucketType;
     this.fileIdPrefix = fileIdPrefix;
     this.partitionPath = partitionPath;
+    this.numUpdates = numUpdates;
   }
 
   public BucketType getBucketType() {
@@ -48,11 +55,16 @@ public class BucketInfo implements Serializable {
     return partitionPath;
   }
 
+  public long getNumUpdates() {
+    return numUpdates;
+  }
+
   @Override
   public String toString() {
     return "BucketInfo {" + "bucketType=" + bucketType + ", "
         + "fileIdPrefix=" + fileIdPrefix + ", "
-        + "partitionPath=" + partitionPath
+        + "partitionPath=" + partitionPath + ", "
+        + "numUpdates=" + numUpdates
         + '}';
   }
 

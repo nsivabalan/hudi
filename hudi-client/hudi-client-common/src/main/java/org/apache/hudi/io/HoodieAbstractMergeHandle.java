@@ -46,6 +46,8 @@ public abstract class HoodieAbstractMergeHandle<T, I, K, O> extends HoodieWriteH
 
   private static final Logger LOG = LoggerFactory.getLogger(HoodieAbstractMergeHandle.class);
 
+  // The number of incoming update records based on tagging; -1 means unknown
+  protected long numIncomingUpdates = -1L;
   protected Map<String, HoodieRecord<T>> keyToNewRecords;
   protected StoragePath newFilePath;
   protected StoragePath oldFilePath;
@@ -59,6 +61,7 @@ public abstract class HoodieAbstractMergeHandle<T, I, K, O> extends HoodieWriteH
    * @param config Hoodie writer configs.
    * @param instantTime current instant time.
    * @param hoodieTable an instance of {@link HoodieTable}
+   * @param mergeContext context carrying incoming data to merge and characteristics
    * @param partitionPath Partition path of the upsert and insert records.
    * @param fileId New file id of the target base file.
    * @param taskContextSupplier Base task context supplier
@@ -66,9 +69,10 @@ public abstract class HoodieAbstractMergeHandle<T, I, K, O> extends HoodieWriteH
    * @param keyGeneratorOpt Optional instance of the {@link org.apache.hudi.keygen.KeyGenerator} used.
    */
   public HoodieAbstractMergeHandle(HoodieWriteConfig config, String instantTime, HoodieTable<T, I, K, O> hoodieTable,
-                                   String partitionPath, String fileId, TaskContextSupplier taskContextSupplier,
+                                   MergeContext<T> mergeContext, String partitionPath, String fileId, TaskContextSupplier taskContextSupplier,
                                    HoodieBaseFile baseFile, Option<BaseKeyGenerator> keyGeneratorOpt, boolean preserveMetadata) {
     super(config, instantTime, partitionPath, fileId, hoodieTable, taskContextSupplier, preserveMetadata);
+    this.numIncomingUpdates = mergeContext.getNumIncomingUpdates();
     this.baseFileToMerge = baseFile;
     this.keyGeneratorOpt = keyGeneratorOpt;
     initPartitionMetadataAndFilePaths(partitionPath);
@@ -82,6 +86,10 @@ public abstract class HoodieAbstractMergeHandle<T, I, K, O> extends HoodieWriteH
   protected HoodieAbstractMergeHandle(HoodieWriteConfig config, String instantTime, String partitionPath,
                                       String fileId, HoodieTable<T, I, K, O> hoodieTable, TaskContextSupplier taskContextSupplier, boolean preserveMetadata) {
     super(config, instantTime, partitionPath, fileId, hoodieTable, taskContextSupplier, preserveMetadata);
+  }
+
+  public long getNumIncomingUpdates() {
+    return numIncomingUpdates;
   }
 
   @Override
