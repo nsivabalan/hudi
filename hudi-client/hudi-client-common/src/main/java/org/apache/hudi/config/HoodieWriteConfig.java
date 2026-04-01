@@ -219,6 +219,21 @@ public class HoodieWriteConfig extends HoodieConfig {
           + "The user can turn this validation off by setting the config to false, after "
           + "evaluating the table and situation and doing table repair if needed.");
 
+  public static final ConfigProperty<Boolean> COMPLEX_KEYGEN_AUTO_DEDUCE_ENCODING = ConfigProperty
+      .key("hoodie.write.complex.keygen.auto.deduce.encoding")
+      .defaultValue(true)
+      .markAdvanced()
+      .sinceVersion("0.15.1")
+      .supportedVersions("0.15.1", "1.0.3", "1.1.0")
+      .withDocumentation("This config only takes effect for writing table version 8 and below with "
+          + "complex key generator and a single record key field. If set to true, the writer "
+          + "automatically deduces the encoding format for the complex key generator by reading "
+          + "existing data files from the latest completed commit and caches the result in "
+          + "`.hoodie/.aux/complex_key_encoding`. This avoids the need for users to manually "
+          + "configure `hoodie.write.complex.keygen.new.encoding` during upgrades. If set to false, "
+          + "the writer falls back to the validation behavior controlled by "
+          + "`hoodie.write.complex.keygen.validation.enable`.");
+
   public static final ConfigProperty<String> ROLLBACK_USING_MARKERS_ENABLE = ConfigProperty
       .key("hoodie.rollback.using.markers")
       .defaultValue("true")
@@ -1372,6 +1387,14 @@ public class HoodieWriteConfig extends HoodieConfig {
 
   public boolean enableComplexKeygenValidation() {
     return getBoolean(ENABLE_COMPLEX_KEYGEN_VALIDATION);
+  }
+
+  public boolean useComplexKeygenNewEncoding() {
+    return getBoolean(COMPLEX_KEYGEN_NEW_ENCODING);
+  }
+
+  public boolean autoDeduceComplexKeygenEncoding() {
+    return getBoolean(COMPLEX_KEYGEN_AUTO_DEDUCE_ENCODING);
   }
 
   public int getWriteBufferLimitBytes() {
@@ -2845,6 +2868,11 @@ public class HoodieWriteConfig extends HoodieConfig {
 
     public Builder withComplexKeygenValidation(boolean enableComplexKeygenValidation) {
       writeConfig.setValue(ENABLE_COMPLEX_KEYGEN_VALIDATION, String.valueOf(enableComplexKeygenValidation));
+      return this;
+    }
+
+    public Builder withAutoDeduceComplexKeygenEncoding(boolean autoDeduceComplexKeygenEncoding) {
+      writeConfig.setValue(COMPLEX_KEYGEN_AUTO_DEDUCE_ENCODING, String.valueOf(autoDeduceComplexKeygenEncoding));
       return this;
     }
 

@@ -79,6 +79,7 @@ import org.apache.hudi.internal.schema.io.FileBasedInternalSchemaStorageManager;
 import org.apache.hudi.internal.schema.utils.AvroSchemaEvolutionUtils;
 import org.apache.hudi.internal.schema.utils.InternalSchemaUtils;
 import org.apache.hudi.internal.schema.utils.SerDeHelper;
+import org.apache.hudi.keygen.KeyGenUtils;
 import org.apache.hudi.metadata.HoodieTableMetadataUtil;
 import org.apache.hudi.metadata.HoodieTableMetadataWriter;
 import org.apache.hudi.metadata.MetadataPartitionType;
@@ -1318,7 +1319,7 @@ public abstract class BaseHoodieWriteClient<T, I, K, O> extends BaseHoodieClient
     HoodieTable table = createTable(config, hadoopConf, metaClient);
 
     // Validate table properties
-    validateTableProperties(metaClient.getTableConfig(), config.getProps());
+    validateTableProperties(metaClient, config.getProps());
 
     switch (operationType) {
       case INSERT:
@@ -1381,7 +1382,8 @@ public abstract class BaseHoodieWriteClient<T, I, K, O> extends BaseHoodieClient
    *
    * @param properties Properties from writeConfig.
    */
-  public void validateTableProperties(HoodieTableConfig tableConfig, Properties properties) {
+  public void validateTableProperties(HoodieTableMetaClient metaClient, Properties properties) {
+    HoodieTableConfig tableConfig = metaClient.getTableConfig();
     // Once meta fields are disabled, it cant be re-enabled for a given table.
     if (!tableConfig.populateMetaFields()
         && Boolean.parseBoolean((String) properties.getOrDefault(HoodieTableConfig.POPULATE_META_FIELDS.key(), HoodieTableConfig.POPULATE_META_FIELDS.defaultValue().toString()))) {
@@ -1397,9 +1399,33 @@ public abstract class BaseHoodieWriteClient<T, I, K, O> extends BaseHoodieClient
         throw new HoodieException("Only simple, non-partitioned or complex key generator are supported when meta-fields are disabled. Used: " + keyGenClass);
       }
     }
-    if (config.enableComplexKeygenValidation()
-        && isComplexKeyGeneratorWithSingleRecordKeyField(tableConfig)) {
-      throw new HoodieException(getComplexKeygenErrorMessage("ingestion"));
+
+    // Handle complex key generator with single record key field
+    if (isComplexKeyGeneratorWithSingleRecordKeyField(tableConfig)) {
+      if (config.autoDeduceComplexKeygenEncoding()) {
+        // Auto-deduce encoding format
+        Option<Boolean> cachedEncoding = KeyGenUtils.readComplexKeyEncodingFromAuxFile(
+            metaClient.getStorage(), metaClient.getBasePath().toString());
+
+        if (cachedEncoding.isPresent()) {
+          // Use cached value
+          config.setValue(HoodieWriteConfig.COMPLEX_KEYGEN_NEW_ENCODING, String.valueOf(cachedEncoding.get()));
+          LOG.info("Using cached complex key encoding from aux file: {}", cachedEncoding.get());
+        } else {
+          // Deduce from data and cache it
+          String recordKeyField = tableConfig.getRecordKeyFields().get()[0];
+          boolean deducedEncoding = KeyGenUtils.deduceComplexKeyEncodingFromData(metaClient, recordKeyField);
+          KeyGenUtils.writeComplexKeyEncodingToAuxFile(
+              metaClient.getStorage(), metaClient.getBasePath().toString(), deducedEncoding);
+          config.setValue(HoodieWriteConfig.COMPLEX_KEYGEN_NEW_ENCODING, String.valueOf(deducedEncoding));
+          LOG.info("Deduced and cached complex key encoding: {}", deducedEncoding);
+        }
+      } else {
+        // Fall back to existing validation logic
+        if (config.enableComplexKeygenValidation()) {
+          throw new HoodieException(getComplexKeygenErrorMessage("ingestion"));
+        }
+      }
     }
 
     //Check to make sure it's not a COW table with consistent hashing bucket index

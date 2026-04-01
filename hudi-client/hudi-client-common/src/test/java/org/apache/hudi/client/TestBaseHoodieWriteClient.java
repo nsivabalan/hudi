@@ -33,9 +33,12 @@ import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.index.HoodieIndex;
 import org.apache.hudi.index.simple.HoodieSimpleIndex;
 import org.apache.hudi.keygen.ComplexAvroKeyGenerator;
+import org.apache.hudi.keygen.KeyGenUtils;
 import org.apache.hudi.keygen.constant.KeyGeneratorOptions;
 import org.apache.hudi.table.BulkInsertPartitioner;
 import org.apache.hudi.table.HoodieTable;
+
+import org.mockito.MockedStatic;
 
 import org.apache.hadoop.conf.Configuration;
 import org.junit.jupiter.api.Assertions;
@@ -57,7 +60,12 @@ import static org.apache.hudi.common.testutils.HoodieTestUtils.getDefaultStorage
 import static org.apache.hudi.testutils.Assertions.assertComplexKeyGeneratorValidationThrows;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 class TestBaseHoodieWriteClient extends HoodieCommonTestHarness {
@@ -288,5 +296,357 @@ class TestBaseHoodieWriteClient extends HoodieCommonTestHarness {
     public String deletePrepped(String preppedRecords, String instantTime) {
       return "";
     }
+  }
+
+  @ParameterizedTest
+  @MethodSource("testAutoDeductionEnabledWithNoAuxFileParams")
+  void testAutoDeductionEnabledWithNoAuxFile(String keyGeneratorClass, boolean deducedEncoding) throws IOException {
+    if (basePath == null) {
+      initPath();
+    }
+
+    // Setup table with complex key generator and single record key field
+    Properties tableProperties = new Properties();
+    tableProperties.put(HoodieTableConfig.KEY_GENERATOR_CLASS_NAME.key(), keyGeneratorClass);
+    tableProperties.put(HoodieTableConfig.RECORDKEY_FIELDS.key(), "userId");
+    tableProperties.put(HoodieTableConfig.PARTITION_FIELDS.key(), "country");
+    tableProperties.put(HoodieTableConfig.VERSION.key(), "6");
+
+    metaClient = HoodieTestUtils.init(
+        HoodieTestUtils.getDefaultStorageConf(), basePath, getTableType(), tableProperties);
+
+    // Setup write config with auto-deduction enabled
+    Properties writeProperties = new Properties();
+    writeProperties.put(HoodieWriteConfig.KEYGENERATOR_CLASS_NAME.key(), keyGeneratorClass);
+    writeProperties.put(KeyGeneratorOptions.RECORDKEY_FIELD_NAME.key(), "userId");
+    writeProperties.put(KeyGeneratorOptions.PARTITIONPATH_FIELD_NAME.key(), "country");
+    writeProperties.put(HoodieWriteConfig.COMPLEX_KEYGEN_AUTO_DEDUCE_ENCODING.key(), "true");
+
+    HoodieWriteConfig.Builder writeConfigBuilder = HoodieWriteConfig.newBuilder()
+        .withPath(basePath)
+        .withProperties(writeProperties);
+
+    HoodieTable<String, String, String, String> table = mock(HoodieTable.class);
+    BaseHoodieTableServiceClient<String, String, String> tableServiceClient = mock(BaseHoodieTableServiceClient.class);
+
+    // Mock KeyGenUtils static methods
+    try (MockedStatic<KeyGenUtils> keyGenUtilsMock = mockStatic(KeyGenUtils.class)) {
+      // No aux file exists
+      keyGenUtilsMock.when(() -> KeyGenUtils.readComplexKeyEncodingFromAuxFile(any(), anyString()))
+          .thenReturn(Option.empty());
+
+      // Deduction returns the specified value
+      keyGenUtilsMock.when(() -> KeyGenUtils.deduceComplexKeyEncodingFromData(any(), eq("userId")))
+          .thenReturn(deducedEncoding);
+
+      // Allow actual writeComplexKeyEncodingToAuxFile to be called (void method)
+      keyGenUtilsMock.when(() -> KeyGenUtils.writeComplexKeyEncodingToAuxFile(any(), anyString(), eq(deducedEncoding)))
+          .then(invocation -> null);
+
+      // Allow isComplexKeyGeneratorWithSingleRecordKeyField to use actual implementation
+      keyGenUtilsMock.when(() -> KeyGenUtils.isComplexKeyGeneratorWithSingleRecordKeyField(any()))
+          .thenCallRealMethod();
+
+      TestWriteClient writeClient = new TestWriteClient(writeConfigBuilder.build(), table, Option.empty(), tableServiceClient);
+
+      // Should succeed without throwing validation error
+      writeClient.initTable(WriteOperationType.INSERT, Option.empty());
+
+      // Verify deduction was called
+      keyGenUtilsMock.verify(() -> KeyGenUtils.deduceComplexKeyEncodingFromData(any(), eq("userId")));
+
+      // Verify aux file was written
+      keyGenUtilsMock.verify(() -> KeyGenUtils.writeComplexKeyEncodingToAuxFile(any(), anyString(), eq(deducedEncoding)));
+
+      // Verify config was set correctly
+      assertEquals(deducedEncoding, writeClient.getConfig().useComplexKeygenNewEncoding());
+    }
+  }
+
+  private static Stream<Arguments> testAutoDeductionEnabledWithNoAuxFileParams() {
+    return Stream.of(
+        Arguments.of("org.apache.hudi.keygen.ComplexKeyGenerator", true),
+        Arguments.of("org.apache.hudi.keygen.ComplexKeyGenerator", false),
+        Arguments.of("org.apache.hudi.keygen.ComplexAvroKeyGenerator", true),
+        Arguments.of("org.apache.hudi.keygen.ComplexAvroKeyGenerator", false)
+    );
+  }
+
+  @ParameterizedTest
+  @MethodSource("testAutoDeductionEnabledWithExistingAuxFileParams")
+  void testAutoDeductionEnabledWithExistingAuxFile(String keyGeneratorClass, boolean cachedEncoding) throws IOException {
+    if (basePath == null) {
+      initPath();
+    }
+
+    // Setup table with complex key generator and single record key field
+    Properties tableProperties = new Properties();
+    tableProperties.put(HoodieTableConfig.KEY_GENERATOR_CLASS_NAME.key(), keyGeneratorClass);
+    tableProperties.put(HoodieTableConfig.RECORDKEY_FIELDS.key(), "userId");
+    tableProperties.put(HoodieTableConfig.PARTITION_FIELDS.key(), "country");
+    tableProperties.put(HoodieTableConfig.VERSION.key(), "6");
+
+    metaClient = HoodieTestUtils.init(
+        HoodieTestUtils.getDefaultStorageConf(), basePath, getTableType(), tableProperties);
+
+    // Setup write config with auto-deduction enabled
+    Properties writeProperties = new Properties();
+    writeProperties.put(HoodieWriteConfig.KEYGENERATOR_CLASS_NAME.key(), keyGeneratorClass);
+    writeProperties.put(KeyGeneratorOptions.RECORDKEY_FIELD_NAME.key(), "userId");
+    writeProperties.put(KeyGeneratorOptions.PARTITIONPATH_FIELD_NAME.key(), "country");
+    writeProperties.put(HoodieWriteConfig.COMPLEX_KEYGEN_AUTO_DEDUCE_ENCODING.key(), "true");
+
+    HoodieWriteConfig.Builder writeConfigBuilder = HoodieWriteConfig.newBuilder()
+        .withPath(basePath)
+        .withProperties(writeProperties);
+
+    HoodieTable<String, String, String, String> table = mock(HoodieTable.class);
+    BaseHoodieTableServiceClient<String, String, String> tableServiceClient = mock(BaseHoodieTableServiceClient.class);
+
+    // Mock KeyGenUtils static methods
+    try (MockedStatic<KeyGenUtils> keyGenUtilsMock = mockStatic(KeyGenUtils.class)) {
+      // Aux file exists with cached value
+      keyGenUtilsMock.when(() -> KeyGenUtils.readComplexKeyEncodingFromAuxFile(any(), anyString()))
+          .thenReturn(Option.of(cachedEncoding));
+
+      // Allow isComplexKeyGeneratorWithSingleRecordKeyField to use actual implementation
+      keyGenUtilsMock.when(() -> KeyGenUtils.isComplexKeyGeneratorWithSingleRecordKeyField(any()))
+          .thenCallRealMethod();
+
+      TestWriteClient writeClient = new TestWriteClient(writeConfigBuilder.build(), table, Option.empty(), tableServiceClient);
+
+      // Should succeed without throwing validation error
+      writeClient.initTable(WriteOperationType.INSERT, Option.empty());
+
+      // Verify deduction was NOT called (used cached value)
+      keyGenUtilsMock.verify(() -> KeyGenUtils.deduceComplexKeyEncodingFromData(any(), anyString()), never());
+
+      // Verify aux file was NOT written (already exists)
+      keyGenUtilsMock.verify(() -> KeyGenUtils.writeComplexKeyEncodingToAuxFile(any(), anyString(), eq(cachedEncoding)), never());
+
+      // Verify config was set correctly from cached value
+      assertEquals(cachedEncoding, writeClient.getConfig().useComplexKeygenNewEncoding());
+    }
+  }
+
+  private static Stream<Arguments> testAutoDeductionEnabledWithExistingAuxFileParams() {
+    return Stream.of(
+        Arguments.of("org.apache.hudi.keygen.ComplexKeyGenerator", true),
+        Arguments.of("org.apache.hudi.keygen.ComplexKeyGenerator", false),
+        Arguments.of("org.apache.hudi.keygen.ComplexAvroKeyGenerator", true),
+        Arguments.of("org.apache.hudi.keygen.ComplexAvroKeyGenerator", false)
+    );
+  }
+
+  @ParameterizedTest
+  @MethodSource("testAutoDeductionDisabledWithValidationEnabledParams")
+  void testAutoDeductionDisabledWithValidationEnabled(String keyGeneratorClass) throws IOException {
+    if (basePath == null) {
+      initPath();
+    }
+
+    // Setup table with complex key generator and single record key field
+    Properties tableProperties = new Properties();
+    tableProperties.put(HoodieTableConfig.KEY_GENERATOR_CLASS_NAME.key(), keyGeneratorClass);
+    tableProperties.put(HoodieTableConfig.RECORDKEY_FIELDS.key(), "userId");
+    tableProperties.put(HoodieTableConfig.PARTITION_FIELDS.key(), "country");
+    tableProperties.put(HoodieTableConfig.VERSION.key(), "6");
+
+    metaClient = HoodieTestUtils.init(
+        HoodieTestUtils.getDefaultStorageConf(), basePath, getTableType(), tableProperties);
+
+    // Setup write config with auto-deduction disabled and validation enabled
+    Properties writeProperties = new Properties();
+    writeProperties.put(HoodieWriteConfig.KEYGENERATOR_CLASS_NAME.key(), keyGeneratorClass);
+    writeProperties.put(KeyGeneratorOptions.RECORDKEY_FIELD_NAME.key(), "userId");
+    writeProperties.put(KeyGeneratorOptions.PARTITIONPATH_FIELD_NAME.key(), "country");
+    writeProperties.put(HoodieWriteConfig.COMPLEX_KEYGEN_AUTO_DEDUCE_ENCODING.key(), "false");
+    writeProperties.put(HoodieWriteConfig.ENABLE_COMPLEX_KEYGEN_VALIDATION.key(), "true");
+
+    HoodieWriteConfig.Builder writeConfigBuilder = HoodieWriteConfig.newBuilder()
+        .withPath(basePath)
+        .withProperties(writeProperties);
+
+    HoodieTable<String, String, String, String> table = mock(HoodieTable.class);
+    BaseHoodieTableServiceClient<String, String, String> tableServiceClient = mock(BaseHoodieTableServiceClient.class);
+
+    TestWriteClient writeClient = new TestWriteClient(writeConfigBuilder.build(), table, Option.empty(), tableServiceClient);
+
+    // Should throw validation error
+    assertComplexKeyGeneratorValidationThrows(
+        () -> writeClient.initTable(WriteOperationType.INSERT, Option.empty()), "ingestion");
+  }
+
+  private static Stream<Arguments> testAutoDeductionDisabledWithValidationEnabledParams() {
+    return Stream.of(
+        Arguments.of("org.apache.hudi.keygen.ComplexKeyGenerator"),
+        Arguments.of("org.apache.hudi.keygen.ComplexAvroKeyGenerator")
+    );
+  }
+
+  @ParameterizedTest
+  @MethodSource("testAutoDeductionDisabledWithValidationDisabledParams")
+  void testAutoDeductionDisabledWithValidationDisabled(String keyGeneratorClass) throws IOException {
+    if (basePath == null) {
+      initPath();
+    }
+
+    // Setup table with complex key generator and single record key field
+    Properties tableProperties = new Properties();
+    tableProperties.put(HoodieTableConfig.KEY_GENERATOR_CLASS_NAME.key(), keyGeneratorClass);
+    tableProperties.put(HoodieTableConfig.RECORDKEY_FIELDS.key(), "userId");
+    tableProperties.put(HoodieTableConfig.PARTITION_FIELDS.key(), "country");
+    tableProperties.put(HoodieTableConfig.VERSION.key(), "6");
+
+    metaClient = HoodieTestUtils.init(
+        HoodieTestUtils.getDefaultStorageConf(), basePath, getTableType(), tableProperties);
+
+    // Setup write config with auto-deduction disabled and validation disabled
+    Properties writeProperties = new Properties();
+    writeProperties.put(HoodieWriteConfig.KEYGENERATOR_CLASS_NAME.key(), keyGeneratorClass);
+    writeProperties.put(KeyGeneratorOptions.RECORDKEY_FIELD_NAME.key(), "userId");
+    writeProperties.put(KeyGeneratorOptions.PARTITIONPATH_FIELD_NAME.key(), "country");
+    writeProperties.put(HoodieWriteConfig.COMPLEX_KEYGEN_AUTO_DEDUCE_ENCODING.key(), "false");
+    writeProperties.put(HoodieWriteConfig.ENABLE_COMPLEX_KEYGEN_VALIDATION.key(), "false");
+
+    HoodieWriteConfig.Builder writeConfigBuilder = HoodieWriteConfig.newBuilder()
+        .withPath(basePath)
+        .withProperties(writeProperties);
+
+    HoodieTable<String, String, String, String> table = mock(HoodieTable.class);
+    BaseHoodieTableServiceClient<String, String, String> tableServiceClient = mock(BaseHoodieTableServiceClient.class);
+
+    TestWriteClient writeClient = new TestWriteClient(writeConfigBuilder.build(), table, Option.empty(), tableServiceClient);
+
+    // Should succeed without throwing validation error
+    writeClient.initTable(WriteOperationType.INSERT, Option.empty());
+    String requestedTime = writeClient.startCommit();
+
+    HoodieTimeline writeTimeline = metaClient.getActiveTimeline().getWriteTimeline();
+    assertTrue(writeTimeline.lastInstant().isPresent());
+    assertEquals("commit", writeTimeline.lastInstant().get().getAction());
+    assertEquals(requestedTime, writeTimeline.lastInstant().get().getTimestamp());
+  }
+
+  private static Stream<Arguments> testAutoDeductionDisabledWithValidationDisabledParams() {
+    return Stream.of(
+        Arguments.of("org.apache.hudi.keygen.ComplexKeyGenerator"),
+        Arguments.of("org.apache.hudi.keygen.ComplexAvroKeyGenerator")
+    );
+  }
+
+  @ParameterizedTest
+  @MethodSource("testAutoDeductionWithNonComplexKeyGenParams")
+  void testAutoDeductionWithNonComplexKeyGen(String keyGeneratorClass) throws IOException {
+    if (basePath == null) {
+      initPath();
+    }
+
+    // Setup table with non-complex key generator
+    Properties tableProperties = new Properties();
+    tableProperties.put(HoodieTableConfig.KEY_GENERATOR_CLASS_NAME.key(), keyGeneratorClass);
+    tableProperties.put(HoodieTableConfig.RECORDKEY_FIELDS.key(), "userId");
+    tableProperties.put(HoodieTableConfig.PARTITION_FIELDS.key(), "country");
+    tableProperties.put(HoodieTableConfig.VERSION.key(), "6");
+
+    metaClient = HoodieTestUtils.init(
+        HoodieTestUtils.getDefaultStorageConf(), basePath, getTableType(), tableProperties);
+
+    // Setup write config with auto-deduction enabled
+    Properties writeProperties = new Properties();
+    writeProperties.put(HoodieWriteConfig.KEYGENERATOR_CLASS_NAME.key(), keyGeneratorClass);
+    writeProperties.put(KeyGeneratorOptions.RECORDKEY_FIELD_NAME.key(), "userId");
+    writeProperties.put(KeyGeneratorOptions.PARTITIONPATH_FIELD_NAME.key(), "country");
+    writeProperties.put(HoodieWriteConfig.COMPLEX_KEYGEN_AUTO_DEDUCE_ENCODING.key(), "true");
+
+    HoodieWriteConfig.Builder writeConfigBuilder = HoodieWriteConfig.newBuilder()
+        .withPath(basePath)
+        .withProperties(writeProperties);
+
+    HoodieTable<String, String, String, String> table = mock(HoodieTable.class);
+    BaseHoodieTableServiceClient<String, String, String> tableServiceClient = mock(BaseHoodieTableServiceClient.class);
+
+    // Mock KeyGenUtils static methods
+    try (MockedStatic<KeyGenUtils> keyGenUtilsMock = mockStatic(KeyGenUtils.class)) {
+      // Allow isComplexKeyGeneratorWithSingleRecordKeyField to use actual implementation
+      keyGenUtilsMock.when(() -> KeyGenUtils.isComplexKeyGeneratorWithSingleRecordKeyField(any()))
+          .thenCallRealMethod();
+
+      TestWriteClient writeClient = new TestWriteClient(writeConfigBuilder.build(), table, Option.empty(), tableServiceClient);
+
+      // Should succeed without auto-deduction logic being triggered
+      writeClient.initTable(WriteOperationType.INSERT, Option.empty());
+
+      // Verify deduction was NOT called (not a complex keygen with single field)
+      keyGenUtilsMock.verify(() -> KeyGenUtils.deduceComplexKeyEncodingFromData(any(), anyString()), never());
+      keyGenUtilsMock.verify(() -> KeyGenUtils.readComplexKeyEncodingFromAuxFile(any(), anyString()), never());
+      keyGenUtilsMock.verify(() -> KeyGenUtils.writeComplexKeyEncodingToAuxFile(any(), anyString(), eq(true)), never());
+    }
+  }
+
+  private static Stream<Arguments> testAutoDeductionWithNonComplexKeyGenParams() {
+    return Stream.of(
+        Arguments.of("org.apache.hudi.keygen.SimpleKeyGenerator"),
+        Arguments.of("org.apache.hudi.keygen.SimpleAvroKeyGenerator"),
+        Arguments.of("org.apache.hudi.keygen.TimestampBasedKeyGenerator"),
+        Arguments.of("org.apache.hudi.keygen.NonpartitionedKeyGenerator")
+    );
+  }
+
+  @ParameterizedTest
+  @MethodSource("testAutoDeductionWithComplexKeyGenMultipleFieldsParams")
+  void testAutoDeductionWithComplexKeyGenMultipleFields(String keyGeneratorClass, String recordKeyFields) throws IOException {
+    if (basePath == null) {
+      initPath();
+    }
+
+    // Setup table with complex key generator but multiple record key fields
+    Properties tableProperties = new Properties();
+    tableProperties.put(HoodieTableConfig.KEY_GENERATOR_CLASS_NAME.key(), keyGeneratorClass);
+    tableProperties.put(HoodieTableConfig.RECORDKEY_FIELDS.key(), recordKeyFields);
+    tableProperties.put(HoodieTableConfig.PARTITION_FIELDS.key(), "country");
+    tableProperties.put(HoodieTableConfig.VERSION.key(), "6");
+
+    metaClient = HoodieTestUtils.init(
+        HoodieTestUtils.getDefaultStorageConf(), basePath, getTableType(), tableProperties);
+
+    // Setup write config with auto-deduction enabled
+    Properties writeProperties = new Properties();
+    writeProperties.put(HoodieWriteConfig.KEYGENERATOR_CLASS_NAME.key(), keyGeneratorClass);
+    writeProperties.put(KeyGeneratorOptions.RECORDKEY_FIELD_NAME.key(), recordKeyFields);
+    writeProperties.put(KeyGeneratorOptions.PARTITIONPATH_FIELD_NAME.key(), "country");
+    writeProperties.put(HoodieWriteConfig.COMPLEX_KEYGEN_AUTO_DEDUCE_ENCODING.key(), "true");
+
+    HoodieWriteConfig.Builder writeConfigBuilder = HoodieWriteConfig.newBuilder()
+        .withPath(basePath)
+        .withProperties(writeProperties);
+
+    HoodieTable<String, String, String, String> table = mock(HoodieTable.class);
+    BaseHoodieTableServiceClient<String, String, String> tableServiceClient = mock(BaseHoodieTableServiceClient.class);
+
+    // Mock KeyGenUtils static methods
+    try (MockedStatic<KeyGenUtils> keyGenUtilsMock = mockStatic(KeyGenUtils.class)) {
+      // Allow isComplexKeyGeneratorWithSingleRecordKeyField to use actual implementation
+      keyGenUtilsMock.when(() -> KeyGenUtils.isComplexKeyGeneratorWithSingleRecordKeyField(any()))
+          .thenCallRealMethod();
+
+      TestWriteClient writeClient = new TestWriteClient(writeConfigBuilder.build(), table, Option.empty(), tableServiceClient);
+
+      // Should succeed without auto-deduction logic being triggered
+      writeClient.initTable(WriteOperationType.INSERT, Option.empty());
+
+      // Verify deduction was NOT called (multiple record key fields)
+      keyGenUtilsMock.verify(() -> KeyGenUtils.deduceComplexKeyEncodingFromData(any(), anyString()), never());
+      keyGenUtilsMock.verify(() -> KeyGenUtils.readComplexKeyEncodingFromAuxFile(any(), anyString()), never());
+      keyGenUtilsMock.verify(() -> KeyGenUtils.writeComplexKeyEncodingToAuxFile(any(), anyString(), eq(true)), never());
+    }
+  }
+
+  private static Stream<Arguments> testAutoDeductionWithComplexKeyGenMultipleFieldsParams() {
+    return Stream.of(
+        Arguments.of("org.apache.hudi.keygen.ComplexKeyGenerator", "userId,orderId"),
+        Arguments.of("org.apache.hudi.keygen.ComplexAvroKeyGenerator", "userId,orderId"),
+        Arguments.of("org.apache.hudi.keygen.ComplexKeyGenerator", "id1,id2,id3")
+    );
   }
 }

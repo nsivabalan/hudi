@@ -20,30 +20,53 @@ package org.apache.hudi.keygen;
 
 import org.apache.hudi.avro.HoodieAvroUtils;
 import org.apache.hudi.common.config.TypedProperties;
+import org.apache.hudi.common.model.HoodieCommitMetadata;
+import org.apache.hudi.common.model.HoodieFileFormat;
+import org.apache.hudi.common.model.HoodieKey;
 import org.apache.hudi.common.model.HoodieRecord;
+import org.apache.hudi.common.model.HoodieWriteStat;
 import org.apache.hudi.common.table.HoodieTableConfig;
+import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.common.table.timeline.HoodieInstant;
+import org.apache.hudi.common.table.timeline.HoodieTimeline;
+import org.apache.hudi.common.table.timeline.TimelineUtils;
 import org.apache.hudi.common.util.ConfigUtils;
+import org.apache.hudi.common.util.FileFormatUtils;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.PartitionPathEncodeUtils;
 import org.apache.hudi.common.util.ReflectionUtils;
 import org.apache.hudi.common.util.StringUtils;
+import org.apache.hudi.common.util.collection.ClosableIterator;
 import org.apache.hudi.config.HoodieWriteConfig;
+import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieKeyException;
+import org.apache.hudi.io.storage.HoodieIOFactory;
 import org.apache.hudi.keygen.constant.KeyGeneratorOptions;
 import org.apache.hudi.keygen.constant.KeyGeneratorType;
 import org.apache.hudi.keygen.parser.BaseHoodieDateTimeParser;
+import org.apache.hudi.storage.HoodieStorage;
+import org.apache.hudi.storage.StoragePath;
 
 import org.apache.avro.generic.GenericRecord;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Properties;
 import java.util.stream.Collectors;
 
+import static org.apache.hudi.common.table.HoodieTableMetaClient.AUXILIARYFOLDER_NAME;
 import static org.apache.hudi.config.HoodieWriteConfig.COMPLEX_KEYGEN_NEW_ENCODING;
 
 public class KeyGenUtils {
+
+  private static final Logger LOG = LoggerFactory.getLogger(KeyGenUtils.class);
+  public static final String COMPLEX_KEY_ENCODING_FILE_NAME = "complex_key_encoding";
 
   protected static final String NULL_RECORDKEY_PLACEHOLDER = "__null__";
   protected static final String EMPTY_RECORDKEY_PLACEHOLDER = "__empty__";
@@ -301,5 +324,147 @@ public class KeyGenUtils {
 
   public static boolean mayUseNewEncodingForComplexKeyGen(HoodieTableConfig tableConfig) {
     return isComplexKeyGeneratorWithSingleRecordKeyField(tableConfig);
+  }
+
+  /**
+   * Gets the path to the complex key encoding auxiliary file.
+   *
+   * @param basePath The base path of the Hudi table
+   * @return The storage path to the complex key encoding file
+   */
+  public static StoragePath getComplexKeyEncodingFilePath(String basePath) {
+    return new StoragePath(basePath, AUXILIARYFOLDER_NAME + "/" + COMPLEX_KEY_ENCODING_FILE_NAME);
+  }
+
+  /**
+   * Reads the complex key encoding configuration from the auxiliary file.
+   *
+   * @param storage The storage instance
+   * @param basePath The base path of the Hudi table
+   * @return Option containing the value of hoodie.write.complex.keygen.new.encoding if file exists, empty otherwise
+   */
+  public static Option<Boolean> readComplexKeyEncodingFromAuxFile(HoodieStorage storage, String basePath) {
+    StoragePath encodingFilePath = getComplexKeyEncodingFilePath(basePath);
+    try {
+      if (storage.exists(encodingFilePath)) {
+        Properties props = new Properties();
+        try (InputStream inputStream = storage.open(encodingFilePath)) {
+          props.load(inputStream);
+          String value = props.getProperty(COMPLEX_KEYGEN_NEW_ENCODING.key());
+          if (value != null) {
+            LOG.info("Read complex key encoding from aux file: {}", value);
+            return Option.of(Boolean.parseBoolean(value));
+          }
+        }
+      }
+    } catch (IOException e) {
+      LOG.warn("Failed to read complex key encoding file from " + encodingFilePath, e);
+    }
+    return Option.empty();
+  }
+
+  /**
+   * Writes the complex key encoding configuration to the auxiliary file.
+   *
+   * @param storage The storage instance
+   * @param basePath The base path of the Hudi table
+   * @param useNewEncoding The value to write for hoodie.write.complex.keygen.new.encoding
+   */
+  public static void writeComplexKeyEncodingToAuxFile(HoodieStorage storage, String basePath, boolean useNewEncoding) {
+    StoragePath encodingFilePath = getComplexKeyEncodingFilePath(basePath);
+    try {
+      // Ensure .aux directory exists
+      StoragePath auxDir = new StoragePath(basePath, AUXILIARYFOLDER_NAME);
+      if (!storage.exists(auxDir)) {
+        storage.createDirectory(auxDir);
+      }
+
+      Properties props = new Properties();
+      props.setProperty(COMPLEX_KEYGEN_NEW_ENCODING.key(), String.valueOf(useNewEncoding));
+      try (OutputStream outputStream = storage.create(encodingFilePath, true)) {
+        props.store(outputStream, "Complex key generator encoding format");
+      }
+      LOG.info("Wrote complex key encoding to aux file: {}", useNewEncoding);
+    } catch (IOException e) {
+      throw new HoodieKeyException("Failed to write complex key encoding file to " + encodingFilePath, e);
+    }
+  }
+
+  /**
+   * Deduces the complex key encoding format by reading a base file from completed commits.
+   * Iterates through commits in reverse chronological order until a base file is found.
+   * Checks if the _hoodie_record_key contains the field name prefix with delimiter to determine encoding format.
+   *
+   * @param metaClient The table meta client
+   * @param recordKeyFieldName The single record key field name
+   * @return true if the new encoding format (without field name prefix) is used, false otherwise
+   * @throws HoodieException if unable to deduce the encoding format
+   */
+  public static boolean deduceComplexKeyEncodingFromData(HoodieTableMetaClient metaClient, String recordKeyFieldName) {
+    HoodieTimeline completedTimeline = metaClient.getActiveTimeline().getCommitsTimeline().filterCompletedInstants();
+    if (completedTimeline.empty()) {
+      throw new HoodieException("Cannot deduce complex key encoding: no completed commits found in table "
+          + metaClient.getBasePath());
+    }
+
+    try {
+      HoodieStorage storage = metaClient.getStorage();
+      FileFormatUtils fileFormatUtils = HoodieIOFactory.getIOFactory(storage)
+          .getFileFormatUtils(HoodieFileFormat.PARQUET);
+
+      // Iterate through commits in reverse chronological order to find a base file
+      List<HoodieInstant> instants = completedTimeline.getReverseOrderedInstants().collect(Collectors.toList());
+      for (HoodieInstant instant : instants) {
+        // Get commit metadata to find base files
+        HoodieCommitMetadata commitMetadata = TimelineUtils.getCommitMetadata(instant, completedTimeline);
+
+        // Find the first base file with records in this commit
+        for (HoodieWriteStat writeStat : commitMetadata.getWriteStats()) {
+          String filePath = writeStat.getPath();
+          if (filePath == null || filePath.isEmpty()) {
+            continue;
+          }
+
+          // Only process base files (parquet files), skip log files
+          if (!filePath.endsWith(".parquet")) {
+            continue;
+          }
+
+          StoragePath baseFilePath = new StoragePath(metaClient.getBasePath(), filePath);
+
+          if (!storage.exists(baseFilePath)) {
+            LOG.warn("Base file does not exist: {}", baseFilePath);
+            continue;
+          }
+
+          // Use FileFormatUtils.getHoodieKeyIterator to read _hoodie_record_key values
+          try (ClosableIterator<HoodieKey> keyIterator = fileFormatUtils.getHoodieKeyIterator(storage, baseFilePath)) {
+            if (keyIterator.hasNext()) {
+              HoodieKey hoodieKey = keyIterator.next();
+              String hoodieRecordKey = hoodieKey.getRecordKey();
+              keyIterator.close();
+
+              // Determine encoding format by checking for field name prefix with delimiter
+              // Old format: field_name:field_value (starts with "recordKeyFieldName:")
+              // New format: field_value (does not contain the field name prefix)
+              String expectedPrefix = recordKeyFieldName + DEFAULT_COLUMN_VALUE_SEPARATOR;
+              boolean usesNewEncoding = !hoodieRecordKey.startsWith(expectedPrefix);
+
+              LOG.info("Deduced complex key encoding from base file {} (commit {}): useNewEncoding={} "
+                      + "(hoodieRecordKey='{}', expectedPrefix='{}')",
+                  baseFilePath, instant.getTimestamp(), usesNewEncoding, hoodieRecordKey, expectedPrefix);
+
+              return usesNewEncoding;
+            }
+          }
+        }
+      }
+
+      throw new HoodieException("Cannot deduce complex key encoding: no base files with records found in table "
+          + metaClient.getBasePath());
+    } catch (IOException e) {
+      throw new HoodieException("Failed to deduce complex key encoding from base files in table "
+          + metaClient.getBasePath(), e);
+    }
   }
 }
