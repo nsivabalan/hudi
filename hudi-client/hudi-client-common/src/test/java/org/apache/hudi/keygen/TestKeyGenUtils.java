@@ -272,7 +272,7 @@ public class TestKeyGenUtils {
 
   @ParameterizedTest
   @ValueSource(booleans = {true, false})
-  void testDeduceComplexKeyEncodingFromData(@TempDir File tempDir, boolean useNewEncoding) throws Exception {
+  void testDeduceComplexKeyEncodingFromData(boolean useNewEncoding, @TempDir File tempDir) throws Exception {
     String basePath = tempDir.getAbsolutePath();
     String recordKeyFieldName = "userId";
     String partitionPath = "country=US";
@@ -285,7 +285,7 @@ public class TestKeyGenUtils {
     tableProperties.put(HoodieTableConfig.VERSION.key(), "6");
 
     HoodieTableMetaClient metaClient = HoodieTestUtils.init(
-        HoodieTestUtils.getDefaultStorageConf(), basePath, HoodieTableConfig.TABLE_TYPE_DEFAULT_VALUE, tableProperties);
+        HoodieTestUtils.getDefaultStorageConf(), basePath, HoodieTableConfig.TYPE.defaultValue(), tableProperties);
     HoodieStorage storage = metaClient.getStorage();
 
     // Create Avro schema with Hudi meta fields
@@ -371,7 +371,7 @@ public class TestKeyGenUtils {
     tableProperties.put(HoodieTableConfig.VERSION.key(), "6");
 
     HoodieTableMetaClient metaClient = HoodieTestUtils.init(
-        HoodieTestUtils.getDefaultStorageConf(), basePath, HoodieTableConfig.TABLE_TYPE_DEFAULT_VALUE, tableProperties);
+        HoodieTestUtils.getDefaultStorageConf(), basePath, HoodieTableConfig.TYPE.defaultValue(), tableProperties);
 
     // Should throw exception when no completed commits exist
     HoodieException exception = assertThrows(HoodieException.class,
@@ -392,7 +392,7 @@ public class TestKeyGenUtils {
     tableProperties.put(HoodieTableConfig.VERSION.key(), "6");
 
     HoodieTableMetaClient metaClient = HoodieTestUtils.init(
-        HoodieTestUtils.getDefaultStorageConf(), basePath, HoodieTableConfig.TABLE_TYPE_DEFAULT_VALUE, tableProperties);
+        HoodieTestUtils.getDefaultStorageConf(), basePath, HoodieTableConfig.TYPE.defaultValue(), tableProperties);
 
     // Create commit metadata with only log files (MOR scenario)
     String instantTime = "20231201120000";
@@ -414,8 +414,9 @@ public class TestKeyGenUtils {
     metaClient = HoodieTableMetaClient.reload(metaClient);
 
     // Should throw exception when no base files with records are found
+    HoodieTableMetaClient finalMetaClient = metaClient;
     HoodieException exception = assertThrows(HoodieException.class,
-        () -> KeyGenUtils.deduceComplexKeyEncodingFromData(metaClient, recordKeyFieldName));
+        () -> KeyGenUtils.deduceComplexKeyEncodingFromData(finalMetaClient, recordKeyFieldName));
     assertTrue(exception.getMessage().contains("no base files with records found"));
   }
 }

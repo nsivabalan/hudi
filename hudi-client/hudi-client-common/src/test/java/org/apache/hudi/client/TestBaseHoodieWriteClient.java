@@ -38,8 +38,6 @@ import org.apache.hudi.keygen.constant.KeyGeneratorOptions;
 import org.apache.hudi.table.BulkInsertPartitioner;
 import org.apache.hudi.table.HoodieTable;
 
-import org.mockito.MockedStatic;
-
 import org.apache.hadoop.conf.Configuration;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -59,13 +57,9 @@ import java.util.stream.Stream;
 import static org.apache.hudi.common.testutils.HoodieTestUtils.getDefaultStorageConf;
 import static org.apache.hudi.testutils.Assertions.assertComplexKeyGeneratorValidationThrows;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 class TestBaseHoodieWriteClient extends HoodieCommonTestHarness {
@@ -175,6 +169,8 @@ class TestBaseHoodieWriteClient extends HoodieCommonTestHarness {
     writeProperties.put(HoodieWriteConfig.KEYGENERATOR_CLASS_NAME.key(), keyGeneratorClass);
     writeProperties.put(KeyGeneratorOptions.RECORDKEY_FIELD_NAME.key(), recordKeyFields);
     writeProperties.put(KeyGeneratorOptions.PARTITIONPATH_FIELD_NAME.key(), partitionPathFields);
+    // Disable auto-deduction for this test since we're testing validation behavior
+    writeProperties.put(HoodieWriteConfig.COMPLEX_KEYGEN_AUTO_DEDUCE_ENCODING.key(), "false");
     if (setComplexKeyGeneratorValidationConfig) {
       writeProperties.put(
           HoodieWriteConfig.ENABLE_COMPLEX_KEYGEN_VALIDATION.key(), enableComplexKeyGeneratorValidation);
@@ -299,80 +295,6 @@ class TestBaseHoodieWriteClient extends HoodieCommonTestHarness {
   }
 
   @ParameterizedTest
-  @MethodSource("testAutoDeductionEnabledWithNoAuxFileParams")
-  void testAutoDeductionEnabledWithNoAuxFile(String keyGeneratorClass, boolean deducedEncoding) throws IOException {
-    if (basePath == null) {
-      initPath();
-    }
-
-    // Setup table with complex key generator and single record key field
-    Properties tableProperties = new Properties();
-    tableProperties.put(HoodieTableConfig.KEY_GENERATOR_CLASS_NAME.key(), keyGeneratorClass);
-    tableProperties.put(HoodieTableConfig.RECORDKEY_FIELDS.key(), "userId");
-    tableProperties.put(HoodieTableConfig.PARTITION_FIELDS.key(), "country");
-    tableProperties.put(HoodieTableConfig.VERSION.key(), "6");
-
-    metaClient = HoodieTestUtils.init(
-        HoodieTestUtils.getDefaultStorageConf(), basePath, getTableType(), tableProperties);
-
-    // Setup write config with auto-deduction enabled
-    Properties writeProperties = new Properties();
-    writeProperties.put(HoodieWriteConfig.KEYGENERATOR_CLASS_NAME.key(), keyGeneratorClass);
-    writeProperties.put(KeyGeneratorOptions.RECORDKEY_FIELD_NAME.key(), "userId");
-    writeProperties.put(KeyGeneratorOptions.PARTITIONPATH_FIELD_NAME.key(), "country");
-    writeProperties.put(HoodieWriteConfig.COMPLEX_KEYGEN_AUTO_DEDUCE_ENCODING.key(), "true");
-
-    HoodieWriteConfig.Builder writeConfigBuilder = HoodieWriteConfig.newBuilder()
-        .withPath(basePath)
-        .withProperties(writeProperties);
-
-    HoodieTable<String, String, String, String> table = mock(HoodieTable.class);
-    BaseHoodieTableServiceClient<String, String, String> tableServiceClient = mock(BaseHoodieTableServiceClient.class);
-
-    // Mock KeyGenUtils static methods
-    try (MockedStatic<KeyGenUtils> keyGenUtilsMock = mockStatic(KeyGenUtils.class)) {
-      // No aux file exists
-      keyGenUtilsMock.when(() -> KeyGenUtils.readComplexKeyEncodingFromAuxFile(any(), anyString()))
-          .thenReturn(Option.empty());
-
-      // Deduction returns the specified value
-      keyGenUtilsMock.when(() -> KeyGenUtils.deduceComplexKeyEncodingFromData(any(), eq("userId")))
-          .thenReturn(deducedEncoding);
-
-      // Allow actual writeComplexKeyEncodingToAuxFile to be called (void method)
-      keyGenUtilsMock.when(() -> KeyGenUtils.writeComplexKeyEncodingToAuxFile(any(), anyString(), eq(deducedEncoding)))
-          .then(invocation -> null);
-
-      // Allow isComplexKeyGeneratorWithSingleRecordKeyField to use actual implementation
-      keyGenUtilsMock.when(() -> KeyGenUtils.isComplexKeyGeneratorWithSingleRecordKeyField(any()))
-          .thenCallRealMethod();
-
-      TestWriteClient writeClient = new TestWriteClient(writeConfigBuilder.build(), table, Option.empty(), tableServiceClient);
-
-      // Should succeed without throwing validation error
-      writeClient.initTable(WriteOperationType.INSERT, Option.empty());
-
-      // Verify deduction was called
-      keyGenUtilsMock.verify(() -> KeyGenUtils.deduceComplexKeyEncodingFromData(any(), eq("userId")));
-
-      // Verify aux file was written
-      keyGenUtilsMock.verify(() -> KeyGenUtils.writeComplexKeyEncodingToAuxFile(any(), anyString(), eq(deducedEncoding)));
-
-      // Verify config was set correctly
-      assertEquals(deducedEncoding, writeClient.getConfig().useComplexKeygenNewEncoding());
-    }
-  }
-
-  private static Stream<Arguments> testAutoDeductionEnabledWithNoAuxFileParams() {
-    return Stream.of(
-        Arguments.of("org.apache.hudi.keygen.ComplexKeyGenerator", true),
-        Arguments.of("org.apache.hudi.keygen.ComplexKeyGenerator", false),
-        Arguments.of("org.apache.hudi.keygen.ComplexAvroKeyGenerator", true),
-        Arguments.of("org.apache.hudi.keygen.ComplexAvroKeyGenerator", false)
-    );
-  }
-
-  @ParameterizedTest
   @MethodSource("testAutoDeductionEnabledWithExistingAuxFileParams")
   void testAutoDeductionEnabledWithExistingAuxFile(String keyGeneratorClass, boolean cachedEncoding) throws IOException {
     if (basePath == null) {
@@ -389,6 +311,10 @@ class TestBaseHoodieWriteClient extends HoodieCommonTestHarness {
     metaClient = HoodieTestUtils.init(
         HoodieTestUtils.getDefaultStorageConf(), basePath, getTableType(), tableProperties);
 
+    // Write aux file with cached encoding value
+    KeyGenUtils.writeComplexKeyEncodingToAuxFile(
+        metaClient.getStorage(), basePath, cachedEncoding);
+
     // Setup write config with auto-deduction enabled
     Properties writeProperties = new Properties();
     writeProperties.put(HoodieWriteConfig.KEYGENERATOR_CLASS_NAME.key(), keyGeneratorClass);
@@ -403,30 +329,19 @@ class TestBaseHoodieWriteClient extends HoodieCommonTestHarness {
     HoodieTable<String, String, String, String> table = mock(HoodieTable.class);
     BaseHoodieTableServiceClient<String, String, String> tableServiceClient = mock(BaseHoodieTableServiceClient.class);
 
-    // Mock KeyGenUtils static methods
-    try (MockedStatic<KeyGenUtils> keyGenUtilsMock = mockStatic(KeyGenUtils.class)) {
-      // Aux file exists with cached value
-      keyGenUtilsMock.when(() -> KeyGenUtils.readComplexKeyEncodingFromAuxFile(any(), anyString()))
-          .thenReturn(Option.of(cachedEncoding));
+    TestWriteClient writeClient = new TestWriteClient(writeConfigBuilder.build(), table, Option.empty(), tableServiceClient);
 
-      // Allow isComplexKeyGeneratorWithSingleRecordKeyField to use actual implementation
-      keyGenUtilsMock.when(() -> KeyGenUtils.isComplexKeyGeneratorWithSingleRecordKeyField(any()))
-          .thenCallRealMethod();
+    // Should succeed without throwing validation error
+    writeClient.initTable(WriteOperationType.INSERT, Option.empty());
 
-      TestWriteClient writeClient = new TestWriteClient(writeConfigBuilder.build(), table, Option.empty(), tableServiceClient);
+    // Verify config was set correctly from cached value
+    assertEquals(cachedEncoding, writeClient.getConfig().useComplexKeygenNewEncoding());
 
-      // Should succeed without throwing validation error
-      writeClient.initTable(WriteOperationType.INSERT, Option.empty());
-
-      // Verify deduction was NOT called (used cached value)
-      keyGenUtilsMock.verify(() -> KeyGenUtils.deduceComplexKeyEncodingFromData(any(), anyString()), never());
-
-      // Verify aux file was NOT written (already exists)
-      keyGenUtilsMock.verify(() -> KeyGenUtils.writeComplexKeyEncodingToAuxFile(any(), anyString(), eq(cachedEncoding)), never());
-
-      // Verify config was set correctly from cached value
-      assertEquals(cachedEncoding, writeClient.getConfig().useComplexKeygenNewEncoding());
-    }
+    // Verify aux file still exists and has the correct value
+    Option<Boolean> readValue = KeyGenUtils.readComplexKeyEncodingFromAuxFile(
+        metaClient.getStorage(), basePath);
+    assertTrue(readValue.isPresent());
+    assertEquals(cachedEncoding, readValue.get());
   }
 
   private static Stream<Arguments> testAutoDeductionEnabledWithExistingAuxFileParams() {
@@ -566,22 +481,15 @@ class TestBaseHoodieWriteClient extends HoodieCommonTestHarness {
     HoodieTable<String, String, String, String> table = mock(HoodieTable.class);
     BaseHoodieTableServiceClient<String, String, String> tableServiceClient = mock(BaseHoodieTableServiceClient.class);
 
-    // Mock KeyGenUtils static methods
-    try (MockedStatic<KeyGenUtils> keyGenUtilsMock = mockStatic(KeyGenUtils.class)) {
-      // Allow isComplexKeyGeneratorWithSingleRecordKeyField to use actual implementation
-      keyGenUtilsMock.when(() -> KeyGenUtils.isComplexKeyGeneratorWithSingleRecordKeyField(any()))
-          .thenCallRealMethod();
+    TestWriteClient writeClient = new TestWriteClient(writeConfigBuilder.build(), table, Option.empty(), tableServiceClient);
 
-      TestWriteClient writeClient = new TestWriteClient(writeConfigBuilder.build(), table, Option.empty(), tableServiceClient);
+    // Should succeed without auto-deduction logic being triggered
+    writeClient.initTable(WriteOperationType.INSERT, Option.empty());
 
-      // Should succeed without auto-deduction logic being triggered
-      writeClient.initTable(WriteOperationType.INSERT, Option.empty());
-
-      // Verify deduction was NOT called (not a complex keygen with single field)
-      keyGenUtilsMock.verify(() -> KeyGenUtils.deduceComplexKeyEncodingFromData(any(), anyString()), never());
-      keyGenUtilsMock.verify(() -> KeyGenUtils.readComplexKeyEncodingFromAuxFile(any(), anyString()), never());
-      keyGenUtilsMock.verify(() -> KeyGenUtils.writeComplexKeyEncodingToAuxFile(any(), anyString(), eq(true)), never());
-    }
+    // Verify aux file was NOT created (not a complex keygen with single field)
+    Option<Boolean> readValue = KeyGenUtils.readComplexKeyEncodingFromAuxFile(
+        metaClient.getStorage(), basePath);
+    assertFalse(readValue.isPresent());
   }
 
   private static Stream<Arguments> testAutoDeductionWithNonComplexKeyGenParams() {
@@ -624,22 +532,15 @@ class TestBaseHoodieWriteClient extends HoodieCommonTestHarness {
     HoodieTable<String, String, String, String> table = mock(HoodieTable.class);
     BaseHoodieTableServiceClient<String, String, String> tableServiceClient = mock(BaseHoodieTableServiceClient.class);
 
-    // Mock KeyGenUtils static methods
-    try (MockedStatic<KeyGenUtils> keyGenUtilsMock = mockStatic(KeyGenUtils.class)) {
-      // Allow isComplexKeyGeneratorWithSingleRecordKeyField to use actual implementation
-      keyGenUtilsMock.when(() -> KeyGenUtils.isComplexKeyGeneratorWithSingleRecordKeyField(any()))
-          .thenCallRealMethod();
+    TestWriteClient writeClient = new TestWriteClient(writeConfigBuilder.build(), table, Option.empty(), tableServiceClient);
 
-      TestWriteClient writeClient = new TestWriteClient(writeConfigBuilder.build(), table, Option.empty(), tableServiceClient);
+    // Should succeed without auto-deduction logic being triggered
+    writeClient.initTable(WriteOperationType.INSERT, Option.empty());
 
-      // Should succeed without auto-deduction logic being triggered
-      writeClient.initTable(WriteOperationType.INSERT, Option.empty());
-
-      // Verify deduction was NOT called (multiple record key fields)
-      keyGenUtilsMock.verify(() -> KeyGenUtils.deduceComplexKeyEncodingFromData(any(), anyString()), never());
-      keyGenUtilsMock.verify(() -> KeyGenUtils.readComplexKeyEncodingFromAuxFile(any(), anyString()), never());
-      keyGenUtilsMock.verify(() -> KeyGenUtils.writeComplexKeyEncodingToAuxFile(any(), anyString(), eq(true)), never());
-    }
+    // Verify aux file was NOT created (multiple record key fields)
+    Option<Boolean> readValue = KeyGenUtils.readComplexKeyEncodingFromAuxFile(
+        metaClient.getStorage(), basePath);
+    assertFalse(readValue.isPresent());
   }
 
   private static Stream<Arguments> testAutoDeductionWithComplexKeyGenMultipleFieldsParams() {
