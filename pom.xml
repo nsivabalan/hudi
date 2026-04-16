@@ -397,6 +397,18 @@
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>set-byte-buddy-agent-path</id>
+            <goals>
+              <goal>properties</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-failsafe-plugin</artifactId>
         <version>${maven-failsafe-plugin.version}</version>
         <configuration>
@@ -513,7 +525,7 @@
           <version>${maven-surefire-plugin.version}</version>
           <configuration>
             <rerunFailingTestsCount>3</rerunFailingTestsCount>
-            <argLine>@{argLine}</argLine>
+            <argLine>@{argLine} -javaagent:@{net.bytebuddy:byte-buddy-agent:jar}</argLine>
             <trimStackTrace>false</trimStackTrace>
             <systemPropertyVariables>
               <log4j.configurationFile>${surefire-log4j.file}</log4j.configurationFile>
