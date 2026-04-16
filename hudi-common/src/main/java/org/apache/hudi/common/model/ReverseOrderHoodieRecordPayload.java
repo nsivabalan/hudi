@@ -23,7 +23,7 @@ import org.apache.hudi.common.util.Option;
 
 /**
  * {@link HoodieRecordPayload} impl that honors ordering field in both preCombine and combineAndGetUpdateValue.
- * This class extends DefaultHoodieRecordPayload implementation but overrides comparable method that determines the order.
+ * This class extends DefaultHoodieRecordPayload but overrides the {@link #compareOrderingVal} method to reverse the order.
  *
  * 1. preCombine - Keeps the oldest record for a key, based on an ordering field
  * 2. combineAndGetUpdateValue/getInsertValue - Chooses the oldest record based on ordering field value.

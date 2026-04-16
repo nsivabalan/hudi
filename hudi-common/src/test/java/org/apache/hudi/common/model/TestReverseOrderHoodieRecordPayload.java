@@ -58,7 +58,7 @@ public class TestReverseOrderHoodieRecordPayload {
 
   @ParameterizedTest
   @MethodSource("org.apache.hudi.common.testutils.OrderingFieldsTestUtils#configureOrderingFields")
-  public void testPrecombineAndCombineAndGetUpdateValueMethods(String key) throws IOException {
+  public void testPrecombineAndCombineAndGetUpdateValue(String key) throws IOException {
     OrderingFieldsTestUtils.setOrderingFieldsConfig(props, key, "ts");
     GenericRecord record1 = new GenericData.Record(schema);
     record1.put("id", "1");
@@ -72,8 +72,8 @@ public class TestReverseOrderHoodieRecordPayload {
     record2.put("ts", 1L);
     record2.put("_hoodie_is_deleted", false);
 
-    ReverseOrderHoodieRecordPayload payload1 = new ReverseOrderHoodieRecordPayload(record1, 1);
-    ReverseOrderHoodieRecordPayload payload2 = new ReverseOrderHoodieRecordPayload(record2, 2);
+    ReverseOrderHoodieRecordPayload payload1 = new ReverseOrderHoodieRecordPayload(record1, 0L);
+    ReverseOrderHoodieRecordPayload payload2 = new ReverseOrderHoodieRecordPayload(record2, 1L);
     assertEquals(payload1.preCombine(payload2, props), payload1);
     assertEquals(payload2.preCombine(payload1, props), payload1);
 
@@ -92,17 +92,17 @@ public class TestReverseOrderHoodieRecordPayload {
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
   public void testDeleteRecord(boolean deleteRecordWithHigherOrderingVal) throws IOException {
-    long record1PrecombineVal = 1;
+    long record1OrderingVal = 1;
     GenericRecord record1 = new GenericData.Record(schema);
     record1.put("id", "1");
     record1.put("partition", "partition0");
-    record1.put("ts", record1PrecombineVal);
+    record1.put("ts", record1OrderingVal);
     record1.put("_hoodie_is_deleted", false);
 
     GenericRecord delete2 = new GenericData.Record(schema);
     delete2.put("id", "2");
     delete2.put("partition", "partition1");
-    delete2.put("ts", deleteRecordWithHigherOrderingVal ? record1PrecombineVal + 1 : record1PrecombineVal - 1);
+    delete2.put("ts", deleteRecordWithHigherOrderingVal ? record1OrderingVal + 1 : record1OrderingVal - 1);
     delete2.put("_hoodie_is_deleted", true);
 
     ReverseOrderHoodieRecordPayload payload1 = new ReverseOrderHoodieRecordPayload(record1, 1);
