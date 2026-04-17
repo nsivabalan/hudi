@@ -41,8 +41,8 @@ import org.apache.hudi.table.action.compact.strategy.UnBoundedCompactionStrategy
 
 import org.apache.spark.sql.{Row, SaveMode}
 import org.apache.spark.sql.functions.lit
+import org.junit.jupiter.api.{Tag, Test}
 import org.junit.jupiter.api.Assertions.{assertEquals, assertFalse, assertTrue, fail}
-import org.junit.jupiter.api.Tag
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.{Arguments, EnumSource, MethodSource, ValueSource}
 
@@ -476,6 +476,82 @@ class TestRecordLevelIndex extends RecordLevelIndexTestBase with SparkDatasetMix
     mergedDfList = mergedDfList :+ prevDf.filter(row => row.getAs("_row_key").asInstanceOf[String] != recordKeyToDelete)
     validateDataAndRecordIndices(hudiOpts, spark.read.json(spark.sparkContext.parallelize(recordsToStrings(deletedRecords).asScala.toSeq, 1)))
     deleteDf.unpersist()
+  }
+
+  @Test
+  def testPartitionedRecordLevelIndexWithHiveStylePartitioningAndDotInPartitionField(): Unit = {
+    initMetaClient(HoodieTableType.COPY_ON_WRITE)
+    val dataGen = new HoodieTestDataGenerator()
+    val inserts = dataGen.generateInserts("001", 10)
+    val insertDf = toDataset(spark, inserts)
+
+    // Use fare.currency as partition field to test dots in partition field names with Hive-style partitioning
+    val options = Map(HoodieWriteConfig.TBL_NAME.key -> "hoodie_test",
+      DataSourceWriteOptions.TABLE_TYPE.key -> HoodieTableType.COPY_ON_WRITE.name(),
+      RECORDKEY_FIELD.key -> "_row_key",
+      PARTITIONPATH_FIELD.key -> "fare.currency",
+      HoodieTableConfig.ORDERING_FIELDS.key -> "timestamp",
+      HoodieMetadataConfig.GLOBAL_RECORD_LEVEL_INDEX_ENABLE_PROP.key() -> "false",
+      HoodieMetadataConfig.RECORD_LEVEL_INDEX_ENABLE_PROP.key() -> "true",
+      HoodieMetadataConfig.STREAMING_WRITE_ENABLED.key() -> "false",
+      HoodieCompactionConfig.INLINE_COMPACT.key() -> "false",
+      HoodieIndexConfig.INDEX_TYPE.key() -> RECORD_LEVEL_INDEX.name(),
+      DataSourceWriteOptions.HIVE_STYLE_PARTITIONING.key() -> "true")
+
+    insertDf.write.format("hudi")
+      .options(options)
+      .mode(SaveMode.Overwrite)
+      .save(basePath)
+
+    assertEquals(10, spark.read.format("hudi").load(basePath).count())
+
+    val props = TypedProperties.fromMap(JavaConverters.mapAsJavaMapConverter(options).asJava)
+    val writeConfig = HoodieWriteConfig.newBuilder()
+      .withProps(props)
+      .withPath(basePath)
+      .build()
+
+    val metadata = metadataWriter(writeConfig).getTableMetadata
+    val recordKeys = inserts.asScala.map(insert => insert.getRecordKey).asJava.stream().collect(Collectors.toList())
+
+    // Derive expected partition path and count from the actual written data
+    val writtenDf = spark.read.format("hudi").load(basePath)
+    val partitionCounts = writtenDf.groupBy("_hoodie_partition_path").count().collect()
+      .map(row => (row.getString(0), row.getLong(1))).toMap
+    // Expect exactly one partition with a dot in the field name (hive-style)
+    assertEquals(1, partitionCounts.size)
+    val (partitionPath, expectedCount) = partitionCounts.head
+    assertTrue(partitionPath.startsWith("fare.currency="))
+
+    val usdPartitionLocations = readRecordIndex(metadata, recordKeys, HOption.of(partitionPath))
+    assertEquals(expectedCount, usdPartitionLocations.size)
+
+    val df = writtenDf.collect()
+    if (usdPartitionLocations.nonEmpty) {
+      validateDFWithLocations(df, usdPartitionLocations, partitionPath)
+    }
+
+    // Verify partitioned RLI is enabled
+    metaClient = HoodieTableMetaClient.reload(metaClient)
+    val indexDefinitions = metaClient.getIndexMetadata.get().getIndexDefinitions
+    val rliIndexDefinition = indexDefinitions.get(HoodieTableMetadataUtil.PARTITION_NAME_RECORD_INDEX)
+    assertTrue(HoodieRecordIndex.isPartitioned(rliIndexDefinition))
+
+    // Do an update to ensure ongoing writes work correctly with dot in partition field
+    val updates = dataGen.generateUniqueUpdates("002", 2)
+    val updateDf = toDataset(spark, updates)
+    updateDf.write.format("hudi")
+      .options(options)
+      .option(DataSourceWriteOptions.OPERATION.key(), UPSERT_OPERATION_OPT_VAL)
+      .mode(SaveMode.Append)
+      .save(basePath)
+
+    assertEquals(expectedCount, spark.read.format("hudi").load(basePath).count())
+
+    // Verify record index still works after updates
+    val metadataAfterUpdate = metadataWriter(writeConfig).getTableMetadata
+    val usdLocationsAfterUpdate = readRecordIndex(metadataAfterUpdate, recordKeys, HOption.of(partitionPath))
+    assertEquals(expectedCount, usdLocationsAfterUpdate.size)
   }
 }
 
