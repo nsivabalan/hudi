@@ -108,7 +108,7 @@ public class MetadataBenchmarkingTool implements Closeable {
 
   // Table and column constants
   private static final String TABLE_NAME = "mdt_benchmarking_tbl";
-  private static final String COL_TENANT_ID = "tenantID";
+  private static final String COL_TENANT_ID = "tenantid";
   private static final String COL_AGE = "age";
 
   // Partition generation constants
@@ -154,7 +154,7 @@ public class MetadataBenchmarkingTool implements Closeable {
         + "    { \"name\": \"name\", \"type\": \"string\" },\n"
         + "    { \"name\": \"city\", \"type\": \"string\" },\n"
         + "    { \"name\": \"age\", \"type\": \"int\" },\n"
-        + "    { \"name\": \"tenantID\", \"type\": \"long\" },\n"
+        + "    { \"name\": \"tenantid\", \"type\": \"long\" },\n"
         + "    { \"name\": \"dt\", \"type\": \"string\" }\n"
         + "  ]\n"
         + "}\n";
@@ -173,7 +173,7 @@ public class MetadataBenchmarkingTool implements Closeable {
         .add("name", "string")
         .add("city", "string")
         .add("age", "int")
-        .add("tenantID", "long")
+        .add("tenantid", "long")
         .add("dt", "string");
   }
 
