@@ -535,12 +535,63 @@
       <scope>test</scope>
     </dependency>
 
+    <!-- Testcontainers -->
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>kafka</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>localstack</artifactId>
+      <scope>test</scope>
+    </dependency>
+
     <!-- AWS Services -->
     <!-- https://mvnrepository.com/artifact/software.amazon.awssdk/aws-java-sdk-sqs -->
     <dependency>
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>sqs</artifactId>
       <version>${aws.sdk.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>kinesis</artifactId>
+      <version>${aws.sdk.version}</version>
+    </dependency>
+    <!-- KPL de-aggregation: extracts user records from Kinesis Producer Library aggregated records.
+         We only need UserRecord.deaggregate() from the KCL transitive dep; exclude the heavy
+         transitive deps (DynamoDB, CloudWatch, Lambda, etc.) that the full KCL consumer would use. -->
+    <dependency>
+      <groupId>com.amazonaws</groupId>
+      <artifactId>amazon-kinesis-deaggregator</artifactId>
+      <version>${aws.kinesis.aggregator.version}</version>
+      <exclusions>
+        <exclusion>
+          <groupId>com.amazonaws</groupId>
+          <artifactId>aws-lambda-java-events</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>com.amazonaws</groupId>
+          <artifactId>aws-java-sdk-dynamodb</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>com.amazonaws</groupId>
+          <artifactId>aws-java-sdk-cloudwatch</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <!-- KPL aggregation: for creating aggregated records in tests -->
+    <dependency>
+      <groupId>com.amazonaws</groupId>
+      <artifactId>amazon-kinesis-aggregator</artifactId>
+      <version>${aws.kinesis.aggregator.version}</version>
+      <scope>test</scope>
     </dependency>
 
     <!-- Hive - Test -->

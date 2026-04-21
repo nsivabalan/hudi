@@ -95,9 +95,9 @@ jobs:
       - name: Set java version
         env:
           SPARK_PROFILE: ${{ matrix.sparkProfile }}
-        run: mvn versions:set -DnewVersion="$VERSION"-INTERNAL -T 4 -D"$SCALA_PROFILE" -D"$SPARK_PROFILE" $MVN_ARGS
+        run: mvn versions:set -DnewVersion="$VERSION"-INTERNAL -T 4 -D"$SCALA_PROFILE" -D"$SPARK_PROFILE" -Dflink1.20 $MVN_ARGS
 
       - name: Deploy
         env:
           SPARK_PROFILE: ${{ matrix.sparkProfile }}
-        run: mvn deploy -am -pl $MODULES -DskipTests -T 4 -D"$SCALA_PROFILE" -D"$SPARK_PROFILE" $MVN_ARGS
+        run: mvn deploy -am -pl $MODULES -DskipTests -T 4 -D"$SCALA_PROFILE" -D"$SPARK_PROFILE" -Dflink1.20 $MVN_ARGS

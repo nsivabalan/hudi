@@ -137,6 +137,7 @@
     <prometheus.version>0.16.0</prometheus.version>
     <aws.sdk.httpclient.version>4.5.13</aws.sdk.httpclient.version>
     <aws.sdk.httpcore.version>4.4.13</aws.sdk.httpcore.version>
+    <aws.kinesis.aggregator.version>1.0.3</aws.kinesis.aggregator.version>
     <httpcore.version>4.4.16</httpcore.version>
     <httpclient.version>4.5.14</httpclient.version>
     <spark.version>${spark3.version}</spark.version>
@@ -1836,6 +1837,12 @@
       <dependency>
         <groupId>org.testcontainers</groupId>
         <artifactId>testcontainers</artifactId>
+        <version>${testcontainers.version}</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.testcontainers</groupId>
+        <artifactId>kafka</artifactId>
         <version>${testcontainers.version}</version>
         <scope>test</scope>
       </dependency>
