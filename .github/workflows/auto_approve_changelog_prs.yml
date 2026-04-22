@@ -26,14 +26,14 @@ jobs:
           branch_name=$(git rev-parse --abbrev-ref HEAD)
           echo "Running on branch: ${branch_name}"
           # check branch name
-          if [[ "${branch_name}" =~ ^changelog-release-v[0-9]+.[0-9]+.[0-9]+$ ]]; then
+          if [[ "${branch_name}" =~ ^changelog-release-1x-v[0-9]+.[0-9]+.[0-9]+$ ]]; then
             release_branch_version="${branch_name:10}"
             echo "Release version: ${release_branch_version}"
             # check PR title
             if [[ "${PR_TITLE}" =~ \[AUDIT-[0-9]+\]:\ Changelog\ for\ ${release_branch_version}$ ]]; then
               # check changed files
-              git fetch origin hudi-1.0-t1
-              files_modified=$(git diff --name-only HEAD origin/hudi-1.0-t1 | awk '{printf "%s%s",sep,$0; sep=","} END{print ""}')
+              git fetch origin master-1x
+              files_modified=$(git diff --name-only HEAD origin/master-1x | awk '{printf "%s%s",sep,$0; sep=","} END{print ""}')
               if [[ ${files_modified} == "CHANGELOG" ]]; then
                 echo "Auto approving of PR"
                 latest_commit_id=$(git rev-parse HEAD)

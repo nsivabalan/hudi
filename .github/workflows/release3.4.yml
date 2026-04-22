@@ -2,7 +2,7 @@ on:
   pull_request_review:
     types: [ submitted ]
     branch:
-      - 'hudi-internal-release-v*-spark3.4'
+      - 'hudi-internal-release-1x-v*-spark3.4'
 
 env:
   MVN_ARGS: -ntp -B -V -Pci-log -Pwarn-log -Dorg.slf4j.simpleLogger.log.org.apache.maven.plugins.shade=warn -Dorg.slf4j.simpleLogger.log.org.apache.maven.plugins.dependency=warn
@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   deploy:
-    if: startsWith(github.event.pull_request.head.ref, 'hudi-internal-release-v') && endsWith(github.event.pull_request.head.ref, 'spark3.4') && github.event.review.state == 'approved'
+    if: startsWith(github.event.pull_request.head.ref, 'hudi-internal-release-1x-v') && endsWith(github.event.pull_request.head.ref, 'spark3.4') && github.event.review.state == 'approved'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -41,7 +41,7 @@ jobs:
           server-username: AWS
           server-password: CODEARTIFACT_AUTH_TOKEN
       - name: Set VERSION
-        run: echo "VERSION=$(echo $BRANCH | sed -e s/hudi-internal-release-v//)" >> $GITHUB_ENV
+        run: echo "VERSION=$(echo $BRANCH | sed -e 's/hudi-internal-release-1x-v//')" >> $GITHUB_ENV
       - name: Print Version
         run: echo "$BRANCH $VERSION"
       - name: Fail if version not set

@@ -72,7 +72,7 @@ jobs:
           fi
 
       - name: Fail if version is reserved or empty
-        if: contains(env.ADHOC_JAR_VERSION, 'release-v') || env.ADHOC_JAR_VERSION == 'latest' || env.ADHOC_JAR_VERSION == ''
+        if: contains(env.ADHOC_JAR_VERSION, 'release-1x-v') || env.ADHOC_JAR_VERSION == 'latest' || env.ADHOC_JAR_VERSION == ''
         run: exit 1
 
       - name: Set VERSION

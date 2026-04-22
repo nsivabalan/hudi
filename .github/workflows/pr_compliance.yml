@@ -3,7 +3,7 @@ on:
   pull_request:
     types: [ opened, edited, reopened, synchronize ]
     branches:
-      - hudi-1.0-t1
+      - master-1x
 
 jobs:
   validate-pr:
