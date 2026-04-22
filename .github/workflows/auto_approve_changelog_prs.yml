@@ -26,7 +26,7 @@ jobs:
           branch_name=$(git rev-parse --abbrev-ref HEAD)
           echo "Running on branch: ${branch_name}"
           # check branch name
-          if [[ "${branch_name}" =~ ^changelog-release-1x-v[0-9]+.[0-9]+.[0-9]+$ ]]; then
+          if [[ "${branch_name}" =~ ^changelog-release-v[0-9]+.[0-9]+.[0-9]+$ ]]; then
             release_branch_version="${branch_name:10}"
             echo "Release version: ${release_branch_version}"
             # check PR title
