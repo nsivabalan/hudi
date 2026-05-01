@@ -657,7 +657,7 @@ public final class HoodieMetadataConfig extends HoodieConfig {
       .markAdvanced()
       .sinceVersion("0.14.2")
       .withDocumentation("Enables cache for fetching latest file slice view for rollback execution. Would help RECORD_INDEX lookups in MDT at large scale");
-
+  
   public long getMaxLogFileSize() {
     return getLong(MAX_LOG_FILE_SIZE_BYTES_PROP);
   }

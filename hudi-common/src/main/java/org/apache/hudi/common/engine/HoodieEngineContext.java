@@ -205,4 +205,5 @@ public abstract class HoodieEngineContext {
   }
 
   public abstract KeyGenerator createKeyGenerator(TypedProperties props) throws IOException;
+
 }

@@ -17,6 +17,7 @@ env:
   SPARK35_MODULE: "hudi-spark-datasource/hudi-spark3.5.x"
   SPARK34_MODULE: "hudi-spark-datasource/hudi-spark3.4.x_2.12"
   HUDI_COMMON_MODULE: "hudi-common"
+  HADOOP_COMMON_MODULE: "hudi-hadoop-common"
   CLIENT_COMMON_MODULE: "hudi-client/hudi-client-common"
   SPARK_CLIENT_MODULE: "hudi-client/hudi-spark-client"
   JAVA_CLIENT_MODULE: "hudi-client/hudi-java-client"
@@ -142,7 +143,7 @@ jobs:
           echo "Jacoco xml reports: ${jacoco_xml_report_files}"
           if [ ${{ github.event_name }} == 'pull_request' ]; then
             mvn sonar:sonar -Dargline="-Xmx8192m" -D"$SCALA_PROFILE" -D"$SPARK_PROFILE" $MVN_ARGS -Dsonar.projectName="hudi-internal-utilities" -Dsonar.projectKey=onehouseinc_hudi-internal_utilities \
-              -Dsonar.exclusions="hudi-azure/**/*,hudi-aws/**/*,hudi-cli/**/*,hudi-client/**/*,hudi-common/**/*,hudi-examples/**/*,hudi-flink-datasource/**/*,hudi-gcp/**/*,hudi-hadoop-mr/**/*,hudi-kafka-connect/**/*,hudi-spark-datasource/**/*,hudi-sync/**/*,hudi-tests-common/**/*,hudi-timeline-service/**/*,packaging/**/*" \
+              -Dsonar.exclusions="hudi-azure/**/*,hudi-aws/**/*,hudi-cli/**/*,hudi-client/**/*,hudi-common/**/*,hudi-examples/**/*,hudi-flink-datasource/**/*,hudi-gcp/**/*,hudi-hadoop-common/**/*,hudi-hadoop-mr/**/*,hudi-kafka-connect/**/*,hudi-spark-datasource/**/*,hudi-sync/**/*,hudi-tests-common/**/*,hudi-timeline-service/**/*,packaging/**/*" \
               -Dsonar.token=${{ secrets.SONAR_CLOUD_TOKEN }} \
               -Dsonar.coverage.jacoco.xmlReportPaths="${jacoco_xml_report_files}" \
               -Dsonar.pullrequest.key=${{ github.event.number }} \
@@ -151,7 +152,7 @@ jobs:
               -Dsonar.pullrequest.github.repository=https://github.com/onehouseinc/hudi-internal
           else
             mvn sonar:sonar -Dargline="-Xmx8192m" -D"$SCALA_PROFILE" -D"$SPARK_PROFILE" $MVN_ARGS -Dsonar.projectName="hudi-internal-utilities" -Dsonar.projectKey=onehouseinc_hudi-internal_utilities \
-              -Dsonar.exclusions="hudi-azure/**/*,hudi-aws/**/*,hudi-cli/**/*,hudi-client/**/*,hudi-common/**/*,hudi-examples/**/*,hudi-flink-datasource/**/*,hudi-gcp/**/*,hudi-hadoop-mr/**/*,hudi-kafka-connect/**/*,hudi-spark-datasource/**/*,hudi-sync/**/*,hudi-tests-common/**/*,hudi-timeline-service/**/*,packaging/**/*" \
+              -Dsonar.exclusions="hudi-azure/**/*,hudi-aws/**/*,hudi-cli/**/*,hudi-client/**/*,hudi-common/**/*,hudi-examples/**/*,hudi-flink-datasource/**/*,hudi-gcp/**/*,hudi-hadoop-common/**/*,hudi-hadoop-mr/**/*,hudi-kafka-connect/**/*,hudi-spark-datasource/**/*,hudi-sync/**/*,hudi-tests-common/**/*,hudi-timeline-service/**/*,packaging/**/*" \
               -Dsonar.token=${{ secrets.SONAR_CLOUD_TOKEN }} \
               -Dsonar.coverage.jacoco.xmlReportPaths="${jacoco_xml_report_files}" \
               -Dsonar.branch.name=${{ github.HEAD_REF }}
@@ -277,14 +278,14 @@ jobs:
           SCALA_PROFILE: ${{ matrix.scalaProfile }}
           SPARK_PROFILE: ${{ matrix.sparkProfile }}
         run:
-          mvn clean install -T 2 -DskipTests -D"$SCALA_PROFILE" -D"$SPARK_PROFILE" -am -pl "$CLIENT_COMMON_MODULE,$SPARK_CLIENT_MODULE,$JAVA_CLIENT_MODULE,$HUDI_COMMON_MODULE" $MVN_ARGS
+          mvn clean install -T 2 -DskipTests -D"$SCALA_PROFILE" -D"$SPARK_PROFILE" -am -pl "$CLIENT_COMMON_MODULE,$SPARK_CLIENT_MODULE,$JAVA_CLIENT_MODULE,$HUDI_COMMON_MODULE,$HADOOP_COMMON_MODULE" $MVN_ARGS
       - name: Hudi Client Unit Tests
         if: needs.skip-check.outputs.skip != 'true' # Skip condition
         env:
           SCALA_PROFILE: ${{ matrix.scalaProfile }}
           SPARK_PROFILE: ${{ matrix.sparkProfile }}
         run: |
-          mvn test -Punit-tests -D"$SCALA_PROFILE" -D"$SPARK_PROFILE" -pl "$CLIENT_COMMON_MODULE,$SPARK_CLIENT_MODULE,$JAVA_CLIENT_MODULE,$HUDI_COMMON_MODULE" $MVN_ARGS
+          mvn test -Punit-tests -D"$SCALA_PROFILE" -D"$SPARK_PROFILE" -pl "$CLIENT_COMMON_MODULE,$SPARK_CLIENT_MODULE,$JAVA_CLIENT_MODULE,$HUDI_COMMON_MODULE,$HADOOP_COMMON_MODULE" $MVN_ARGS
       - name: Hudi Client Functional Tests
         if: needs.skip-check.outputs.skip != 'true' # Skip condition
         env:

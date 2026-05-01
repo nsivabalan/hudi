@@ -48,6 +48,8 @@ import org.apache.spark.sql.internal.SQLConf;
 import org.apache.spark.sql.sources.Filter;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.util.SerializableConfiguration;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -62,6 +64,8 @@ import scala.collection.JavaConverters;
  * Factory that provides the {@link InternalRow} based {@link HoodieReaderContext} for reading data into the spark native format.
  */
 public class SparkReaderContextFactory implements ReaderContextFactory<InternalRow> {
+
+  static final Logger LOG = LoggerFactory.getLogger(SparkReaderContextFactory.class);
   private final Broadcast<SparkColumnarFileReader> baseFileReaderBroadcast;
   private final Broadcast<SerializableConfiguration> configurationBroadcast;
   private final Broadcast<HoodieTableConfig> tableConfigBroadcast;
@@ -74,7 +78,6 @@ public class SparkReaderContextFactory implements ReaderContextFactory<InternalR
                             TableSchemaResolver resolver, SparkAdapter sparkAdapter) {
     SQLConf sqlConf = hoodieSparkEngineContext.getSqlContext().sparkSession().sessionState().conf();
     JavaSparkContext jsc = hoodieSparkEngineContext.jsc();
-
     // Prepare
     boolean returningBatch = sqlConf.parquetVectorizedReaderEnabled();
     scala.collection.immutable.Map<String, String> options =

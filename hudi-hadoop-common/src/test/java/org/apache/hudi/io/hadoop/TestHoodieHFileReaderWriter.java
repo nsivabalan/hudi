@@ -33,6 +33,7 @@ import org.apache.hudi.common.testutils.HoodieTestUtils;
 import org.apache.hudi.common.util.FileIOUtils;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.collection.ClosableIterator;
+import org.apache.hudi.exception.HoodieDuplicateKeyException;
 import org.apache.hudi.hadoop.fs.HadoopFSUtils;
 import org.apache.hudi.io.hfile.HFileReader;
 import org.apache.hudi.io.hfile.UTF8StringKey;
@@ -778,6 +779,40 @@ public class TestHoodieHFileReaderWriter extends TestHoodieReaderWriterBase {
     content = readHFileFromResources(bootstrapIndexFile);
     verifyHFileReader(
         content, hfilePrefix, false, useBloomFilter, 4);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void testWriteAvroDuplicateKeyHandling(boolean allowDuplicates) throws Exception {
+    Schema avroSchema = getSchemaFromResource(TestHoodieOrcReaderWriter.class, "/exampleSchemaWithMetaFields.avsc");
+    Properties props = new Properties();
+    props.setProperty(HoodieTableConfig.POPULATE_META_FIELDS.key(), Boolean.toString(false));
+    props.setProperty(HoodieStorageConfig.HFILE_WRITER_TO_ALLOW_DUPLICATES.key(), Boolean.toString(allowDuplicates));
+    HoodieAvroHFileWriter writer = (HoodieAvroHFileWriter) HoodieFileWriterFactory.getFileWriter(
+        "000", getFilePath(), HoodieTestUtils.getStorage(getFilePath()),
+        HoodieStorageConfig.newBuilder().fromProperties(props).build(),
+        avroSchema, mockTaskContextSupplier(), HoodieRecord.HoodieRecordType.AVRO);
+
+    GenericRecord record = new GenericData.Record(avroSchema);
+    record.put("_row_key", "dup_key");
+    record.put("time", "1000");
+    record.put("number", 1);
+    writer.writeAvro("dup_key", record);
+
+    if (allowDuplicates) {
+      writer.writeAvro("dup_key", record);
+    } else {
+      assertThrows(HoodieDuplicateKeyException.class, () -> writer.writeAvro("dup_key", record));
+    }
+    writer.close();
+  }
+
+  private TaskContextSupplier mockTaskContextSupplier() {
+    TaskContextSupplier mockTaskContextSupplier = mock(TaskContextSupplier.class);
+    Supplier<Integer> partitionSupplier = mock(Supplier.class);
+    when(mockTaskContextSupplier.getPartitionIdSupplier()).thenReturn(partitionSupplier);
+    when(partitionSupplier.get()).thenReturn(10);
+    return mockTaskContextSupplier;
   }
 
   private Set<String> getRandomKeys(int count, List<String> keys) {

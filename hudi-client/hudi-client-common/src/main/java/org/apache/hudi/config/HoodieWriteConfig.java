@@ -980,7 +980,6 @@ public class HoodieWriteConfig extends HoodieConfig {
       .sinceVersion("0.14.2")
       .withDocumentation("Enables cache for fetching latest file slice view for mor rollback executions");
 
-
   /**
    * Config key with boolean value that indicates whether record being written during MERGE INTO Spark SQL
    * operation are already prepped.
@@ -2417,6 +2416,10 @@ public class HoodieWriteConfig extends HoodieConfig {
 
   public long getHFileMaxFileSize() {
     return getLong(HoodieStorageConfig.HFILE_MAX_FILE_SIZE);
+  }
+
+  public boolean allowDuplicatesWithHfileWrites() {
+    return getBoolean(HoodieStorageConfig.HFILE_WRITER_TO_ALLOW_DUPLICATES);
   }
 
   public int getHFileBlockSize() {
