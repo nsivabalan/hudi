@@ -53,6 +53,7 @@ import org.apache.spark.sql.catalyst.util.MapData;
 import org.apache.spark.sql.execution.datasources.DataSourceUtils;
 import org.apache.spark.sql.execution.datasources.parquet.ParquetUtils;
 import org.apache.spark.sql.execution.datasources.parquet.ParquetWriteSupport;
+import org.apache.spark.SparkEnv;
 import org.apache.spark.sql.internal.SQLConf;
 import org.apache.spark.sql.types.ArrayType;
 import org.apache.spark.sql.types.DataType;
@@ -110,6 +111,9 @@ public class HoodieRowParquetWriteSupport extends WriteSupport<InternalRow> {
   private static final String MAP_KEY_NAME = "key";
   private static final String MAP_VALUE_NAME = "value";
 
+  private static final String SESSION_LOCAL_TIME_ZONE_KEY = "spark.sql.session.timeZone";
+  private static final String PARQUET_METADATA_TIME_ZONE_KEY = "org.apache.spark.timeZone";
+
   private final Configuration hadoopConf;
   private final Option<HoodieBloomFilterWriteSupport<UTF8String>> bloomFilterWriteSupportOpt;
   private final byte[] decimalBuffer = new byte[Decimal.minBytesForPrecision()[DecimalType.MAX_PRECISION()]];
@@ -155,13 +159,49 @@ public class HoodieRowParquetWriteSupport extends WriteSupport<InternalRow> {
     return hadoopConf;
   }
 
+  /**
+   * Resolves the session-local timezone string. {@code SQLConf.get()} on a Spark
+   * executor task thread that is NOT inside a SQL execution context returns a
+   * fresh fallback {@code SQLConf} with default values — meaning the user's
+   * {@code spark.sql.session.timeZone} override on the SparkSession is invisible.
+   * This method falls back to {@code SparkEnv.get().conf()} (SparkConf is
+   * broadcast to every executor) so the override is honored in compaction-style
+   * code paths that dispatch via vanilla {@code parallelize().map()}.
+   *
+   * <p>Visible-for-testing: unit tests covering the SQLConf-not-propagated-to-executor
+   * behavior invoke this method directly from inside a Spark task closure without
+   * reflection.
+   */
+  public static String resolveSessionLocalTimeZone() {
+    // Resolution order:
+    //   1. SQLConf override (so `spark.conf.set("spark.sql.session.timeZone",
+    //      ...)` on the SparkSession takes effect on the driver and inside
+    //      Spark SQL execution contexts).
+    //   2. SparkConf (SparkEnv.get.conf) — broadcast to every executor at
+    //      startup, so the override is honored on executor tasks outside a SQL
+    //      execution context.
+    //   3. SQLConf.get.sessionLocalTimeZone — the JVM-default fallback.
+    String fromSqlConf = SQLConf.get().getConfString(SESSION_LOCAL_TIME_ZONE_KEY, null);
+    if (fromSqlConf != null) {
+      return fromSqlConf;
+    }
+    SparkEnv env = SparkEnv.get();
+    if (env != null) {
+      String fromSparkConf = env.conf().get(SESSION_LOCAL_TIME_ZONE_KEY, null);
+      if (fromSparkConf != null) {
+        return fromSparkConf;
+      }
+    }
+    return SQLConf.get().sessionLocalTimeZone();
+  }
+
   @Override
   public WriteContext init(Configuration configuration) {
     Map<String, String> metadata = new HashMap<>();
     metadata.put("org.apache.spark.version", VersionUtils.shortVersion(HoodieSparkUtils.getSparkVersion()));
     if (SparkAdapterSupport$.MODULE$.sparkAdapter().isLegacyBehaviorPolicy(datetimeRebaseMode)) {
       metadata.put("org.apache.spark.legacyDateTime", "");
-      metadata.put("org.apache.spark.timeZone", SQLConf.get().sessionLocalTimeZone());
+      metadata.put(PARQUET_METADATA_TIME_ZONE_KEY, resolveSessionLocalTimeZone());
     }
     Configuration configurationCopy = new Configuration(configuration);
     configurationCopy.set(AvroWriteSupport.WRITE_OLD_LIST_STRUCTURE, Boolean.toString(writeLegacyListFormat));
