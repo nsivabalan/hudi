@@ -187,6 +187,58 @@ For other versions, use the same template-based pattern but with the appropriate
 - **Hudi 1.1.0 (Version 9)**: Requires `--jars <local-bundle-path>` instead of `--packages` (see version 9 requirements above)
 
 
+## Hudi 0.14 (v6) Pending-State Fixtures (1.1 upgrade tests)
+
+In addition to the version-specific table fixtures above, this directory also contains
+pre-generated v6 tables that carry **pending instants** (uncommitted writes, pending
+rollback / clean / clustering / compaction). These are consumed by the upgrade tests in
+`hudi-spark-datasource/hudi-spark/src/test/java/org/apache/hudi/table/upgrade/` to verify
+that the Hudi 1.1 binary handles each pending state correctly.
+
+**Generator**: `HoodieUpgradeTestFixtureGenerator#generateAllFixtures` (on the
+`upgrade_test_fixture_generator` branch — internal tooling, not for upstream PR).
+
+**Runner**: `bash hudi-client/hudi-spark-client/generate_upgrade_fixtures.sh`
+
+**Schema**: `HoodieTestDataGenerator.TRIP_EXAMPLE_SCHEMA` (synthetic trip records)
+
+**Partitions**: `2016/03/15`, `2015/03/16`, `2015/03/17`
+
+### cow_pending_states.zip
+
+COW table carrying multiple concurrent pending states from a Hudi 0.14 write session.
+
+```
+.hoodie/
+  001.commit                   completed INSERT  — 100 records in 2016/03/15
+  002.commit                   completed INSERT  — 50 records  in 2015/03/16
+  003.commit.requested      ─┐ pending WRITE     — insert of 30 records, NOT committed
+  003.commit.inflight       ─┘   (leaves .requested + .inflight; no .commit)
+  004.rollback.requested       pending ROLLBACK  — targets instant 002, empty plan
+  005.replacecommit.requested  pending CLUSTERING — input groups from 001's file slices
+  006.clean.requested          pending CLEAN     — empty file list
+```
+
+Consumed by `TestUpgradeFromV6PendingStates`.
+
+### mor_pending_states.zip
+
+MOR table carrying multiple concurrent pending states from a Hudi 0.14 write session.
+
+```
+.hoodie/
+  001.deltacommit              completed INSERT  — 100 records, base parquet files
+  002.deltacommit              completed UPSERT  — 50 records, log files
+  003.deltacommit              completed UPSERT  — 50 records, log files
+  004.deltacommit.requested ─┐ pending WRITE     — upsert of 30 records, NOT committed
+  004.deltacommit.inflight  ─┘   (leaves .requested + .inflight; no .deltacommit)
+  005.compaction.requested     pending COMPACTION — real plan referencing 002/003 logs
+  006.clean.requested          pending CLEAN      — empty file list
+```
+
+Consumed by `TestUpgradeFromV6MORPendingStates`.
+
+
 ## Notes
 
 - Fixtures are copied to temporary directories during testing to avoid modifications
