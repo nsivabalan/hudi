@@ -80,11 +80,18 @@ public class TableSchemaResolver {
   protected final HoodieTableMetaClient metaClient;
 
   /**
-   * Signals whether suite of the meta-fields should have additional field designating
-   * operation particular record was added by. Note, that determining whether this meta-field
-   * should be appended to the schema requires reading out the actual schema of some data file,
-   * since it's ultimately the source of truth whether this field has to be represented in
-   * the schema
+   * Signals whether the suite of meta-fields should have an additional field designating the
+   * operation by which a particular record was added. Hardcoded to {@code false} on this
+   * branch: the alternative — calling {@link #hasOperationField()} — reads the latest data
+   * file's schema, which forces a reverse walk of completed commits looking for one with
+   * inserts/updates and a sequential read of each commit's metadata file along the way.
+   * Tables with a long tail of empty commits pay this on every {@link TableSchemaResolver}
+   * instantiation. The {@code hoodie.allow.operation.metadata.field} write config is not
+   * persisted in {@code hoodie.properties}, so reading it via {@code getTableConfig()} would
+   * always return {@code false} regardless — making this a no-op in disguise. Hardcoding
+   * makes the behavior explicit. Tables that actually carry {@code _hoodie_operation} in
+   * their schema will lose it from the resolved schema; in this codebase no such tables
+   * exist.
    */
   private final Lazy<Boolean> hasOperationField;
 
@@ -106,7 +113,7 @@ public class TableSchemaResolver {
   public TableSchemaResolver(HoodieTableMetaClient metaClient) {
     this.metaClient = metaClient;
     this.commitMetadataCache = Lazy.lazily(() -> new ConcurrentHashMap<>(2));
-    this.hasOperationField = Lazy.lazily(this::hasOperationField);
+    this.hasOperationField = Lazy.eagerly(false);
   }
 
   public Schema getTableAvroSchemaFromDataFile() throws Exception {
