@@ -19,10 +19,13 @@
 package org.apache.hudi.metadata;
 
 import org.apache.hudi.client.BaseHoodieWriteClient;
+import org.apache.hudi.client.WriteStatus;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.data.HoodieData;
+import org.apache.hudi.common.engine.EngineType;
 import org.apache.hudi.common.engine.HoodieEngineContext;
 import org.apache.hudi.common.model.HoodieFailedWritesCleaningPolicy;
+import org.apache.hudi.common.model.HoodieIndexDefinition;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
@@ -33,13 +36,17 @@ import org.apache.hudi.common.util.Option;
 import org.apache.hudi.config.HoodieCleanConfig;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.storage.StorageConfiguration;
+import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
 
+import org.apache.avro.Schema;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.MockedStatic;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -313,5 +320,154 @@ class TestHoodieBackedTableMetadataWriter {
     ActiveTimelineV2 timeline = new ActiveTimelineV2();
     timeline.setInstants(instants);
     return timeline;
+  }
+
+  @ParameterizedTest
+  @CsvSource(value = {
+      "true,0",   // clean instant already exists, clean should not be called
+      "false,1"   // clean instant does not exist, clean should be called once
+  })
+  void cleanIfNecessary_skipsDuplicateCleanInstants(boolean cleanInstantExists, int expectedCleanCalls,
+                                                    @TempDir java.nio.file.Path tempDir) throws Exception {
+    String basePath = tempDir.toString();
+    String instantTime = "20230101120000";
+    String cleanInstant = "20230101120000999"; // HoodieTableMetadataUtil.createCleanTimestamp format
+
+    // Create a real Hudi table
+    StorageConfiguration storageConfiguration = new HadoopStorageConfiguration(false);
+    HoodieTableMetaClient.newTableBuilder()
+        .setTableType(org.apache.hudi.common.model.HoodieTableType.COPY_ON_WRITE)
+        .setTableName("test_table")
+        .setPayloadClassName(org.apache.hudi.common.model.HoodieAvroPayload.class.getName())
+        .initTable(storageConfiguration, basePath);
+
+    HoodieTableMetaClient metadataMetaClient = mock(HoodieTableMetaClient.class, RETURNS_DEEP_STUBS);
+    HoodieActiveTimeline activeTimeline = mock(HoodieActiveTimeline.class, RETURNS_DEEP_STUBS);
+    BaseHoodieWriteClient writeClient = mock(BaseHoodieWriteClient.class);
+
+    // Mock the timeline structure for metadata metaClient
+    when(metadataMetaClient.getActiveTimeline()).thenReturn(activeTimeline);
+    when(metadataMetaClient.getCommitTimeline().filterCompletedInstants().lastInstant())
+        .thenReturn(Option.empty()); // No recent compaction to skip clean
+
+    // Mock the cleaner timeline check
+    when(activeTimeline.getCleanerTimeline().filterCompletedInstants().containsInstant(cleanInstant))
+        .thenReturn(cleanInstantExists);
+
+    try (MockedStatic<HoodieBackedTableMetadataWriterTableVersionSix> mockedUtil = mockStatic(HoodieBackedTableMetadataWriterTableVersionSix.class)) {
+      mockedUtil.when(() -> HoodieBackedTableMetadataWriterTableVersionSix.createCleanTimestamp(instantTime))
+          .thenReturn(cleanInstant);
+
+      // Create a concrete test implementation
+      TestableHoodieBackedTableMetadataWriter writer = new TestableHoodieBackedTableMetadataWriter(basePath, metadataMetaClient);
+
+      // Execute
+      writer.cleanIfNecessary(writeClient, instantTime);
+
+      // Verify
+      verify(writeClient, times(expectedCleanCalls)).clean(cleanInstant);
+      verify(writeClient, times(1)).lazyRollbackFailedIndexing();
+    }
+  }
+
+  /**
+   * Test implementation of HoodieBackedTableMetadataWriter to expose protected methods for testing.
+   */
+  private static class TestableHoodieBackedTableMetadataWriter extends HoodieBackedTableMetadataWriterTableVersionSix<Object, Object> {
+    private final HoodieTableMetaClient metadataMetaClient;
+
+    TestableHoodieBackedTableMetadataWriter(String basePath, HoodieTableMetaClient metadataMetaClient) {
+      super(
+          new HadoopStorageConfiguration(false),
+          HoodieWriteConfig.newBuilder().withPath(basePath).build(),
+          HoodieFailedWritesCleaningPolicy.EAGER,
+          null, // engineContext not needed for this test
+          Option.empty()
+      );
+      this.metadataMetaClient = metadataMetaClient;
+    }
+
+    @Override
+    protected boolean initializeIfNeeded(HoodieTableMetaClient dataMetaClient,
+                                         Option<String> inflightInstantTimestamp) throws IOException {
+      // Return false to avoid initialization and keep this.metadata null
+      return false;
+    }
+
+    @Override
+    protected EngineType getEngineType() {
+      return null;
+    }
+
+    @Override
+    protected HoodieData<HoodieRecord> getExpressionIndexRecords(List partitionFilePathAndSizeTriplet, HoodieIndexDefinition indexDefinition, HoodieTableMetaClient metaClient, int parallelism,
+                                                                 Schema tableSchema, Schema readerSchema, StorageConfiguration storageConf, String instantTime) {
+      return null;
+    }
+
+    @Override
+    protected void updateColumnsToIndexWithColStats(List columnsToIndex) {
+      // No-op for testing
+    }
+
+    @Override
+    protected HoodieTableMetaClient getMetadataMetaClient() {
+      return metadataMetaClient;
+    }
+
+    @Override
+    protected void initRegistry() {
+      // No-op for testing
+    }
+
+    @Override
+    public void close() throws Exception {
+      // No-op for testing
+    }
+
+    @Override
+    protected void commit(String instantTime, Map<String, HoodieData<HoodieRecord>> partitionRecordsMap) {
+      // No-op for testing
+    }
+
+    @Override
+    protected Object convertHoodieDataToEngineSpecificData(HoodieData<HoodieRecord> records) {
+      return null;
+    }
+
+    @Override
+    protected HoodieData<WriteStatus> convertEngineSpecificDataToHoodieData(Object records) {
+      return null;
+    }
+
+    @Override
+    protected void bulkCommit(String instantTime, String relativePartitionPath, HoodieData records, MetadataTableFileGroupIndexParser indexParser) {
+      // No-op for testing
+    }
+
+    @Override
+    protected void upsertAndCommit(BaseHoodieWriteClient writeClient, String instantTime, Object preppedRecordInputs, List fileGroupsIdsToUpdate) {
+      // No-op for testing
+    }
+
+    @Override
+    protected void upsertAndCommit(BaseHoodieWriteClient writeClient, String instantTime, Object preppedRecordInputs) {
+      // No-op for testing
+    }
+
+    @Override
+    protected void bulkInsertAndCommit(BaseHoodieWriteClient writeClient, String instantTime, Object preppedRecordInputs, Option bulkInsertPartitioner) {
+      // No-op for testing
+    }
+
+    @Override
+    protected BaseHoodieWriteClient<?, Object, ?, Object> initializeWriteClient() {
+      return null;
+    }
+
+    @Override
+    public void deletePartitions(String instantTime, List<MetadataPartitionType> partitions) {
+      // No-op for testing
+    }
   }
 }

@@ -30,7 +30,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Collections;
-import java.util.List;
 import java.util.Set;
 
 /**
@@ -40,18 +39,23 @@ import java.util.Set;
 public class SparkRejectUpdateStrategy<T> extends BaseSparkUpdateStrategy<T> {
   private static final Logger LOG = LoggerFactory.getLogger(SparkRejectUpdateStrategy.class);
 
-  public SparkRejectUpdateStrategy(HoodieEngineContext engineContext, HoodieTable table, Set<HoodieFileGroupId> fileGroupsInPendingClustering) {
-    super(engineContext, table, fileGroupsInPendingClustering);
+  public SparkRejectUpdateStrategy(HoodieEngineContext engineContext, HoodieTable table,
+                                   Set<HoodieFileGroupId> fileGroupsInPendingClustering,
+                                   Set<HoodieFileGroupId> fileGroupsToBeReplaced) {
+    super(engineContext, table, fileGroupsInPendingClustering, fileGroupsToBeReplaced);
   }
 
   @Override
   public Pair<HoodieData<HoodieRecord<T>>, Set<HoodieFileGroupId>> handleUpdate(HoodieData<HoodieRecord<T>> taggedRecordsRDD) {
-    List<HoodieFileGroupId> fileGroupIdsWithRecordUpdate = getGroupIdsWithUpdate(taggedRecordsRDD);
-    fileGroupIdsWithRecordUpdate.forEach(fileGroupIdWithRecordUpdate -> {
-      if (fileGroupsInPendingClustering.contains(fileGroupIdWithRecordUpdate)) {
+    Set<HoodieFileGroupId> allAffectedFileGroups = getGroupIdsWithUpdate(taggedRecordsRDD);
+    // Combine file groups with updates and file groups to be replaced
+    allAffectedFileGroups.addAll(fileGroupsToBeReplaced);
+    // Check if any of the affected file groups are in pending clustering
+    allAffectedFileGroups.forEach(affectedFileGroup -> {
+      if (fileGroupsInPendingClustering.contains(affectedFileGroup)) {
         String msg = String.format("Not allowed to update the clustering file group %s. "
                 + "For pending clustering operations, we are not going to support update for now.",
-            fileGroupIdWithRecordUpdate.toString());
+            affectedFileGroup.toString());
         LOG.error(msg);
         throw new HoodieClusteringUpdateException(msg);
       }

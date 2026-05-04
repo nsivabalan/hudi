@@ -21,10 +21,12 @@ package org.apache.hudi.table.action.rollback;
 import org.apache.hudi.avro.model.HoodieRollbackMetadata;
 import org.apache.hudi.avro.model.HoodieRollbackPartitionMetadata;
 import org.apache.hudi.client.SparkRDDWriteClient;
+import org.apache.hudi.client.WriteClientTestUtils;
 import org.apache.hudi.client.WriteStatus;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.config.HoodieStorageConfig;
 import org.apache.hudi.common.fs.ConsistencyGuardConfig;
+import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieCommitMetadata;
 import org.apache.hudi.common.model.HoodieFileGroup;
@@ -32,6 +34,9 @@ import org.apache.hudi.common.model.HoodieLogFile;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.model.HoodieWriteStat;
+import org.apache.hudi.common.table.HoodieTableConfig;
+import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.common.table.marker.MarkerType;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.timeline.versioning.TimelineLayoutVersion;
@@ -45,6 +50,8 @@ import org.apache.hudi.config.HoodieCompactionConfig;
 import org.apache.hudi.config.HoodieIndexConfig;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.index.HoodieIndex;
+import org.apache.hudi.storage.StoragePath;
+import org.apache.hudi.storage.StoragePathInfo;
 import org.apache.hudi.table.HoodieTable;
 import org.apache.hudi.table.action.HoodieWriteMetadata;
 import org.apache.hudi.table.action.compact.CompactionTriggerStrategy;
@@ -52,6 +59,10 @@ import org.apache.hudi.table.marker.WriteMarkersFactory;
 import org.apache.hudi.testutils.Assertions;
 import org.apache.hudi.testutils.MetadataMergeWriteStatus;
 
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.FileUtil;
+
+import org.apache.hudi.hadoop.fs.HadoopFSUtils;
 import org.apache.spark.api.java.JavaRDD;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -61,7 +72,10 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Properties;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -73,6 +87,7 @@ import static org.apache.hudi.common.testutils.HoodieTestDataGenerator.DEFAULT_T
 import static org.apache.hudi.common.testutils.HoodieTestUtils.INSTANT_GENERATOR;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class TestMergeOnReadRollbackActionExecutor extends HoodieClientRollbackTestBase {
@@ -486,5 +501,235 @@ public class TestMergeOnReadRollbackActionExecutor extends HoodieClientRollbackT
       client.commit(newCommitTime, jsc.parallelize(statuses));
       client.rollback(newCommitTime);
     }
+  }
+
+  /**
+   * Tests that rollback operations generate unique write tokens for log files, preventing collisions
+   * during repeated rollback attempts.
+   *
+   * <p>This test validates the fix for write token generation in metadata table rollbacks. Previously,
+   * rollback log files used the default UNKNOWN_WRITE_TOKEN ("1-0-1"), causing collisions when rollback
+   * was retried. Now, each rollback generates explicit write tokens based on Spark task context
+   * (format: {partitionId}-{stageId}-{attemptId}).
+   *
+   * <p>Test flow:
+   * <ol>
+   *   <li>Create initial commit with inserts to establish base files</li>
+   *   <li>Create second commit with updates to generate log files (MOR table)</li>
+   *   <li>Backup commit timeline files and marker directory for repeated rollback simulation</li>
+   *   <li>Execute first rollback and validate write tokens are NOT "1-0-1"</li>
+   *   <li>Restore commit state (timeline files + markers) to simulate rollback retry scenario</li>
+   *   <li>Execute second rollback and validate unique write tokens prevent collisions</li>
+   *   <li>Verify exactly one new rollback log file per file group from second attempt</li>
+   * </ol>
+   *
+   * @param enableFileSliceOptimization tests both with and without file slice caching optimization
+   *                                    to ensure write tokens work correctly in both code paths
+   */
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  public void testRollbackWriteTokenGeneration(boolean enableFileSliceOptimization) throws IOException {
+    // Re-initialize with table version SIX (pre-EIGHT) since this test validates V1 rollback behavior
+    // (writing rollback log blocks). For version >= EIGHT, rollback deletes log files directly.
+    Properties props = new Properties();
+    props.setProperty(HoodieTableConfig.VERSION.key(), "6");
+    initMetaClient(props);
+
+    // 1. Setup: Create MOR table and generate log files through updates
+    HoodieWriteConfig cfg = getConfigBuilder()
+        .withRollbackUsingMarkers(true)
+        .withEnableFileSliceCacheOptimization(enableFileSliceOptimization)
+        .withWriteTableVersion(6)
+        .withMarkersType(MarkerType.DIRECT.name())
+        .withCompactionConfig(HoodieCompactionConfig.newBuilder().compactionSmallFileSize(0).build())
+        .build();
+
+    HoodieTestDataGenerator.writePartitionMetadata(storage, new String[] {DEFAULT_FIRST_PARTITION_PATH}, basePath);
+    SparkRDDWriteClient client = getHoodieWriteClient(cfg);
+
+    // Write 1: Initial inserts
+    String commitTime1 = "001";
+    WriteClientTestUtils.startCommitWithTime(client, commitTime1);
+    List<HoodieRecord> records = dataGen.generateInsertsForPartition(commitTime1, 100, DEFAULT_FIRST_PARTITION_PATH);
+    JavaRDD<HoodieRecord> writeRecords = jsc.parallelize(records, 1);
+    JavaRDD<WriteStatus> statuses = client.upsert(writeRecords, commitTime1);
+    Assertions.assertNoWriteErrors(statuses.collect());
+    client.commit(commitTime1, statuses);
+
+    // Write 2: Updates to same partition to create log files
+    String commitTime2 = "002";
+    WriteClientTestUtils.startCommitWithTime(client, commitTime2);
+    List<HoodieRecord> updateRecords = dataGen.generateUpdates(commitTime2, records);
+    writeRecords = jsc.parallelize(updateRecords, 2); // Use 2 partitions to get multiple tasks
+    statuses = client.upsert(writeRecords, commitTime2);
+    Assertions.assertNoWriteErrors(statuses.collect());
+
+    HoodieTable table = this.getHoodieTable(metaClient, cfg);
+    Map<String, List<String>> logFileNames = collectLogFileNamesByFileId(DEFAULT_FIRST_PARTITION_PATH);
+    assertFalse(logFileNames.isEmpty());
+
+    // 7. Simulate repeated rollback attempt by backing up and restoring the commit to be rolled back
+    // Backup the timeline files and marker directory for commit 002 before we delete rollback metadata
+    StoragePath commit2RequestedPath = new StoragePath(metaClient.getMetaPath(), commitTime2 + HoodieTimeline.REQUESTED_DELTA_COMMIT_EXTENSION);
+    StoragePath commit2InflightPath = new StoragePath(metaClient.getMetaPath(), commitTime2 + HoodieTimeline.INFLIGHT_DELTA_COMMIT_EXTENSION);
+    StoragePath commit2MarkerDir = new StoragePath(metaClient.getMarkerFolderPath(commitTime2));
+    StoragePath backupDir = new StoragePath(basePath, ".backup_test");
+    StoragePath backupMarkerDir = new StoragePath(backupDir, commitTime2);
+    metaClient.getStorage().createDirectory(backupDir);
+
+    // Backup commit 002 timeline files if they exist
+    boolean requestedExists = metaClient.getStorage().exists(commit2RequestedPath);
+    boolean inflightExists = metaClient.getStorage().exists(commit2InflightPath);
+    boolean markerDirExists = metaClient.getStorage().exists(commit2MarkerDir);
+
+    FileSystem hadoopFs = (FileSystem) metaClient.getStorage().getFileSystem();
+    org.apache.hadoop.conf.Configuration hadoopConf = hadoopFs.getConf();
+    if (requestedExists) {
+      FileUtil.copy(hadoopFs, HadoopFSUtils.convertToHadoopPath(commit2RequestedPath),
+          hadoopFs, HadoopFSUtils.convertToHadoopPath(new StoragePath(backupDir, commitTime2 + HoodieTimeline.REQUESTED_DELTA_COMMIT_EXTENSION)), false, hadoopConf);
+    }
+    if (inflightExists) {
+      FileUtil.copy(hadoopFs, HadoopFSUtils.convertToHadoopPath(commit2InflightPath),
+          hadoopFs, HadoopFSUtils.convertToHadoopPath(new StoragePath(backupDir, commitTime2 + HoodieTimeline.INFLIGHT_DELTA_COMMIT_EXTENSION)), false, hadoopConf);
+    }
+    if (markerDirExists) {
+      // Backup the entire marker directory
+      FileUtil.copy(hadoopFs, HadoopFSUtils.convertToHadoopPath(commit2MarkerDir),
+          hadoopFs, HadoopFSUtils.convertToHadoopPath(backupMarkerDir), false, hadoopConf);
+    }
+
+    // 3. Rollback commit 002
+    String rollbackTime = "003";
+    HoodieInstant rollBackInstant = INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.DELTA_COMMIT_ACTION, commitTime2);
+    BaseRollbackPlanActionExecutor rollbackPlanExecutor = new BaseRollbackPlanActionExecutor(
+        context, cfg, table, rollbackTime, rollBackInstant, false, true, false);
+    rollbackPlanExecutor.execute().get();
+
+    MergeOnReadRollbackActionExecutor rollbackExecutor = new MergeOnReadRollbackActionExecutor(
+        context, cfg, table, rollbackTime, rollBackInstant, true, false);
+    Map<String, HoodieRollbackPartitionMetadata> rollbackMetadata = rollbackExecutor.execute().getPartitionMetadata();
+
+    // 4. Assert rollback succeeded
+    assertEquals(1, rollbackMetadata.size());
+    HoodieRollbackPartitionMetadata partitionMetadata = rollbackMetadata.get(DEFAULT_FIRST_PARTITION_PATH);
+    assertFalse(partitionMetadata.getRollbackLogFiles().isEmpty(), "Should have rollback log files");
+
+    metaClient = HoodieTableMetaClient.reload(metaClient);
+    // 5. Verify rollback log files have explicit write tokens (not UNKNOWN_WRITE_TOKEN)
+    table = this.getHoodieTable(metaClient, cfg);
+    List<FileSlice> rollbackFileSlices = table.getSliceView()
+        .getLatestFileSlices(DEFAULT_FIRST_PARTITION_PATH)
+        .collect(Collectors.toList());
+
+    List<HoodieLogFile> rollbackLogFiles = rollbackFileSlices.stream()
+        .flatMap(slice -> {
+          List<HoodieLogFile> logFiles = slice.getLogFiles().collect(Collectors.toList());
+          return Collections.singleton(logFiles.get(logFiles.size() - 1)).stream();
+        })
+        .collect(Collectors.toList());
+
+    assertTrue(rollbackLogFiles.size() > 0, "Should have rollback log files with rollback instant time");
+
+    // 6. Validate write tokens in rollback log files
+    for (HoodieLogFile logFile : rollbackLogFiles) {
+      String writeToken = logFile.getLogWriteToken();
+
+      // Write token should not be empty and should match the pattern {partitionId}-{stageId}-{attemptId}
+      assertFalse(writeToken.isEmpty(), "Write token should not be empty");
+      assertTrue(writeToken.matches("\\d+-\\d+-\\d+"),
+          String.format("Write token should match pattern partitionId-stageId-attemptId, but got: %s in file: %s",
+              writeToken, logFile.getFileName()));
+      assertNotEquals("1-0-1", writeToken);
+    }
+
+    // track all log files names
+    Map<String, List<String>> logFileNamesPostRollback = collectLogFileNamesByFileId(DEFAULT_FIRST_PARTITION_PATH);
+
+    // Remove the completed rollback to simulate rollback retry
+    HoodieInstant completedRollback = metaClient.getActiveTimeline().getRollbackTimeline().lastInstant().get();
+    metaClient.getActiveTimeline().deleteCompletedRollback(completedRollback);
+    metaClient.getActiveTimeline().deleteInstantFileIfExists(
+        INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.ROLLBACK_ACTION, rollbackTime));
+
+    // Restore commit 002 timeline files and marker directory to simulate the commit still being in inflight state
+    if (requestedExists) {
+      FileUtil.copy(hadoopFs, HadoopFSUtils.convertToHadoopPath(new StoragePath(backupDir, commitTime2 + HoodieTimeline.REQUESTED_DELTA_COMMIT_EXTENSION)),
+          hadoopFs, HadoopFSUtils.convertToHadoopPath(commit2RequestedPath), false, hadoopConf);
+    }
+    if (inflightExists) {
+      FileUtil.copy(hadoopFs, HadoopFSUtils.convertToHadoopPath(new StoragePath(backupDir, commitTime2 + HoodieTimeline.INFLIGHT_DELTA_COMMIT_EXTENSION)),
+          hadoopFs, HadoopFSUtils.convertToHadoopPath(commit2InflightPath), false, hadoopConf);
+    }
+    if (markerDirExists) {
+      // Restore the marker directory so the second rollback can use markers
+      FileUtil.copy(hadoopFs, HadoopFSUtils.convertToHadoopPath(backupMarkerDir),
+          hadoopFs, HadoopFSUtils.convertToHadoopPath(commit2MarkerDir.getParent()), false, hadoopConf);
+    }
+
+    // Clean up backup directory
+    metaClient.getStorage().deleteDirectory(backupDir);
+
+    // Reload the meta client and table
+    metaClient = HoodieTableMetaClient.reload(metaClient);
+    table = this.getHoodieTable(metaClient, cfg);
+
+    // 8. Trigger second rollback execution - should create additional rollback log files with different write tokens
+    MergeOnReadRollbackActionExecutor rollbackExecutor2 = new MergeOnReadRollbackActionExecutor(
+        context, cfg, table, rollbackTime, rollBackInstant, true, false);
+    Map<String, HoodieRollbackPartitionMetadata> rollbackMetadata2 = rollbackExecutor2.execute().getPartitionMetadata();
+
+    // 4. Assert rollback succeeded
+    assertEquals(1, rollbackMetadata2.size());
+    HoodieRollbackPartitionMetadata partitionMetadata2 = rollbackMetadata2.get(DEFAULT_FIRST_PARTITION_PATH);
+    assertFalse(partitionMetadata2.getRollbackLogFiles().isEmpty(), "Should have rollback log files");
+
+    metaClient = HoodieTableMetaClient.reload(metaClient);
+    // 5. Verify rollback log files have explicit write tokens (not UNKNOWN_WRITE_TOKEN)
+    table = this.getHoodieTable(metaClient, cfg);
+    List<FileSlice> fileSlices2 = table.getSliceView()
+        .getLatestFileSlices(DEFAULT_FIRST_PARTITION_PATH)
+        .collect(Collectors.toList());
+
+    fileSlices2.stream().forEach(fileSlice -> {
+      if (logFileNames.containsKey(fileSlice.getFileId())) {
+        List<String> logFiles = fileSlice.getLogFiles().map(logFile -> logFile.getFileName()).collect(Collectors.toList());
+        logFiles.removeAll(logFileNames.get(fileSlice.getFileId()));
+        assertEquals(logFiles.size(), 2);
+      }
+    });
+
+    Map<String, List<String>> logFileNamesPost2ndRollback = collectLogFileNamesByFileId(DEFAULT_FIRST_PARTITION_PATH);
+    Map<String, Integer> filesFrom2ndRollback = new HashMap<>();
+    logFileNamesPost2ndRollback.forEach((fileId, fileNames) -> {
+      List<String> previousFiles = logFileNamesPostRollback.getOrDefault(fileId, Collections.emptyList());
+      for (String fileName : fileNames) {
+        if (!previousFiles.contains(fileName)) {
+          filesFrom2ndRollback.merge(fileId, 1, Integer::sum);
+          assertNotEquals("1-0-1", new HoodieLogFile(fileName).getLogWriteToken());
+        }
+      }
+    });
+
+    assertFalse(filesFrom2ndRollback.isEmpty());
+    assertEquals(logFileNames.size(), filesFrom2ndRollback.size());
+    filesFrom2ndRollback.forEach((k, v) -> assertEquals(1, v));
+  }
+
+  /**
+   * Lists all log files in the given partition and groups their file names by file ID.
+   */
+  private Map<String, List<String>> collectLogFileNamesByFileId(String partitionPath) throws IOException {
+    Map<String, List<String>> logFilesByFileId = new HashMap<>();
+    Iterator<StoragePathInfo> itr = storage.listDirectEntries(
+        new StoragePath(metaClient.getBasePath() + "/" + partitionPath)).iterator();
+    while (itr.hasNext()) {
+      StoragePathInfo pathInfo = itr.next();
+      String fileName = pathInfo.getPath().getName();
+      if (fileName.contains("log")) {
+        String fileId = FSUtils.getFileId(fileName);
+        logFilesByFileId.computeIfAbsent(fileId, k -> new ArrayList<>()).add(fileName);
+      }
+    }
+    return logFilesByFileId;
   }
 }

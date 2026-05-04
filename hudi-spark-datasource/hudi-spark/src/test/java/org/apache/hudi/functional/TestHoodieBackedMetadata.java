@@ -4257,6 +4257,112 @@ public class TestHoodieBackedMetadata extends TestHoodieMetadataBase {
   }
 
   /**
+   * Tests that RLI initialization estimates file group count from base file footer metadata
+   * when min != max file group count (dynamic sizing).
+   */
+  @ParameterizedTest
+  @EnumSource(HoodieTableType.class)
+  public void testRecordIndexFileGroupEstimation(HoodieTableType tableType) throws Exception {
+    init(tableType);
+    HoodieSparkEngineContext engineContext = new HoodieSparkEngineContext(jsc);
+
+    HoodieWriteConfig writeConfig = getWriteConfigBuilder(false, true, false)
+        .withMetadataConfig(HoodieMetadataConfig.newBuilder()
+            .enable(true)
+            .withEnablePartitionedRecordIndex(true)
+            .withRecordIndexFileGroupCount(1, 10)
+            .build())
+        .withIndexConfig(HoodieIndexConfig.newBuilder()
+            .withIndexType(HoodieIndex.IndexType.RECORD_INDEX)
+            .build())
+        .build();
+
+    try (SparkRDDWriteClient client = new SparkRDDWriteClient(engineContext, writeConfig)) {
+      String firstCommit = metaClient.createNewInstantTime(false);
+      List<HoodieRecord> records = dataGen.generateInserts(firstCommit, 100);
+      WriteClientTestUtils.startCommitWithTime(client, firstCommit);
+      List<WriteStatus> writeStatuses = client.insert(jsc.parallelize(records, 1), firstCommit).collect();
+      assertNoWriteErrors(writeStatuses);
+      client.commit(firstCommit, jsc.parallelize(writeStatuses));
+
+      String secondCommit = metaClient.createNewInstantTime(false);
+      records = dataGen.generateInserts(secondCommit, 100);
+      WriteClientTestUtils.startCommitWithTime(client, secondCommit);
+      writeStatuses = client.insert(jsc.parallelize(records, 1), secondCommit).collect();
+      assertNoWriteErrors(writeStatuses);
+      client.commit(secondCommit, jsc.parallelize(writeStatuses));
+
+      metaClient = HoodieTableMetaClient.reload(metaClient);
+      assertTrue(metaClient.getTableConfig().isMetadataPartitionAvailable(RECORD_INDEX),
+          "RLI should be initialized");
+
+      HoodieTableMetaClient mdtMetaClient = HoodieTableMetaClient.builder()
+          .setBasePath(getMetadataTableBasePath(basePath))
+          .setConf(storageConf).build();
+      HoodieTableFileSystemView metadataFileSystemView = HoodieTableFileSystemView.fileListingBasedFileSystemView(context, mdtMetaClient, mdtMetaClient.getActiveTimeline());
+      int fileGroupCount = HoodieTableMetadataUtil.getPartitionLatestFileSlices(
+          mdtMetaClient, Option.of(metadataFileSystemView), RECORD_INDEX.getPartitionPath()).size();
+      assertTrue(fileGroupCount >= 1 && fileGroupCount <= 10,
+          "File group count should be within configured bounds: " + fileGroupCount);
+
+      validateMetadata(client);
+    }
+  }
+
+  /**
+   * Tests that RLI initialization uses the fixed file group count when min == max,
+   * bypassing footer-based estimation.
+   */
+  @ParameterizedTest
+  @EnumSource(HoodieTableType.class)
+  public void testRecordIndexWithFixedFileGroupCount(HoodieTableType tableType) throws Exception {
+    init(tableType);
+    HoodieSparkEngineContext engineContext = new HoodieSparkEngineContext(jsc);
+
+    HoodieWriteConfig writeConfig = getWriteConfigBuilder(false, true, false)
+        .withMetadataConfig(HoodieMetadataConfig.newBuilder()
+            .enable(true)
+            .withEnableGlobalRecordLevelIndex(true)
+            .withRecordIndexFileGroupCount(2, 2)
+            .build())
+        .withIndexConfig(HoodieIndexConfig.newBuilder()
+            .withIndexType(HoodieIndex.IndexType.RECORD_INDEX)
+            .build())
+        .build();
+
+    try (SparkRDDWriteClient client = new SparkRDDWriteClient(engineContext, writeConfig)) {
+      String firstCommit = metaClient.createNewInstantTime(false);
+      List<HoodieRecord> records = dataGen.generateInserts(firstCommit, 100);
+      WriteClientTestUtils.startCommitWithTime(client, firstCommit);
+      List<WriteStatus> writeStatuses = client.insert(jsc.parallelize(records, 1), firstCommit).collect();
+      assertNoWriteErrors(writeStatuses);
+      client.commit(firstCommit, jsc.parallelize(writeStatuses));
+
+      String secondCommit = metaClient.createNewInstantTime(false);
+      records = dataGen.generateInserts(secondCommit, 100);
+      WriteClientTestUtils.startCommitWithTime(client, secondCommit);
+      writeStatuses = client.insert(jsc.parallelize(records, 1), secondCommit).collect();
+      assertNoWriteErrors(writeStatuses);
+      client.commit(secondCommit, jsc.parallelize(writeStatuses));
+
+      metaClient = HoodieTableMetaClient.reload(metaClient);
+      assertTrue(metaClient.getTableConfig().isMetadataPartitionAvailable(RECORD_INDEX),
+          "RLI should be initialized");
+
+      HoodieTableMetaClient mdtMetaClient = HoodieTableMetaClient.builder()
+          .setBasePath(getMetadataTableBasePath(basePath))
+          .setConf(storageConf).build();
+      HoodieTableFileSystemView metadataFileSystemView = HoodieTableFileSystemView.fileListingBasedFileSystemView(context, mdtMetaClient, mdtMetaClient.getActiveTimeline());
+      int fileGroupCount = HoodieTableMetadataUtil.getPartitionLatestFileSlices(
+          mdtMetaClient, Option.of(metadataFileSystemView), RECORD_INDEX.getPartitionPath()).size();
+      assertEquals(2, fileGroupCount,
+          "File group count should be exactly 2 as configured (min == max)");
+
+      validateMetadata(client);
+    }
+  }
+
+  /**
    * Disabling row writer here as clustering tests will throw the error below if it is used.
    * java.util.concurrent.CompletionException: java.lang.ClassNotFoundException
    * TODO: Fix this and increase test coverage to include clustering via row writers

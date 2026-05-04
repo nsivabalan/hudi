@@ -286,7 +286,16 @@ public abstract class HoodieBackedTableMetadataWriterTableVersionSix<I, O> exten
 
   @Override
   protected void executeClean(BaseHoodieWriteClient writeClient, String instantTime) {
-    writeClient.clean(createCleanTimestamp(instantTime));
+    String cleanInstant = createCleanTimestamp(instantTime);
+    // Only skip if clean is already completed. If it's inflight/requested (e.g. from a prior partial failure),
+    // we still call writeClient.clean() so it can execute the pending clean to completion.
+    boolean cleanAlreadyCompleted = getMetadataMetaClient().getActiveTimeline()
+        .getCleanerTimeline().filterCompletedInstants().containsInstant(cleanInstant);
+    if (cleanAlreadyCompleted) {
+      LOG.info("Clean instant {} already exists in timeline, skipping this operation", cleanInstant);
+    } else {
+      writeClient.clean(cleanInstant);
+    }
   }
 
   @Override
@@ -312,7 +321,7 @@ public abstract class HoodieBackedTableMetadataWriterTableVersionSix<I, O> exten
     return timestamp + getRollbackOperationSuffix();
   }
 
-  private String createCleanTimestamp(String timestamp) {
+  static String createCleanTimestamp(String timestamp) {
     return timestamp + getCleanOperationSuffix();
   }
 
@@ -332,7 +341,7 @@ public abstract class HoodieBackedTableMetadataWriterTableVersionSix<I, O> exten
     return "006";
   }
 
-  private String getCleanOperationSuffix() {
+  private static String getCleanOperationSuffix() {
     return "002";
   }
 

@@ -400,6 +400,20 @@ public class TestMarkerBasedRollbackStrategy extends HoodieClientTestBase {
     assertEquals(
         tableVersion.greaterThanOrEquals(HoodieTableVersion.EIGHT) ? 0 : 1,
         rollbackStat.getCommandBlocksCount().size());
+    if (!tableVersion.greaterThanOrEquals(HoodieTableVersion.EIGHT)) {
+      // The rollback log file's write token is determined by Spark's task context at runtime,
+      // so extract the actual path from the rollback stats rather than constructing it.
+      StoragePath rollbackLogPath = rollbackStat.getCommandBlocksCount().entrySet().stream().findFirst().get()
+          .getKey().getPath();
+      assertTrue(storage.exists(rollbackLogPath));
+    }
     assertEquals(tableVersion.greaterThanOrEquals(HoodieTableVersion.EIGHT) ? 0 : numLogFiles, rollbackStat.getLogFilesFromFailedCommit().size());
+    if (!tableVersion.greaterThanOrEquals(HoodieTableVersion.EIGHT)) {
+      for (int version : logVersions) {
+        // For table version < 8, log files are named with the base commit time (instantTime1), not the current commit
+        String logFileName = FileCreateUtils.logFileName(logFileInstantTime, fileId, version);
+        assertTrue(rollbackStat.getLogFilesFromFailedCommit().containsKey(logFileName));
+      }
+    }
   }
 }

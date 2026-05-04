@@ -355,9 +355,9 @@ public class HoodieTestDataGenerator implements AutoCloseable {
    * @implNote {@link HoodieTestDataGenerator} is supposed to just generate records with schemas. Leave HoodieTable files (metafile, basefile, logfile, etc) to {@link HoodieTestTable}.
    * @deprecated Use {@link HoodieTestTable#withPartitionMetaFiles(java.lang.String...)} instead.
    */
-  public void writePartitionMetadata(HoodieStorage storage,
-                                     String[] partitionPaths,
-                                     String basePath) {
+  public static void writePartitionMetadata(HoodieStorage storage,
+                                            String[] partitionPaths,
+                                            String basePath) {
     for (String partitionPath : partitionPaths) {
       new HoodiePartitionMetadata(storage, "000", new StoragePath(basePath),
           new StoragePath(basePath, partitionPath), Option.empty()).trySave();
@@ -469,7 +469,7 @@ public class HoodieTestDataGenerator implements AutoCloseable {
   public IndexedRecord generatePayloadForLogicalTypesSchemaNoLTS(HoodieKey key, String commitTime, boolean isDelete, long timestamp) {
     return generateRecordForTripLogicalTypesSchema(key, "rider-" + commitTime, "driver-" + commitTime, timestamp, isDelete, false, false);
   }
-  
+
   public IndexedRecord generatePayloadForLogicalTypesSchemaNoLTSV6(HoodieKey key, String commitTime, boolean isDelete, long timestamp) {
     return generateRecordForTripLogicalTypesSchema(key, "rider-" + commitTime, "driver-" + commitTime, timestamp, isDelete, true, false);
   }

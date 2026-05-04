@@ -35,7 +35,7 @@ import org.apache.hudi.config.{HoodieCompactionConfig, HoodieIndexConfig, Hoodie
 import org.apache.hudi.functional.TestRecordLevelIndex.TestPartitionedRecordLevelIndexTestCase
 import org.apache.hudi.index.HoodieIndex.IndexType.RECORD_LEVEL_INDEX
 import org.apache.hudi.index.record.HoodieRecordIndex
-import org.apache.hudi.metadata.{HoodieBackedTableMetadata, HoodieTableMetadataUtil}
+import org.apache.hudi.metadata.{HoodieBackedTableMetadata, HoodieTableMetadataUtil, MetadataPartitionType}
 import org.apache.hudi.storage.StoragePath
 import org.apache.hudi.table.action.compact.strategy.UnBoundedCompactionStrategy
 
@@ -47,6 +47,7 @@ import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.{Arguments, EnumSource, MethodSource, ValueSource}
 
 import java.util
+import java.util.Collections
 import java.util.stream.Collectors
 
 import scala.collection.JavaConverters
@@ -59,6 +60,163 @@ class TestRecordLevelIndex extends RecordLevelIndexTestBase with SparkDatasetMix
     var options: Map[String, String] = null
     var recordKeys: java.util.List[String] = null
     var newRecordKeys: java.util.List[String] = null
+  }
+
+  @Test
+  def testRLIInitializationForMorWithOnlyBaseFiles(): Unit = {
+    // Test the optimized RLI initialization path for MOR tables that only have base files (no log files)
+    // This should use the faster readRecordKeysFromBaseFiles path instead of readRecordKeysFromFileSliceSnapshot
+    val hudiOpts = commonOpts ++ Map(
+      DataSourceWriteOptions.TABLE_TYPE.key -> HoodieTableType.MERGE_ON_READ.name()
+    )
+
+    // First insert - creates base files
+    doWriteAndValidateDataAndRecordIndex(hudiOpts,
+      operation = DataSourceWriteOptions.INSERT_OPERATION_OPT_VAL,
+      saveMode = SaveMode.Overwrite)
+
+    // Second insert - creates more base files (INSERT doesn't create log files in MOR)
+    doWriteAndValidateDataAndRecordIndex(hudiOpts,
+      operation = DataSourceWriteOptions.INSERT_OPERATION_OPT_VAL,
+      saveMode = SaveMode.Append)
+
+    // Verify no log files exist by checking commit metadata
+    val timeline = metaClient.reloadActiveTimeline().getCommitsTimeline.filterCompletedInstants()
+    val lastInstant = timeline.lastInstant().get()
+    val commitMetadata = timeline.readCommitMetadata(lastInstant)
+    val hasLogFiles = commitMetadata.getPartitionToWriteStats.values().asScala
+      .flatMap(_.asScala)
+      .exists(writeStat => writeStat.getPath.contains(".log"))
+
+    assertTrue(!hasLogFiles, "MOR table should not have log files after INSERT operations")
+
+    // Now drop and re-initialize RLI - this should use the optimized base-file-only path
+    val writeConfig = getWriteConfig(hudiOpts)
+    metadataWriter(writeConfig).dropMetadataPartitions(Collections.singletonList(MetadataPartitionType.RECORD_INDEX.getPartitionPath))
+    // dropMetadataPartitions only deletes physical files; the table config must also be updated so
+    // that the next write detects RLI as uninitialized and re-initializes it
+    metaClient.getTableConfig.setMetadataPartitionState(metaClient, MetadataPartitionType.RECORD_INDEX.getPartitionPath, false)
+    assertEquals(0, getFileGroupCountForRecordIndex(writeConfig))
+
+    // Re-enable RLI - initialization should use the optimized path for base-file-only file slices
+    doWriteAndValidateDataAndRecordIndex(hudiOpts,
+      operation = DataSourceWriteOptions.INSERT_OPERATION_OPT_VAL,
+      saveMode = SaveMode.Append)
+
+    // Validate the RLI was correctly initialized
+    validateDataAndRecordIndices(hudiOpts)
+  }
+
+  @Test
+  def testRLIInitializationForMorWithLogFiles(): Unit = {
+    // Test that MOR tables with log files still use the merge path (not the optimized path)
+    val hudiOpts = commonOpts ++ Map(
+      DataSourceWriteOptions.TABLE_TYPE.key -> HoodieTableType.MERGE_ON_READ.name(),
+      HoodieCompactionConfig.INLINE_COMPACT.key() -> "false",
+      HoodieCompactionConfig.PARQUET_SMALL_FILE_LIMIT.key() -> "0"
+    )
+
+    // First insert - creates base files
+    doWriteAndValidateDataAndRecordIndex(hudiOpts,
+      operation = DataSourceWriteOptions.INSERT_OPERATION_OPT_VAL,
+      saveMode = SaveMode.Overwrite)
+
+    // Upsert - creates log files
+    doWriteAndValidateDataAndRecordIndex(hudiOpts,
+      operation = DataSourceWriteOptions.UPSERT_OPERATION_OPT_VAL,
+      saveMode = SaveMode.Append)
+
+    // Verify log files exist by checking commit metadata
+    val timeline = metaClient.reloadActiveTimeline().getCommitsTimeline.filterCompletedInstants()
+    val lastInstant = timeline.lastInstant().get()
+    val commitMetadata = timeline.readCommitMetadata(lastInstant)
+    val hasLogFiles = commitMetadata.getPartitionToWriteStats.values().asScala
+      .flatMap(_.asScala)
+      .exists(writeStat => writeStat.getPath.contains(".log"))
+
+    assertTrue(hasLogFiles, "MOR table should have log files after UPSERT operations")
+
+    // Drop and re-initialize RLI - this should use the merge path due to log files
+    val writeConfig = getWriteConfig(hudiOpts)
+    metadataWriter(writeConfig).dropMetadataPartitions(Collections.singletonList(MetadataPartitionType.RECORD_INDEX.getPartitionPath))
+    // dropMetadataPartitions only deletes physical files; the table config must also be updated so
+    // that the next write detects RLI as uninitialized and re-initializes it
+    metaClient.getTableConfig.setMetadataPartitionState(metaClient, MetadataPartitionType.RECORD_INDEX.getPartitionPath, false)
+    assertEquals(0, getFileGroupCountForRecordIndex(writeConfig))
+
+    // Re-enable RLI - initialization should use the merge path for file slices with log files
+    doWriteAndValidateDataAndRecordIndex(hudiOpts,
+      operation = DataSourceWriteOptions.UPSERT_OPERATION_OPT_VAL,
+      saveMode = SaveMode.Append)
+
+    // Validate the RLI was correctly initialized with merged data
+    validateDataAndRecordIndices(hudiOpts)
+  }
+
+  @Test
+  def testRLIInitializationForMorGlobalIndex(): Unit = {
+    val tableType = HoodieTableType.MERGE_ON_READ
+    val hudiOpts = commonOpts + (DataSourceWriteOptions.TABLE_TYPE.key -> tableType.name()) +
+      (HoodieMetadataConfig.GLOBAL_RECORD_LEVEL_INDEX_MIN_FILE_GROUP_COUNT_PROP.key -> "1") +
+      (HoodieMetadataConfig.GLOBAL_RECORD_LEVEL_INDEX_MAX_FILE_GROUP_COUNT_PROP.key -> "1") +
+      (HoodieIndexConfig.INDEX_TYPE.key -> "RECORD_INDEX") +
+      (HoodieIndexConfig.RECORD_INDEX_UPDATE_PARTITION_PATH_ENABLE.key -> "true") -
+      HoodieMetadataConfig.RECORD_LEVEL_INDEX_ENABLE_PROP.key
+
+    val dataGen1 = HoodieTestDataGenerator.createTestGeneratorFirstPartition()
+    val dataGen2 = HoodieTestDataGenerator.createTestGeneratorSecondPartition()
+
+    // batch1 inserts
+    val instantTime1 = metaClient.createNewInstantTime(false)
+    val latestBatch = recordsToStrings(dataGen1.generateInserts(instantTime1, 5)).asScala.toSeq
+    var operation = INSERT_OPERATION_OPT_VAL
+    val latestBatchDf = spark.read.json(spark.sparkContext.parallelize(latestBatch, 1))
+    latestBatchDf.cache()
+    latestBatchDf.write.format("org.apache.hudi")
+      .options(hudiOpts)
+      .mode(SaveMode.Overwrite)
+      .save(basePath)
+    val deletedDf1 = calculateMergedDf(latestBatchDf, operation, true)
+    deletedDf1.cache()
+
+    // batch2. upsert. update few records to 2nd partition from partition1 and insert a few to partition2.
+    val instantTime2 = metaClient.createNewInstantTime(false)
+
+    val latestBatch2_1 = recordsToStrings(dataGen1.generateUniqueUpdates(instantTime2, 3)).asScala.toSeq
+    val latestBatchDf2_1 = spark.read.json(spark.sparkContext.parallelize(latestBatch2_1, 1))
+    val latestBatchDf2_2 = latestBatchDf2_1.withColumn("partition", lit(HoodieTestDataGenerator.DEFAULT_SECOND_PARTITION_PATH))
+      .withColumn("partition_path", lit(HoodieTestDataGenerator.DEFAULT_SECOND_PARTITION_PATH))
+    val latestBatch2_3 = recordsToStrings(dataGen2.generateInserts(instantTime2, 2)).asScala.toSeq
+    val latestBatchDf2_3 = spark.read.json(spark.sparkContext.parallelize(latestBatch2_3, 1))
+    val latestBatchDf2Final = latestBatchDf2_3.union(latestBatchDf2_2)
+    latestBatchDf2Final.cache()
+    latestBatchDf2Final.write.format("org.apache.hudi")
+      .options(hudiOpts)
+      .mode(SaveMode.Append)
+      .save(basePath)
+    operation = UPSERT_OPERATION_OPT_VAL
+    val deletedDf2 = calculateMergedDf(latestBatchDf2Final, operation, true)
+    deletedDf2.cache()
+
+    val hudiOpts2 = commonOpts + (DataSourceWriteOptions.TABLE_TYPE.key -> tableType.name()) +
+      (HoodieMetadataConfig.GLOBAL_RECORD_LEVEL_INDEX_MIN_FILE_GROUP_COUNT_PROP.key -> "1") +
+      (HoodieMetadataConfig.GLOBAL_RECORD_LEVEL_INDEX_MAX_FILE_GROUP_COUNT_PROP.key -> "1") +
+      (HoodieIndexConfig.INDEX_TYPE.key -> "RECORD_INDEX") +
+      (HoodieIndexConfig.RECORD_INDEX_UPDATE_PARTITION_PATH_ENABLE.key -> "true") +
+      (HoodieMetadataConfig.RECORD_LEVEL_INDEX_ENABLE_PROP.key -> "true")
+
+    val instantTime3 = metaClient.createNewInstantTime(false)
+    // batch3. updates to partition2
+    val latestBatch3 = recordsToStrings(dataGen2.generateUniqueUpdates(instantTime3, 2)).asScala.toSeq
+    val latestBatchDf3 = spark.read.json(spark.sparkContext.parallelize(latestBatch3, 1))
+    latestBatchDf3.cache()
+    latestBatchDf3.write.format("org.apache.hudi")
+      .options(hudiOpts2)
+      .mode(SaveMode.Append)
+      .save(basePath)
+    val deletedDf3 = calculateMergedDf(latestBatchDf3, operation, true)
+    deletedDf3.cache()
+    validateDataAndRecordIndices(hudiOpts2, deletedDf3)
   }
 
   def testRecordLevelIndex(tableType: HoodieTableType, streamingWriteEnabled: Boolean, holder: testRecordLevelIndexHolder): Unit = {

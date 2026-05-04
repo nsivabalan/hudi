@@ -80,6 +80,7 @@ import org.apache.hudi.exception.TableNotFoundException;
 import org.apache.hudi.index.record.HoodieRecordIndex;
 import org.apache.hudi.internal.schema.InternalSchema;
 import org.apache.hudi.internal.schema.utils.SerDeHelper;
+import org.apache.hudi.io.storage.HoodieIOFactory;
 import org.apache.hudi.metadata.HoodieTableMetadataUtil.DirectoryInfo;
 import org.apache.hudi.storage.HoodieStorage;
 import org.apache.hudi.storage.StorageConfiguration;
@@ -235,6 +236,10 @@ public abstract class HoodieBackedTableMetadataWriter<I, O> implements HoodieTab
     if (metadata == null || metadataMetaClient == null || metadata.getMetadataFileSystemView() == null) {
       initMetadataReader();
     }
+  }
+
+  protected HoodieTableMetaClient getMetadataMetaClient() {
+    return metadataMetaClient;
   }
 
   private void initMetadataReader() {
@@ -794,21 +799,79 @@ public abstract class HoodieBackedTableMetadataWriter<I, O> implements HoodieTab
       List<Pair<String, FileSlice>> latestMergedPartitionFileSliceList,
       int recordIndexMaxParallelism) {
     LOG.info("Initializing record index from {} file slices", latestMergedPartitionFileSliceList.size());
-    HoodieData<HoodieRecord> records = readRecordKeysFromFileSliceSnapshot(
-        engineContext,
-        latestMergedPartitionFileSliceList,
-        recordIndexMaxParallelism,
-        this.getClass().getSimpleName(),
-        dataMetaClient,
-        dataWriteConfig);
+    final List<Pair<String, HoodieBaseFile>> partitionBaseFilePairs = new ArrayList<>();
+    latestMergedPartitionFileSliceList.forEach(p -> {
+      FileSlice fs = p.getRight();
+      // Extract base files for sampling
+      if (fs.getBaseFile().isPresent()) {
+        partitionBaseFilePairs.add(Pair.of(p.getLeft(), fs.getBaseFile().get()));
+      }
+    });
 
-    // Initialize the file groups
-    final int fileGroupCount = estimateFileGroupCount(records);
-    LOG.info("Initializing record index with {} file groups.", fileGroupCount);
+    HoodieData<HoodieRecord> records;
+    if (latestMergedPartitionFileSliceList.isEmpty()) {
+      records = engineContext.emptyHoodieData();
+    } else {
+      // Optimization: Check if all file slices contain only base files (no log files)
+      // If true, we can use the more efficient readRecordKeysFromBaseFiles path
+      boolean allFileSlicesHaveOnlyBaseFiles = latestMergedPartitionFileSliceList.stream()
+          .allMatch(pair -> {
+            FileSlice fileSlice = pair.getValue();
+            return fileSlice.getBaseFile().isPresent() && !fileSlice.getLogFiles().findAny().isPresent();
+          });
+
+      if (allFileSlicesHaveOnlyBaseFiles && !latestMergedPartitionFileSliceList.isEmpty()) {
+        LOG.info("Initializing record index from " + partitionBaseFilePairs.size() + " base files "
+            + " (optimized path for MOR table with no log files)");
+        records = readRecordKeysFromBaseFiles(
+            engineContext,
+            dataWriteConfig,
+            partitionBaseFilePairs,
+            false,
+            recordIndexMaxParallelism,
+            dataMetaClient.getBasePath(),
+            storageConf,
+            this.getClass().getSimpleName(),
+            dataWriteConfig.isRecordLevelIndexEnabled());
+      } else {
+        LOG.info("Initializing record index from " + latestMergedPartitionFileSliceList.size() + " file slices");
+        records = readRecordKeysFromFileSliceSnapshot(
+            engineContext,
+            latestMergedPartitionFileSliceList,
+            recordIndexMaxParallelism,
+            this.getClass().getSimpleName(),
+            dataMetaClient,
+            dataWriteConfig);
+      }
+    }
+
+    Pair<Integer, Integer> bounds = getRLIFileGroupCountBounds();
+    int minFileGroupCount = bounds.getLeft();
+    int maxFileGroupCount = bounds.getRight();
+
+    int fileGroupCount;
+    // Use sampling-based estimation if min != max (dynamic sizing expected)
+    if (minFileGroupCount != maxFileGroupCount) {
+      // Estimate file group count based on record count.
+      fileGroupCount = estimateFileGroupCountFromBaseFiles(partitionBaseFilePairs,
+          minFileGroupCount, maxFileGroupCount);
+      LOG.info("Estimated {} file groups by counting records", fileGroupCount);
+    } else {
+      // User explicitly set min == max, use that value
+      fileGroupCount = minFileGroupCount;
+      LOG.info("Using user-configured file group count: {}", fileGroupCount);
+    }
+
+    LOG.info("Initializing record index with {} file groups", fileGroupCount);
     return Pair.of(fileGroupCount, records);
   }
 
-  private int estimateFileGroupCount(HoodieData<HoodieRecord> records) {
+  /**
+   * Gets the min and max file group count bounds for RLI based on configuration.
+   *
+   * @return Pair of (minFileGroupCount, maxFileGroupCount)
+   */
+  private Pair<Integer, Integer> getRLIFileGroupCountBounds() {
     int minFileGroupCount;
     int maxFileGroupCount;
     if (dataWriteConfig.isRecordLevelIndexEnabled()) {
@@ -818,12 +881,26 @@ public abstract class HoodieBackedTableMetadataWriter<I, O> implements HoodieTab
       minFileGroupCount = dataWriteConfig.getGlobalRecordLevelIndexMinFileGroupCount();
       maxFileGroupCount = dataWriteConfig.getGlobalRecordLevelIndexMaxFileGroupCount();
     }
-    Supplier<Long> recordCountSupplier = () -> {
-      records.persist("MEMORY_AND_DISK_SER");
-      long count = records.count();
-      LOG.info("Initializing record index with {} mappings", count);
-      return count;
-    };
+    return Pair.of(minFileGroupCount, maxFileGroupCount);
+  }
+
+  /**
+   * Estimates file group count based on record count read from base file footer metadata.
+   * Unified method for both COW and MOR tables - works with base files only.
+   * Assumes caller has already verified that min != max file group count (dynamic sizing expected).
+   *
+   * @param partitionBaseFilePairs list of partition and base file pairs to estimate from
+   * @param minFileGroupCount minimum file group count
+   * @param maxFileGroupCount maximum file group count
+   * @return estimated file group count
+   */
+  private int estimateFileGroupCountFromBaseFiles(List<Pair<String, HoodieBaseFile>> partitionBaseFilePairs,
+                                                  int minFileGroupCount,
+                                                  int maxFileGroupCount) {
+    long estimatedRecordCount = estimateRecordCountFromBaseFiles(partitionBaseFilePairs);
+    LOG.info("Estimated total record count: {}", estimatedRecordCount);
+
+    Supplier<Long> recordCountSupplier = () -> estimatedRecordCount;
     return HoodieTableMetadataUtil.estimateFileGroupCount(
         MetadataPartitionType.RECORD_INDEX,
         recordCountSupplier,
@@ -833,6 +910,39 @@ public abstract class HoodieBackedTableMetadataWriter<I, O> implements HoodieTab
         dataWriteConfig.getRecordIndexGrowthFactor(),
         dataWriteConfig.getRecordIndexMaxFileGroupSizeBytes()
     );
+  }
+
+  /**
+   * Estimates total record count by reading row counts from base file footer metadata (e.g., Parquet footer).
+   * This is a lightweight O(1)-per-file operation that avoids scanning record data.
+   * Unified method for both COW and MOR tables - counts records from base files only.
+   *
+   * @param partitionBaseFilePairs list of partition and base file pairs
+   * @return estimated total record count
+   */
+  private long estimateRecordCountFromBaseFiles(List<Pair<String, HoodieBaseFile>> partitionBaseFilePairs) {
+    if (partitionBaseFilePairs.isEmpty()) {
+      return 0L;
+    }
+
+    final int parallelism = Math.min(partitionBaseFilePairs.size(),
+        dataWriteConfig.getMetadataConfig().getRecordIndexMaxParallelism());
+
+    // Read row counts from base file footer metadata in parallel
+    long totalCount = engineContext.parallelize(partitionBaseFilePairs, parallelism)
+        .map(partitionAndBaseFile -> {
+          final HoodieBaseFile baseFile = partitionAndBaseFile.getValue();
+          try {
+            return HoodieIOFactory.getIOFactory(dataMetaClient.getStorage()).getFileFormatUtils(baseFile.getStoragePath())
+                .getRowCount(dataMetaClient.getStorage(), baseFile.getStoragePath());
+          } catch (Exception e) {
+            LOG.warn("Failed to count records from base file: " + baseFile.getPath(), e);
+            return 0L;
+          }
+        })
+        .collectAsList().stream().mapToLong(Long::longValue).sum();
+
+    return totalCount;
   }
 
   /**
@@ -2092,10 +2202,10 @@ public abstract class HoodieBackedTableMetadataWriter<I, O> implements HoodieTab
   }
 
   protected void cleanIfNecessary(BaseHoodieWriteClient writeClient, String instantTime) {
-    Option<HoodieInstant> lastCompletedCompactionInstant = metadataMetaClient.getActiveTimeline()
+    Option<HoodieInstant> lastCompletedCompactionInstant = getMetadataMetaClient().getActiveTimeline()
         .getCommitAndReplaceTimeline().filterCompletedInstants().lastInstant();
     if (lastCompletedCompactionInstant.isPresent()
-        && metadataMetaClient.getActiveTimeline().filterCompletedInstants()
+        && getMetadataMetaClient().getActiveTimeline().filterCompletedInstants()
         .findInstantsAfter(lastCompletedCompactionInstant.get().requestedTime()).countInstants() < 3) {
       // do not clean the log files immediately after compaction to give some buffer time for metadata table reader,
       // because there is case that the reader has prepared for the log file readers already before the compaction completes

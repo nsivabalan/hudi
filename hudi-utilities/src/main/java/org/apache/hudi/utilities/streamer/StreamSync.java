@@ -138,6 +138,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -535,7 +536,7 @@ public class StreamSync implements Serializable, Closeable {
     if (writeClient == null) {
       this.schemaProvider = inputBatch.getSchemaProvider();
       // Setup HoodieWriteClient and compaction now that we decided on schema
-      setupWriteClient(inputBatch.getBatch(), metaClient);
+      setupWriteClient(metaClient);
     } else {
       Schema newSourceSchema = inputBatch.getSchemaProvider().getSourceSchema();
       Schema newTargetSchema = inputBatch.getSchemaProvider().getTargetSchema();
@@ -545,7 +546,7 @@ public class StreamSync implements Serializable, Closeable {
         String targetStr = newTargetSchema == null ? NULL_PLACEHOLDER : newTargetSchema.toString(true);
         LOG.info("Seeing new schema. Source: {}, Target: {}", sourceStr, targetStr);
         // We need to recreate write client with new schema and register them.
-        reInitWriteClient(newSourceSchema, newTargetSchema, inputBatch.getBatch(), metaClient);
+        reInitWriteClient(newSourceSchema, newTargetSchema, metaClient);
         if (newSourceSchema != null) {
           processedSchema.addSchema(newSourceSchema);
         }
@@ -562,7 +563,7 @@ public class StreamSync implements Serializable, Closeable {
         HoodieWriteMetadata<JavaRDD<WriteStatus>> writeMetadata = writeClient.compact(pendingCompactionInstant.get());
         writeClient.commitCompaction(pendingCompactionInstant.get(), writeMetadata, Option.empty());
         initializeMetaClientAndRefreshTimeline();
-        reInitWriteClient(schemaProvider.getSourceSchema(), schemaProvider.getTargetSchema(), null, metaClient);
+        reInitWriteClient(schemaProvider.getSourceSchema(), schemaProvider.getTargetSchema(), metaClient);
       }
     } else if (cfg.retryLastPendingInlineClusteringJob && writeClient.getConfig().inlineClusteringEnabled()) {
       // complete the pending clustering before writing to sink
@@ -841,11 +842,14 @@ public class StreamSync implements Serializable, Closeable {
                                                                               HoodieIngestionMetrics metrics,
                                                                               Timer.Context overallTimerContext) {
     boolean releaseResourcesInvoked = false;
-    String instantTime = startCommit(metaClient, !autoGenerateRecordKeys);
+    // Holds the instant time as soon as startCommit() completes inside writeToSink, so that
+    // releaseResources() can be called in the finally block even if an exception is thrown afterward.
+    AtomicReference<String> instantTimeRef = new AtomicReference<>(null);
     try {
       Option<String> scheduledCompactionInstant = Option.empty();
       // write to hudi and fetch result
-      WriteClientWriteResult writeClientWriteResult = writeToSink(inputBatch, instantTime, useRowWriter, metaClient);
+      WriteClientWriteResult writeClientWriteResult = writeToSink(inputBatch, useRowWriter, metaClient, instantTimeRef);
+      String instantTime = instantTimeRef.get();
       Map<String, List<String>> partitionToReplacedFileIds = writeClientWriteResult.getPartitionToReplacedFileIds();
       JavaRDD<WriteStatus> writeStatusRDD = writeClientWriteResult.getWriteStatusRDD();
       Option<JavaRDD<WriteStatus>> errorTableWriteStatusRDDOpt = Option.empty();
@@ -890,7 +894,8 @@ public class StreamSync implements Serializable, Closeable {
       metrics.updateStreamerMetrics(overallTimeNanos);
       return Pair.of(scheduledCompactionInstant, writeStatusRDD);
     } finally {
-      if (!releaseResourcesInvoked) {
+      String instantTime = instantTimeRef.get();
+      if (!releaseResourcesInvoked && instantTime != null) {
         releaseResources(instantTime);
       }
     }
@@ -946,10 +951,14 @@ public class StreamSync implements Serializable, Closeable {
     throw lastException;
   }
 
-  private WriteClientWriteResult writeToSink(InputBatch inputBatch, String instantTime, boolean useRowWriter, HoodieTableMetaClient metaClient) {
+  private WriteClientWriteResult writeToSink(InputBatch inputBatch, boolean useRowWriter,
+                                             HoodieTableMetaClient metaClient, AtomicReference<String> instantTimeRef) {
     WriteClientWriteResult writeClientWriteResult = null;
+    String instantTime;
 
     if (useRowWriter) {
+      instantTime = startCommit(metaClient, !autoGenerateRecordKeys);
+      instantTimeRef.set(instantTime);
       Dataset<Row> df = (Dataset<Row>) inputBatch.getBatch().orElseGet(() -> hoodieSparkContext.getSqlContext().emptyDataFrame());
       HoodieWriteConfig hoodieWriteConfig = prepareHoodieConfigForRowWriter(inputBatch.getSchemaProvider().getTargetSchema());
       BaseDatasetBulkInsertCommitActionExecutor executor = new HoodieStreamerDatasetBulkInsertCommitActionExecutor(hoodieWriteConfig, writeClient, instantTime);
@@ -958,8 +967,33 @@ public class StreamSync implements Serializable, Closeable {
       metaClient = HoodieTableMetaClient.reload(metaClient);
       TypedProperties mergeProps = ConfigUtils.getMergeProps(props, metaClient.getTableConfig());
       HoodieRecordType recordType = createRecordMerger(mergeProps).getRecordType();
-      Option<JavaRDD<HoodieRecord>> recordsOption = HoodieStreamerUtils.createHoodieRecords(cfg, mergeProps, inputBatch.getBatch(), inputBatch.getSchemaProvider(),
-          recordType, autoGenerateRecordKeys, instantTime, errorTableWriter, metaClient.getTableConfig());
+
+      // Use a preliminary instant time (not registered on the timeline) to create HoodieRecord objects
+      // for sample writes. This ensures sample writes sees an empty timeline on the first batch.
+      // errorTableWriter is omitted here to prevent duplicate error events — the actual write below
+      // re-processes records with the real instantTime and errorTableWriter.
+      String preliminaryInstantTime = metaClient.createNewInstantTime(false);
+      Option<JavaRDD<HoodieRecord>> sampleRecordsOption = HoodieStreamerUtils.createHoodieRecords(cfg, mergeProps,
+          inputBatch.getBatch(), inputBatch.getSchemaProvider(), recordType, autoGenerateRecordKeys,
+          preliminaryInstantTime, Option.empty(), metaClient.getTableConfig());
+
+      // Estimate record size on the first batch (timeline empty). If a new config is returned,
+      // reinitialize the write client before calling startCommit so there is only one pending instant.
+      Option<HoodieWriteConfig> updatedConfig = SparkSampleWritesUtils
+          .getWriteConfigWithRecordSizeEstimate(hoodieSparkContext.jsc(), sampleRecordsOption, writeClient.getConfig());
+      if (updatedConfig.isPresent()) {
+        try {
+          reinitWriteClientWithConfig(updatedConfig.get());
+        } catch (IOException e) {
+          throw new HoodieIOException("Failed to reinitialize write client after sample writes record size estimation", e);
+        }
+      }
+
+      instantTime = startCommit(metaClient, !autoGenerateRecordKeys);
+      instantTimeRef.set(instantTime);
+      Option<JavaRDD<HoodieRecord>> recordsOption = HoodieStreamerUtils.createHoodieRecords(cfg, mergeProps,
+          inputBatch.getBatch(), inputBatch.getSchemaProvider(), recordType, autoGenerateRecordKeys,
+          instantTime, errorTableWriter, metaClient.getTableConfig());
       JavaRDD<HoodieRecord> records = recordsOption.orElseGet(() -> hoodieSparkContext.emptyRDD());
       // filter dupes if needed
       if (cfg.filterDupes) {
@@ -1074,39 +1108,41 @@ public class StreamSync implements Serializable, Closeable {
    * SchemaProvider creation is a precursor to HoodieWriteClient and AsyncCompactor creation. This method takes care of
    * this constraint.
    */
-  private void setupWriteClient(Option<JavaRDD<HoodieRecord>> recordsOpt, HoodieTableMetaClient metaClient) throws IOException {
+  private void setupWriteClient(HoodieTableMetaClient metaClient) throws IOException {
     if (null != schemaProvider) {
       Schema sourceSchema = schemaProvider.getSourceSchema();
       Schema targetSchema = schemaProvider.getTargetSchema();
-      reInitWriteClient(sourceSchema, targetSchema, recordsOpt, metaClient);
+      reInitWriteClient(sourceSchema, targetSchema, metaClient);
     }
   }
 
-  private void reInitWriteClient(Schema sourceSchema, Schema targetSchema, Option<JavaRDD<HoodieRecord>> recordsOpt, HoodieTableMetaClient metaClient) throws IOException {
+  private void reInitWriteClient(Schema sourceSchema, Schema targetSchema, HoodieTableMetaClient metaClient) throws IOException {
     LOG.info("Setting up new Hoodie Write Client");
     if (HoodieStreamerUtils.isDropPartitionColumns(props)) {
       targetSchema = HoodieAvroUtils.removeFields(targetSchema, HoodieStreamerUtils.getPartitionColumns(props));
     }
     final Pair<HoodieWriteConfig, Schema> initialWriteConfigAndSchema = getHoodieClientConfigAndWriterSchema(targetSchema, true, metaClient);
-    final HoodieWriteConfig initialWriteConfig = initialWriteConfigAndSchema.getLeft();
+    final HoodieWriteConfig writeConfig = initialWriteConfigAndSchema.getLeft();
     registerAvroSchemas(sourceSchema, initialWriteConfigAndSchema.getRight());
-    final HoodieWriteConfig writeConfig = SparkSampleWritesUtils
-        .getWriteConfigWithRecordSizeEstimate(hoodieSparkContext.jsc(), recordsOpt, initialWriteConfig)
-        .orElse(initialWriteConfig);
+    reinitWriteClientWithConfig(writeConfig);
+  }
 
-    if (writeConfig.isEmbeddedTimelineServerEnabled()) {
+  /**
+   * Reinitializes the write client with the given config, updating the embedded timeline server
+   * reference if enabled. Must be called whenever the write config changes.
+   */
+  private void reinitWriteClientWithConfig(HoodieWriteConfig newConfig) throws IOException {
+    if (newConfig.isEmbeddedTimelineServerEnabled()) {
       if (!embeddedTimelineService.isPresent()) {
-        embeddedTimelineService = Option.of(EmbeddedTimelineServerHelper.createEmbeddedTimelineService(hoodieSparkContext, writeConfig));
+        embeddedTimelineService = Option.of(EmbeddedTimelineServerHelper.createEmbeddedTimelineService(hoodieSparkContext, newConfig));
       } else {
-        EmbeddedTimelineServerHelper.updateWriteConfigWithTimelineServer(embeddedTimelineService.get(), writeConfig);
+        EmbeddedTimelineServerHelper.updateWriteConfigWithTimelineServer(embeddedTimelineService.get(), newConfig);
       }
     }
-
     if (writeClient != null) {
-      // Close Write client.
       writeClient.close();
     }
-    writeClient = new SparkRDDWriteClient<>(hoodieSparkContext, writeConfig, embeddedTimelineService);
+    writeClient = new SparkRDDWriteClient<>(hoodieSparkContext, newConfig, embeddedTimelineService);
     onInitializingHoodieWriteClient.apply(writeClient);
   }
 

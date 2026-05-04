@@ -117,7 +117,7 @@ public class HoodieStreamerConfig extends HoodieConfig {
       .withDocumentation("Names of transformer classes to apply. The config is specific to HoodieMultiTableStreamer.");
   public static final ConfigProperty<Boolean> SAMPLE_WRITES_ENABLED = ConfigProperty
       .key(STREAMER_CONFIG_PREFIX + "sample.writes.enabled")
-      .defaultValue(false)
+      .defaultValue(true)
       .withAlternatives(DELTA_STREAMER_CONFIG_PREFIX + "sample.writes.enabled")
       .markAdvanced()
       .sinceVersion("0.14.0")
@@ -126,7 +126,7 @@ public class HoodieStreamerConfig extends HoodieConfig {
           + "` being overwritten by the calculated result.");
   public static final ConfigProperty<Integer> SAMPLE_WRITES_SIZE = ConfigProperty
       .key(STREAMER_CONFIG_PREFIX + "sample.writes.size")
-      .defaultValue(5000)
+      .defaultValue(25000)
       .withAlternatives(DELTA_STREAMER_CONFIG_PREFIX + "sample.writes.size")
       .markAdvanced()
       .sinceVersion("0.14.0")

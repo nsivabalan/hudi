@@ -20,6 +20,9 @@
 package org.apache.hudi.metadata;
 
 import org.apache.hudi.avro.HoodieAvroUtils;
+import org.apache.hudi.avro.model.HoodieInstantInfo;
+import org.apache.hudi.avro.model.HoodieRollbackMetadata;
+import org.apache.hudi.avro.model.HoodieRollbackPlan;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.data.HoodieData;
 import org.apache.hudi.common.engine.HoodieLocalEngineContext;
@@ -33,10 +36,13 @@ import org.apache.hudi.common.model.WriteOperationType;
 import org.apache.hudi.common.table.HoodieTableConfig;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.HoodieTableVersion;
+import org.apache.hudi.common.table.timeline.HoodieInstant;
+import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.testutils.FileCreateUtilsLegacy;
 import org.apache.hudi.common.testutils.HoodieCommonTestHarness;
 import org.apache.hudi.common.testutils.HoodieTestDataGenerator;
 import org.apache.hudi.common.testutils.HoodieTestTable;
+import org.apache.hudi.common.testutils.HoodieTestUtils;
 import org.apache.hudi.common.util.CollectionUtils;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.collection.Pair;
@@ -62,8 +68,10 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
@@ -73,6 +81,7 @@ import java.util.stream.Stream;
 import static org.apache.hudi.avro.AvroSchemaUtils.createNullableSchema;
 import static org.apache.hudi.avro.TestHoodieAvroUtils.SCHEMA_WITH_AVRO_TYPES_STR;
 import static org.apache.hudi.avro.TestHoodieAvroUtils.SCHEMA_WITH_NESTED_FIELD_STR;
+import static org.apache.hudi.common.model.HoodieTableType.MERGE_ON_READ;
 import static org.apache.hudi.common.testutils.HoodieTestDataGenerator.AVRO_SCHEMA;
 import static org.apache.hudi.common.testutils.HoodieTestDataGenerator.AVRO_SCHEMA_WITH_METADATA_FIELDS;
 import static org.apache.hudi.common.testutils.HoodieTestDataGenerator.TRIP_EXAMPLE_SCHEMA;
@@ -853,5 +862,99 @@ public class TestHoodieTableMetadataUtil extends HoodieCommonTestHarness {
             0
         )
     );
+  }
+
+  /**
+   * Tests getValidInstantTimestamps rollback handling:
+   * - Without MDT compaction, all rollback metadata is read (rolled-back commits appear in valid timestamps).
+   * - With MDT compaction, only post-compaction rollback metadata is read (pre-compaction rollbacks are skipped
+   *   because those log blocks are already merged into base files).
+   */
+  @Test
+  void testGetValidInstantTimestampsSkipsPreCompactionRollbacks() throws Exception {
+    HoodieTestTable testTable = HoodieTestTable.of(metaClient);
+
+    String commit1 = "20260101010101000";
+    String commit2 = "20260201010101000";
+    String commit3 = "20260301010101000";
+    String commit4 = "20260501010101000";
+    String commit5 = "20260601010101000";
+    testTable.addCommit(commit1);
+    testTable.addCommit(commit2);
+    testTable.addCommit(commit3);
+    testTable.addCommit(commit4);
+    testTable.addCommit(commit5);
+
+    // Rollbacks before MDT compaction time
+    addCompletedRollback(testTable, "20260202010101000", commit2);
+    addCompletedRollback(testTable, "20260302010101000", commit3);
+    // Rollback after MDT compaction time
+    addCompletedRollback(testTable, "20260502010101000", commit4);
+
+    // Delete rolled-back commit instants from the timeline to simulate real rollback behavior.
+    // In a real system, the commit instant file is removed when a rollback completes, so the
+    // only way these timestamps appear in validInstantTimestamps is via rollback metadata reading.
+    metaClient = HoodieTableMetaClient.reload(metaClient);
+    for (String rolledBack : Arrays.asList(commit2, commit3, commit4)) {
+      // Look up the actual instant from the timeline to obtain the completionTime embedded in the V2 filename.
+      HoodieInstant completedCommit = metaClient.getActiveTimeline().getCommitsTimeline()
+          .filterCompletedInstants().getInstantsAsStream()
+          .filter(i -> i.requestedTime().equals(rolledBack))
+          .findFirst()
+          .orElseThrow(() -> new IllegalStateException("Could not find completed commit instant for " + rolledBack));
+      metaClient.getActiveTimeline().deleteInstantFileIfExists(completedCommit);
+    }
+
+    // Create MDT metaClient with NO compaction initially (only delta commits)
+    HoodieTableMetaClient mdtMetaClient = createMdtMetaClient();
+    HoodieTestTable mdtTestTable = HoodieTestTable.of(mdtMetaClient);
+    mdtTestTable.addDeltaCommit("20260101020101000");
+
+    metaClient = HoodieTableMetaClient.reload(metaClient);
+    mdtMetaClient = HoodieTableMetaClient.reload(mdtMetaClient);
+
+    // Without MDT compaction, all rollback metadata is read — rolled-back commits appear
+    Set<String> validTimestamps = HoodieTableMetadataUtil.getValidInstantTimestamps(metaClient, mdtMetaClient);
+    assertTrue(validTimestamps.contains(commit1), "commit1 should be in valid timestamps");
+    assertTrue(validTimestamps.contains(commit2), "commit2 should be in valid timestamps (from rollback metadata read)");
+    assertTrue(validTimestamps.contains(commit3), "commit3 should be in valid timestamps (from rollback metadata read)");
+    assertTrue(validTimestamps.contains(commit4), "commit4 should be in valid timestamps (from rollback metadata read)");
+    assertTrue(validTimestamps.contains(commit5), "commit5 should be in valid timestamps");
+
+    // Now add a compaction commit to MDT at a time between rollback2 and rollback3
+    mdtTestTable.addCommit("20260401010101000");
+    mdtTestTable.addDeltaCommit("20260501020101000");
+
+    metaClient = HoodieTableMetaClient.reload(metaClient);
+    mdtMetaClient = HoodieTableMetaClient.reload(mdtMetaClient);
+
+    // With MDT compaction, only post-compaction rollback (commit4) metadata is read;
+    // pre-compaction rollbacks for commit2 and commit3 are skipped
+    validTimestamps = HoodieTableMetadataUtil.getValidInstantTimestamps(metaClient, mdtMetaClient);
+    assertTrue(validTimestamps.contains(commit1), "commit1 should be in valid timestamps");
+    assertTrue(validTimestamps.contains(commit5), "commit5 should be in valid timestamps");
+    assertTrue(validTimestamps.contains(commit4), "commit4 should be in valid timestamps (from post-compaction rollback)");
+    assertFalse(validTimestamps.contains(commit2), "commit2 should NOT be in valid timestamps (pre-compaction rollback skipped)");
+    assertFalse(validTimestamps.contains(commit3), "commit3 should NOT be in valid timestamps (pre-compaction rollback skipped)");
+  }
+
+  private void addCompletedRollback(HoodieTestTable testTable, String rollbackTime, String rolledBackCommit) throws Exception {
+    Map<String, List<String>> emptyPartitionFiles = new HashMap<>();
+    emptyPartitionFiles.put("partition1", Collections.emptyList());
+    HoodieRollbackMetadata rollbackMeta = testTable.getRollbackMetadata(rolledBackCommit, emptyPartitionFiles, false);
+    HoodieRollbackPlan rollbackPlan = new HoodieRollbackPlan();
+    rollbackPlan.setInstantToRollback(new HoodieInstantInfo(rolledBackCommit, HoodieTimeline.COMMIT_ACTION));
+    rollbackPlan.setRollbackRequests(Collections.emptyList());
+    testTable.addRollback(rollbackTime, rollbackMeta, rollbackPlan);
+    testTable.addRollbackCompleted(rollbackTime, rollbackMeta, false);
+  }
+
+  private HoodieTableMetaClient createMdtMetaClient() throws IOException {
+    String mdtBasePath = HoodieTableMetadata.getMetadataTableBasePath(metaClient.getBasePath().toString());
+    HoodieTestUtils.init(metaClient.getStorageConf(), mdtBasePath, MERGE_ON_READ);
+    return HoodieTableMetaClient.builder()
+        .setConf(metaClient.getStorageConf())
+        .setBasePath(mdtBasePath)
+        .build();
   }
 }

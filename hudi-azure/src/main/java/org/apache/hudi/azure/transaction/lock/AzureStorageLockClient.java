@@ -48,7 +48,6 @@ import com.azure.storage.blob.models.BlobErrorCode;
 import com.azure.storage.blob.models.BlobRequestConditions;
 import com.azure.storage.blob.models.BlobStorageException;
 import com.azure.storage.blob.models.BlockBlobItem;
-import com.azure.storage.blob.options.BlobParallelUploadOptions;
 import com.azure.storage.common.policy.RequestRetryOptions;
 import com.azure.storage.common.policy.RetryPolicyType;
 import org.slf4j.Logger;
@@ -206,10 +205,13 @@ public class AzureStorageLockClient implements StorageLockClient {
       requestConditions.setIfMatch(expectedEtag);
     }
 
-    BlobParallelUploadOptions options = new BlobParallelUploadOptions(binaryData)
-        .setRequestConditions(requestConditions);
-
-    Response<BlockBlobItem> response = blobClient.uploadWithResponse(options, null, Context.NONE);
+    // Use BlockBlobClient.uploadWithResponse directly instead of BlobClient.uploadWithResponse
+    // with BlobParallelUploadOptions. The parallel upload path in azure-storage-blob:12.14.0
+    // may not set required headers (x-ms-blob-type) correctly for small payloads.
+    long contentLength = bytes.length;
+    Response<BlockBlobItem> response = blobClient.getBlockBlobClient().uploadWithResponse(
+        binaryData.toStream(), contentLength, null, null, null, null,
+        requestConditions, null, Context.NONE);
     String newEtag = response.getValue().getETag();
 
     return new StorageLockFile(lockData, newEtag);
@@ -246,15 +248,11 @@ public class AzureStorageLockClient implements StorageLockClient {
       URI uri = URI.create(lockFileUri);
       String scheme = uri.getScheme();
 
-      // Determine the appropriate endpoint based on scheme
-      // ABFS uses DFS endpoint for ADLS Gen2, WASB uses Blob endpoint
-      // Note: Both endpoints are compatible with BlobServiceClient in Azure SDK 12.14.0+
-      String endpoint;
-      if (scheme.startsWith("abfs")) {
-        endpoint = String.format("https://%s.dfs.core.windows.net", uriComponents.accountName);
-      } else {
-        endpoint = String.format("https://%s.blob.core.windows.net", uriComponents.accountName);
-      }
+      // Always use the Blob endpoint (blob.core.windows.net) since BlobServiceClient uses the
+      // Blob Storage REST API. The DFS endpoint (dfs.core.windows.net) uses a different API
+      // (Data Lake Storage Gen2) with different required headers, causing MissingRequiredHeader
+      // errors on Put Blob operations.
+      String endpoint = String.format("https://%s.blob.core.windows.net", uriComponents.accountName);
 
       // Configure timeout options based on lock validity timeout
       // Set all request timeouts to be 1/5 of the default validity.
