@@ -41,7 +41,6 @@ jobs:
         run: |
           RELEASE_WORKFLOW_YAML="release.yml"
           MAJOR_VERSION="2"
-          MINOR_VERSION="0"
           gh auth setup-git
 
           # Store branches in a variable — look for release-v* branches
@@ -50,15 +49,15 @@ jobs:
           --limit 10 --json headBranch -q '.[].headBranch' | grep '^release-v' || true)
 
           if [ -z "$branches" ]; then
-            # No previous releases found, start at patch 1
+            # No previous releases found, start at minor 1
             highest=0
           else
-            # Extract the patch version from "2.0.X" pattern
-            highest=$(echo "$branches" | grep -Eo "$MAJOR_VERSION\.$MINOR_VERSION\.[0-9]+" | sed -E "s/^$MAJOR_VERSION\.$MINOR_VERSION\.([0-9]+)$/\1/" | sort -nr | head -n 1)
+            # Extract the minor version from "2.X.0" pattern
+            highest=$(echo "$branches" | grep -Eo "$MAJOR_VERSION\.[0-9]+\.[0-9]+" | sed -E "s/^$MAJOR_VERSION\.([0-9]+)\.[0-9]+$/\1/" | sort -nr | head -n 1)
           fi
 
-          new_patch_version=$((highest + 1))
-          echo "CALCULATED_PATCH_VERSION=$new_patch_version" >> $GITHUB_OUTPUT
+          new_minor_version=$((highest + 1))
+          echo "CALCULATED_MINOR_VERSION=$new_minor_version" >> $GITHUB_OUTPUT
       
       - name: Extract last release version, build release, and push changelog PR
         id: extract-last-release
@@ -67,11 +66,11 @@ jobs:
         run: |
           HEAD_BRANCH="master-1x"
           MAJOR_VERSION="2"
-          MINOR_VERSION="0"
 
-          # Detect the previous release version from the CHANGELOG file
+          # Detect the previous X.Y.0 release version from the CHANGELOG file
+          # VERY IMPORTANT!! This will skip patch releases (anything with X.Y.[1-9])
           FILE="CHANGELOG"
-          DETECTED_PREV_RELEASE_VERSION=$(grep -- '--- *\[.*\] *\[.*release-v[0-9]\{1,\}\.[0-9]\{1,\}\.[0-9]\{1,\}.*\] *---' "$FILE" \
+          DETECTED_PREV_RELEASE_VERSION=$(grep -- '--- *\[.*\] *\[.*release-v[0-9]\{1,\}\.[0-9]\{1,\}\.0\{1,\}.*\] *---' "$FILE" \
               | tail -n 1 \
               | sed -E 's/.*release-v([0-9]+\.[0-9]+\.[0-9]+).*/\1/' || true)
           
@@ -84,10 +83,11 @@ jobs:
             RELEASE_VERSION_INPUT="auto-detect"
           fi
           if [ "$RELEASE_VERSION_INPUT" == "auto-detect" ]; then
-              RELEASE_PATCH_VERSION="${{ steps.determine-hudi-release-version.outputs.CALCULATED_PATCH_VERSION }}"
+              RELEASE_MINOR_VERSION="${{ steps.determine-hudi-release-version.outputs.CALCULATED_MINOR_VERSION }}"
+              RELEASE_PATCH_VERSION="0"
 
               # Construct the final release version
-              RELEASE_VERSION="${MAJOR_VERSION}.${MINOR_VERSION}.${RELEASE_PATCH_VERSION}"
+              RELEASE_VERSION="${MAJOR_VERSION}.${RELEASE_MINOR_VERSION}.${RELEASE_PATCH_VERSION}"
           else
               RELEASE_VERSION="$RELEASE_VERSION_INPUT"
           fi
