@@ -2976,3 +2976,11 @@ Duplicate switch branch in HoodieInputFormatUtils (#9438)
 [MINOR] Fix consistent hashing bucket index FT failure (#9401)
 [MINOR] Moving to 0.15.0-SNAPSHOT on master branch (#9404)
 [HUDI-6587] Check incomplete commit for time travel query (#9280)
+
+--- [2026-05-06 14:10:35] [changelog-release-v2.1.0] ---
+[AUDIT-2313]: Changelog for release-v2.0.1 (#1841)
+[ENG-40131] [MINOR] Resolve hasOperationField from table config to avoid reading a data file (#1847)
+[ENG-41012][CHERRYPICK] Cherrypick commits from master to master-1x (#1846)
+[ENG-39962][INTERNAL] Add upgrade tests for Hudi 0.14 (v6) tables with pending states (#1843)
+[ENG-41165] fix: Honor SparkSession overrides for rebase mode and timezone in compaction tasks (#1851)
+[ENG-41012][CHERRYPICK] feat(storage): Add support to allow duplicates while writing to HFiles (#1848)
