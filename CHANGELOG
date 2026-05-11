@@ -2984,3 +2984,8 @@ Duplicate switch branch in HoodieInputFormatUtils (#9438)
 [ENG-39962][INTERNAL] Add upgrade tests for Hudi 0.14 (v6) tables with pending states (#1843)
 [ENG-41165] fix: Honor SparkSession overrides for rebase mode and timezone in compaction tasks (#1851)
 [ENG-41012][CHERRYPICK] feat(storage): Add support to allow duplicates while writing to HFiles (#1848)
+--- [2026-05-11 08:36:35] [release-v2.2.0] ---
+[ENG-40392][INTERNAL] Disable col stats and data skipping for 1.x (#1863)
+[AUDIT-2431] Fix daily changelog release minor version calculation (#1861)
+[AUDIT-2431] Update Changelog for release-v2.1.0 (#1860)
+[AUDIT-2313]: Changelog for release-v2.0.1 (#1841)
