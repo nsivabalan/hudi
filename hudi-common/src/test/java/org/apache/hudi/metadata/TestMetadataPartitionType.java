@@ -81,27 +81,34 @@ public class TestMetadataPartitionType {
     switch (partitionType) {
       case EXPRESSION_INDEX:
         metadataConfigBuilder.enable(true).withExpressionIndexEnabled(true);
-        expectedEnabledPartitions = 3;
+        expectedEnabledPartitions = 2; // FILES + EXPRESSION_INDEX
         break;
       case SECONDARY_INDEX:
         metadataConfigBuilder.enable(true).withEnableGlobalRecordLevelIndex(true).withSecondaryIndexEnabled(true).withSecondaryIndexForColumn("col1");
-        expectedEnabledPartitions = 4;
+        expectedEnabledPartitions = 3; // FILES + RECORD_INDEX + SECONDARY_INDEX
         break;
       case BLOOM_FILTERS:
         metadataConfigBuilder.enable(true).withMetadataIndexBloomFilter(true);
-        expectedEnabledPartitions = 3;
+        expectedEnabledPartitions = 2; // FILES + BLOOM_FILTERS
         break;
       case RECORD_INDEX:
         metadataConfigBuilder.enable(true).withEnableGlobalRecordLevelIndex(true);
-        expectedEnabledPartitions = 3;
+        expectedEnabledPartitions = 2; // FILES + RECORD_INDEX
+        break;
+      case COLUMN_STATS:
+        metadataConfigBuilder.enable(true).withMetadataIndexColumnStats(true);
+        // When col stats is enabled and table is partitioned, PARTITION_STATS is also enabled (shares the same flag)
+        expectedEnabledPartitions = isTablePartitioned ? 3 : 2; // FILES + COLUMN_STATS [+ PARTITION_STATS]
+        break;
+      case PARTITION_STATS:
+        // PARTITION_STATS requires col stats to be enabled (shares the same config flag)
+        metadataConfigBuilder.enable(true).withMetadataIndexColumnStats(true);
+        expectedEnabledPartitions = 3; // FILES + COLUMN_STATS + PARTITION_STATS (always partitioned)
         break;
       default:
         metadataConfigBuilder.enable(true);
-        expectedEnabledPartitions = 2; // by default, FILES, COLUMN_STATS are enabled
+        expectedEnabledPartitions = 1; // only FILES (col stats disabled by default)
         break;
-    }
-    if (isTablePartitioned) {
-      expectedEnabledPartitions++; // PARTITION_STATS is enabled by default if table is partitioned
     }
 
     List<MetadataPartitionType> enabledPartitions = MetadataPartitionType.getEnabledPartitions(metadataConfigBuilder.build(), metaClient);
@@ -126,12 +133,10 @@ public class TestMetadataPartitionType {
 
     List<MetadataPartitionType> enabledPartitions = MetadataPartitionType.getEnabledPartitions(metadataConfig, metaClient);
 
-    // Verify RECORD_INDEX and FILES is enabled due to availability, and COLUMN_STATS and PARTITION_STATS by default
-    assertEquals(4, enabledPartitions.size(), "RECORD_INDEX, FILES, COL_STATS, PARTITION_STATS should be available");
+    // Verify RECORD_INDEX and FILES are enabled due to availability; COLUMN_STATS and PARTITION_STATS are not enabled by default
+    assertEquals(2, enabledPartitions.size(), "RECORD_INDEX and FILES should be available");
     assertTrue(enabledPartitions.contains(MetadataPartitionType.FILES), "FILES should be enabled by availability");
     assertTrue(enabledPartitions.contains(MetadataPartitionType.RECORD_INDEX), "RECORD_INDEX should be enabled by availability");
-    assertTrue(enabledPartitions.contains(MetadataPartitionType.COLUMN_STATS), "COLUMN_STATS should be enabled by default");
-    assertTrue(enabledPartitions.contains(MetadataPartitionType.PARTITION_STATS), "PARTITION_STATS should be enabled by default");
   }
 
   @Test
@@ -168,12 +173,10 @@ public class TestMetadataPartitionType {
 
     List<MetadataPartitionType> enabledPartitions = MetadataPartitionType.getEnabledPartitions(metadataConfig, metaClient);
 
-    // Verify EXPRESSION_INDEX and FILES is enabled due to availability, and COLUMN_STATS and PARTITION_STATS by default
-    assertEquals(4, enabledPartitions.size(), "EXPRESSION_INDEX, FILES, COL_STATS and SECONDARY_INDEX should be available");
+    // Verify EXPRESSION_INDEX and FILES are enabled due to availability; COLUMN_STATS and PARTITION_STATS are not enabled by default
+    assertEquals(2, enabledPartitions.size(), "EXPRESSION_INDEX and FILES should be available");
     assertTrue(enabledPartitions.contains(MetadataPartitionType.FILES), "FILES should be enabled by availability");
     assertTrue(enabledPartitions.contains(MetadataPartitionType.EXPRESSION_INDEX), "EXPRESSION_INDEX should be enabled by availability");
-    assertTrue(enabledPartitions.contains(MetadataPartitionType.COLUMN_STATS), "COLUMN_STATS should be enabled by default");
-    assertTrue(enabledPartitions.contains(MetadataPartitionType.PARTITION_STATS), "PARTITION_STATS should be enabled by default");
   }
 
   @Test

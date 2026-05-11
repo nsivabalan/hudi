@@ -21,6 +21,7 @@ import org.apache.hudi.BaseHoodieTableFileIndex.PartitionPath
 import org.apache.hudi.DataSourceWriteOptions.{PARTITIONPATH_FIELD, RECORDKEY_FIELD}
 import org.apache.hudi.HoodieFileIndex.{collectReferencedColumns, convertFilterForTimestampKeyGenerator, getConfigProperties, DataSkippingFailureMode}
 import org.apache.hudi.HoodieSparkConfUtils.getConfigValue
+import org.apache.hudi.common.HoodieSchemaNotFoundException
 import org.apache.hudi.common.config.{HoodieMetadataConfig, HoodieStorageConfig, TypedProperties}
 import org.apache.hudi.common.config.TimestampKeyGeneratorConfig.{TIMESTAMP_INPUT_DATE_FORMAT, TIMESTAMP_OUTPUT_DATE_FORMAT}
 import org.apache.hudi.common.model.{FileSlice, HoodieBaseFile, HoodieLogFile}
@@ -419,7 +420,13 @@ case class HoodieFileIndex(spark: SparkSession,
 
   override def refresh(): Unit = {
     super.refresh()
-    indicesSupport.foreach(idx => idx.invalidateCaches())
+    try {
+      indicesSupport.foreach(idx => idx.invalidateCaches())
+    } catch {
+      case _: HoodieSchemaNotFoundException =>
+        // Table schema unavailable (e.g. table was just truncated and has no commits yet);
+        // indicesSupport was not previously initialized, so there are no caches to invalidate.
+    }
     hasPushedDownPartitionPredicates = false
   }
 

@@ -891,7 +891,9 @@ def testBulkInsertForDropPartitionColumn(): Unit = {
  * @return dataframe to be used by testDeletePartitionsV2 and a map containing the table params
  */
   def deletePartitionSetup(): (DataFrame, Map[String,String]) = {
+    // Explicitly enable col stats so partition_stats MDT partition is created (col stats is disabled by default for Spark)
     val fooTableModifier = getCommonParams(tempPath, hoodieFooTableName, HoodieTableType.COPY_ON_WRITE.name())
+      .updated(HoodieMetadataConfig.ENABLE_METADATA_INDEX_COLUMN_STATS.key, "true")
     val schema = DataSourceTestUtils.getStructTypeExampleSchema
     val structType = AvroConversionUtils.convertAvroSchemaToStructType(schema)
     val records = DataSourceTestUtils.generateRandomRows(10)

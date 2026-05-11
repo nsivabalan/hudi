@@ -87,6 +87,7 @@ class TestSecondaryIndex extends HoodieSparkSqlTestBase {
                |  preCombineField = 'ts',
                |  hoodie.metadata.enable = 'true',
                |  hoodie.metadata.record.index.enable = 'true',
+               |  hoodie.metadata.index.column.stats.enable = 'true',
                |  hoodie.metadata.index.secondary.enable = 'true',
                |  hoodie.datasource.write.payload.class = 'org.apache.hudi.common.model.OverwriteWithLatestAvroPayload'
                | )
@@ -99,7 +100,8 @@ class TestSecondaryIndex extends HoodieSparkSqlTestBase {
           // Use the same base path as above
           spark.sql(
             s"""CREATE TABLE $tableName USING hudi options (
-               |     hoodie.metadata.record.index.enable = 'true'
+               |     hoodie.metadata.record.index.enable = 'true',
+               |     hoodie.metadata.index.column.stats.enable = 'true'
                | ) LOCATION '$basePath'""".stripMargin)
 
           spark.sql(s"insert into $tableName values(2, 'a2', 10, 1001)")
@@ -822,6 +824,7 @@ class TestSecondaryIndex extends HoodieSparkSqlTestBase {
              |  hoodie.metadata.enable = 'true',
              |  hoodie.metadata.record.index.enable = 'true',
              |  hoodie.metadata.index.secondary.enable = 'true',
+             |  hoodie.metadata.index.column.stats.enable = 'true',
              |  hoodie.datasource.write.payload.class = 'org.apache.hudi.common.model.OverwriteWithLatestAvroPayload'
              |)
              |location '$basePath'
@@ -1139,7 +1142,8 @@ class TestSecondaryIndex extends HoodieSparkSqlTestBase {
            |  type = 'cow',
            |  preCombineField = 'ts',
            |  hoodie.metadata.enable = 'true',
-           |  hoodie.metadata.record.index.enable = 'true'
+           |  hoodie.metadata.record.index.enable = 'true',
+           |  hoodie.metadata.index.column.stats.enable = 'true'
            | )
            | location '$basePath'
    """.stripMargin)
