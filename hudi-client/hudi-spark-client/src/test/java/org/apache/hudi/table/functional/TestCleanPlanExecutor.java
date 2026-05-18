@@ -707,7 +707,7 @@ public class TestCleanPlanExecutor extends HoodieCleanerTestBase {
         .build();
 
     HoodieTestTable testTable = HoodieTestTable.of(metaClient);
-    try  {
+    try {
       String p0 = "2020/01/01";
 
       String file1P0C0 = UUID.randomUUID().toString();

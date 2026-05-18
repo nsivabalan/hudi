@@ -131,12 +131,12 @@ public class TestCleanPlanner {
       when(mockFsView.getReplacedFileGroupsBefore(earliestInstant, partitionPath)).thenReturn(replacedFileGroups.stream());
     }
     // setup current file groups mocks
-    when(mockFsView.getAllFileGroupsStateless(partitionPath)).thenReturn(allFileGroups.stream());
+    when(mockFsView.getAllFileGroups(partitionPath)).thenReturn(allFileGroups.stream());
 
     CleanPlanner<?, ?, ?, ?> cleanPlanner = new CleanPlanner<>(context, mockHoodieTable, config);
     HoodieInstant earliestCommitToRetain = new HoodieInstant(HoodieInstant.State.COMPLETED, "COMMIT", earliestInstant);
     Pair<Boolean, List<CleanFileInfo>> actual = cleanPlanner.getDeletePaths(partitionPath, Option.of(earliestCommitToRetain));
-    assertEquals(expected, actual);
+    assertDeletePathsEquals(expected, actual);
   }
 
   /**
@@ -509,6 +509,17 @@ public class TestCleanPlanner {
         Arguments.of(getCleanByCommitsConfig(), earliestInstant, allFileGroups, savepoints, replacedFileGroups, expected));
   }
 
+  private static void assertDeletePathsEquals(Pair<Boolean, List<CleanFileInfo>> expected, Pair<Boolean, List<CleanFileInfo>> actual) {
+    assertEquals(expected.getLeft(), actual.getLeft());
+    assertEquals(getComparableCleanFileInfos(expected.getRight()), getComparableCleanFileInfos(actual.getRight()));
+  }
+
+  private static List<Pair<String, Boolean>> getComparableCleanFileInfos(List<CleanFileInfo> cleanFileInfos) {
+    return cleanFileInfos.stream()
+        .map(cleanFileInfo -> Pair.of(cleanFileInfo.getFilePath(), cleanFileInfo.isBootstrapBaseFile()))
+        .collect(Collectors.toList());
+  }
+
   /**
    * The function generates test arguments for two cases. One where cleaning policy
    * is set to KEEP_LATEST_BY_HOURS and the other where cleaning policy is set to
@@ -652,7 +663,7 @@ public class TestCleanPlanner {
 
   @Test
   void testGetLastCompletedCommitTimestamp() {
-    CleanPlanner<?, ?, ?, ?> cleanPlanner = new CleanPlanner<>(context, mockHoodieTable, mock(HoodieWriteConfig.class));
+    CleanPlanner<?, ?, ?, ?> cleanPlanner = new CleanPlanner<>(context, mockHoodieTable, getCleanByCommitsConfig());
     String timestamp = "001";
     HoodieInstant instant = new HoodieInstant(HoodieInstant.State.COMPLETED, "commit", timestamp);
     // mimic two calls but with different responses to cover case where there are no completed instants

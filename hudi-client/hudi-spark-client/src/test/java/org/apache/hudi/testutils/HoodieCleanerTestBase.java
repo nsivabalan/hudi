@@ -30,6 +30,7 @@ import org.apache.hudi.common.model.HoodieWriteStat;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
+import org.apache.hudi.common.testutils.HoodieMetadataTestTable;
 import org.apache.hudi.common.testutils.HoodieTestTable;
 import org.apache.hudi.common.testutils.HoodieTestUtils;
 import org.apache.hudi.common.util.CleanerUtils;
@@ -38,6 +39,7 @@ import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.exception.HoodieIOException;
 import org.apache.hudi.metadata.HoodieTableMetadata;
 import org.apache.hudi.metadata.HoodieTableMetadataWriter;
+import org.apache.hudi.metadata.SparkHoodieBackedTableMetadataWriter;
 
 import org.apache.hadoop.fs.Path;
 
@@ -221,6 +223,15 @@ public class HoodieCleanerTestBase extends HoodieClientTestBase {
         new HoodieInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.COMMIT_ACTION, instantTime),
         Option.of(commitMeta.toJsonString().getBytes(StandardCharsets.UTF_8)));
     metaClient = HoodieTableMetaClient.reload(metaClient);
+  }
+
+  protected HoodieTableMetadataWriter getMetadataWriter(HoodieWriteConfig config) {
+    return SparkHoodieBackedTableMetadataWriter.create(hadoopConf, config, context);
+  }
+
+  protected HoodieTestTable tearDownTestTableAndReinit(HoodieTestTable testTable, HoodieWriteConfig config) throws Exception {
+    testTable.close();
+    return HoodieMetadataTestTable.of(metaClient, getMetadataWriter(config), Option.of(context));
   }
 
   /**
