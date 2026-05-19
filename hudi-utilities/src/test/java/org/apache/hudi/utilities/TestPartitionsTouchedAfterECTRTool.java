@@ -59,22 +59,24 @@ class TestPartitionsTouchedAfterECTRTool extends HoodieCommonTestHarness {
   }
 
   @Test
-  void noCleanInstant_returnsAllCommitAndReplacePartitions() throws Exception {
+  void noCleanInstant_returnsOnlyPartitionsWithReplacedFileIds() throws Exception {
+    // Plain commits should be ignored — they don't replace any file IDs.
     testTable.addCommit("001", Option.of(commitMetadataFor("p_old_a")));
     testTable.addCommit("002", Option.of(commitMetadataFor("p_old_b")));
+    // For replace commits, only the replaced-fileId side counts; the new-write side does not.
     addReplaceCommit("003", Collections.singleton("p_replaced_x"), Collections.singleton("p_new_x"));
     addDeletePartitionsCommit("004", Collections.singleton("p_deleted_y"));
 
     Set<String> partitions = runTool();
 
-    assertEquals(setOf("p_old_a", "p_old_b", "p_replaced_x", "p_new_x", "p_deleted_y"), partitions);
+    assertEquals(setOf("p_replaced_x", "p_deleted_y"), partitions);
   }
 
   @Test
-  void cleanWithValidEctr_returnsOnlyPartitionsAtOrAfterEctr() throws Exception {
+  void cleanWithValidEctr_returnsOnlyReplacedPartitionsAtOrAfterEctr() throws Exception {
     testTable.addCommit("001", Option.of(commitMetadataFor("p_pre_clean_a")));
     addReplaceCommit("002", Collections.singleton("p_pre_clean_b"), Collections.singleton("p_pre_clean_c"));
-    // Clean records ECTR = "010" => everything at/after 010 should be included.
+    // Clean records ECTR = "010" => only replace-fileId partitions at/after 010 should be included.
     addCleanWithEctr("005", "010");
     testTable.addCommit("011", Option.of(commitMetadataFor("p_post_clean_a")));
     addReplaceCommit("012", Collections.singleton("p_replaced_post"), Collections.singleton("p_new_post"));
@@ -82,13 +84,11 @@ class TestPartitionsTouchedAfterECTRTool extends HoodieCommonTestHarness {
 
     Set<String> partitions = runTool();
 
-    assertEquals(
-        setOf("p_post_clean_a", "p_replaced_post", "p_new_post", "p_deleted_post"),
-        partitions);
+    assertEquals(setOf("p_replaced_post", "p_deleted_post"), partitions);
   }
 
   @Test
-  void cleanWithEmptyEctr_returnsAllCommitAndReplacePartitions() throws Exception {
+  void cleanWithEmptyEctr_returnsAllReplacedPartitions() throws Exception {
     testTable.addCommit("001", Option.of(commitMetadataFor("p_a")));
     addReplaceCommit("002", Collections.singleton("p_replaced"), Collections.singleton("p_new"));
     addDeletePartitionsCommit("003", Collections.singleton("p_deleted"));
@@ -98,21 +98,32 @@ class TestPartitionsTouchedAfterECTRTool extends HoodieCommonTestHarness {
 
     Set<String> partitions = runTool();
 
-    assertEquals(setOf("p_a", "p_replaced", "p_new", "p_deleted"), partitions);
+    assertEquals(setOf("p_replaced", "p_deleted"), partitions);
   }
 
   @Test
-  void instantsStrictlyBeforeEctr_areExcluded() throws Exception {
-    testTable.addCommit("001", Option.of(commitMetadataFor("p_before")));
+  void replaceInstantsStrictlyBeforeEctr_areExcluded() throws Exception {
+    addReplaceCommit("001", Collections.singleton("p_before"), Collections.emptySet());
     addCleanWithEctr("005", "002");
-    testTable.addCommit("002", Option.of(commitMetadataFor("p_at_ectr")));
-    testTable.addCommit("003", Option.of(commitMetadataFor("p_after_ectr")));
+    addReplaceCommit("002", Collections.singleton("p_at_ectr"), Collections.emptySet());
+    addReplaceCommit("003", Collections.singleton("p_after_ectr"), Collections.emptySet());
 
     Set<String> partitions = runTool();
 
     assertTrue(partitions.contains("p_at_ectr"));
     assertTrue(partitions.contains("p_after_ectr"));
     assertEquals(setOf("p_at_ectr", "p_after_ectr"), partitions);
+  }
+
+  @Test
+  void replaceCommitWithNoReplacedFileIds_isIgnored() throws Exception {
+    // Insert-overwrite-table-style or pure-write replace commits with empty replace map shouldn't show up.
+    addReplaceCommit("001", Collections.emptySet(), Collections.singleton("p_new_only"));
+    addReplaceCommit("002", Collections.singleton("p_replaced"), Collections.emptySet());
+
+    Set<String> partitions = runTool();
+
+    assertEquals(setOf("p_replaced"), partitions);
   }
 
   // ----- helpers -----

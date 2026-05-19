@@ -21,7 +21,6 @@ package org.apache.hudi.utilities;
 
 import org.apache.hudi.avro.model.HoodieActionInstant;
 import org.apache.hudi.avro.model.HoodieCleanerPlan;
-import org.apache.hudi.common.model.HoodieCommitMetadata;
 import org.apache.hudi.common.model.HoodieReplaceCommitMetadata;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
@@ -43,20 +42,24 @@ import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
-import java.util.HashSet;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
 /**
- * Standalone Java tool that lists partitions written or replaced in the active timeline at or
- * after the last known earliest-commit-to-retain (ECTR). The ECTR is sourced from the most
+ * Standalone Java tool that lists partitions whose file IDs were replaced in the active timeline
+ * at or after the last known earliest-commit-to-retain (ECTR). The ECTR is sourced from the most
  * recent completed clean's plan ({@code earliestInstantToRetain}). If no completed clean exists,
  * or that field is null/empty (e.g. the previous clean produced an empty plan), the tool scans
  * the entire active timeline.
  *
- * <p>Only completed {@code commit}, {@code deltaCommit}, and {@code replaceCommit} instants are
- * considered. Other actions (clean, rollback, restore, savepoint, compaction) are ignored
- * because they don't add or replace data partitions in the sense the caller cares about.
+ * <p>Only completed {@code replaceCommit} instants are considered, and only the partitions in
+ * {@code partitionToReplaceFileIds} — i.e. partitions that have file IDs marked for replacement
+ * (insert-overwrite, delete-partition, clustering, etc.). Plain {@code commit} and
+ * {@code deltaCommit} instants, and the new-write side of replace commits, are ignored because
+ * they don't leave any files for the cleaner to reclaim.
  *
  * <p>Sample invocation:
  * <pre>
@@ -115,34 +118,33 @@ public class PartitionsTouchedAfterECTRTool {
     String lowerBound = resolveLowerBound(metaClient);
     LOG.info("Using lower-bound instant timestamp = {} for base path {}", lowerBound, cfg.basePath);
 
-    HoodieTimeline commitsTimeline = metaClient.getActiveTimeline()
-        .getCommitsTimeline()
-        .filterCompletedInstants();
+    HoodieTimeline replaceTimeline = metaClient.getActiveTimeline()
+        .getCompletedReplaceTimeline();
 
-    Set<String> touched = new TreeSet<>();
+    Set<String> replaced = new TreeSet<>();
     long instantCount = 0;
-    for (HoodieInstant instant : commitsTimeline.getInstants()) {
+    for (HoodieInstant instant : replaceTimeline.getInstants()) {
       if (lowerBound != null
           && HoodieTimeline.compareTimestamps(instant.getTimestamp(), HoodieTimeline.LESSER_THAN, lowerBound)) {
         continue;
       }
-      Set<String> partitionsForInstant = partitionsTouchedBy(commitsTimeline, instant);
-      LOG.info("Instant {} (action={}) touched {} partitions",
-          instant.getTimestamp(), instant.getAction(), partitionsForInstant.size());
-      touched.addAll(partitionsForInstant);
+      Set<String> partitionsForInstant = partitionsReplacedBy(replaceTimeline, instant);
+      LOG.info("Replace instant {} replaced file IDs in {} partitions",
+          instant.getTimestamp(), partitionsForInstant.size());
+      replaced.addAll(partitionsForInstant);
       instantCount++;
     }
 
-    LOG.info("Scanned {} completed commit/replace/deltaCommit instants at-or-after {}; total distinct partitions touched = {}",
-        instantCount, lowerBound, touched.size());
-    for (String partition : touched) {
+    LOG.info("Scanned {} completed replaceCommit instants at-or-after {}; total distinct partitions with replaced file IDs = {}",
+        instantCount, lowerBound, replaced.size());
+    for (String partition : replaced) {
       LOG.info("  partition: {}", partition);
     }
 
     if (!StringUtils.isNullOrEmpty(cfg.outputFile)) {
-      writeOutput(touched);
+      writeOutput(replaced);
     }
-    return touched;
+    return replaced;
   }
 
   private String resolveLowerBound(HoodieTableMetaClient metaClient) throws IOException {
@@ -152,7 +154,7 @@ public class PartitionsTouchedAfterECTRTool {
         .lastInstant();
 
     if (!lastClean.isPresent()) {
-      LOG.warn("No completed clean instant found on active timeline; reporting all completed commit/replace partitions");
+      LOG.warn("No completed clean instant found on active timeline; reporting partitions from all completed replaceCommits on the active timeline");
       return null;
     }
 
@@ -170,28 +172,17 @@ public class PartitionsTouchedAfterECTRTool {
     return null;
   }
 
-  private Set<String> partitionsTouchedBy(HoodieTimeline timeline, HoodieInstant instant) {
+  private Set<String> partitionsReplacedBy(HoodieTimeline timeline, HoodieInstant instant) {
     try {
-      switch (instant.getAction()) {
-        case HoodieTimeline.COMMIT_ACTION:
-        case HoodieTimeline.DELTA_COMMIT_ACTION: {
-          HoodieCommitMetadata md = HoodieCommitMetadata.fromBytes(
-              timeline.getInstantDetails(instant).get(), HoodieCommitMetadata.class);
-          return new HashSet<>(md.getPartitionToWriteStats().keySet());
-        }
-        case HoodieTimeline.REPLACE_COMMIT_ACTION: {
-          HoodieReplaceCommitMetadata md = HoodieReplaceCommitMetadata.fromBytes(
-              timeline.getInstantDetails(instant).get(), HoodieReplaceCommitMetadata.class);
-          Set<String> partitions = new HashSet<>();
-          partitions.addAll(md.getPartitionToReplaceFileIds().keySet());
-          partitions.addAll(md.getPartitionToWriteStats().keySet());
-          return partitions;
-        }
-        default:
-          return new HashSet<>();
+      HoodieReplaceCommitMetadata md = HoodieReplaceCommitMetadata.fromBytes(
+          timeline.getInstantDetails(instant).get(), HoodieReplaceCommitMetadata.class);
+      Map<String, List<String>> partitionToReplaceFileIds = md.getPartitionToReplaceFileIds();
+      if (partitionToReplaceFileIds == null || partitionToReplaceFileIds.isEmpty()) {
+        return Collections.emptySet();
       }
+      return new TreeSet<>(partitionToReplaceFileIds.keySet());
     } catch (IOException e) {
-      throw new HoodieIOException("Failed to read commit metadata for instant " + instant, e);
+      throw new HoodieIOException("Failed to read replace commit metadata for instant " + instant, e);
     }
   }
 
