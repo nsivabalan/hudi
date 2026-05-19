@@ -21,6 +21,7 @@ package org.apache.hudi.utilities;
 
 import org.apache.hudi.avro.model.HoodieActionInstant;
 import org.apache.hudi.avro.model.HoodieCleanMetadata;
+import org.apache.hudi.avro.model.HoodieCleanPartitionMetadata;
 import org.apache.hudi.avro.model.HoodieCleanerPlan;
 import org.apache.hudi.common.model.HoodieCleaningPolicy;
 import org.apache.hudi.common.model.HoodieCommitMetadata;
@@ -42,6 +43,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -59,60 +61,80 @@ class TestPartitionsTouchedAfterECTRTool extends HoodieCommonTestHarness {
   }
 
   @Test
-  void noCleanInstant_returnsAllCommitAndReplacePartitions() throws Exception {
-    testTable.addCommit("001", Option.of(commitMetadataFor("p_old_a")));
-    testTable.addCommit("002", Option.of(commitMetadataFor("p_old_b")));
+  void noCleanInstant_returnsOnlyReplacedAndCleanedPartitions() throws Exception {
+    // Plain commits / deltaCommits are out of scope for this tool.
+    testTable.addCommit("001", Option.of(commitMetadataFor("p_ingest_a")));
+    testTable.addCommit("002", Option.of(commitMetadataFor("p_ingest_b")));
     addReplaceCommit("003", Collections.singleton("p_replaced_x"), Collections.singleton("p_new_x"));
     addDeletePartitionsCommit("004", Collections.singleton("p_deleted_y"));
 
     Set<String> partitions = runTool();
 
-    assertEquals(setOf("p_old_a", "p_old_b", "p_replaced_x", "p_new_x", "p_deleted_y"), partitions);
+    assertEquals(setOf("p_replaced_x", "p_new_x", "p_deleted_y"), partitions);
   }
 
   @Test
-  void cleanWithValidEctr_returnsOnlyPartitionsAtOrAfterEctr() throws Exception {
+  void cleanWithValidEctr_returnsOnlyReplacedAndCleanedPartitionsAtOrAfterEctr() throws Exception {
+    // Pre-ECTR — should be excluded.
     testTable.addCommit("001", Option.of(commitMetadataFor("p_pre_clean_a")));
     addReplaceCommit("002", Collections.singleton("p_pre_clean_b"), Collections.singleton("p_pre_clean_c"));
-    // Clean records ECTR = "010" => everything at/after 010 should be included.
-    addCleanWithEctr("005", "010");
-    testTable.addCommit("011", Option.of(commitMetadataFor("p_post_clean_a")));
+    // Clean at 005 records ECTR = "010" => everything at/after 010 is in scope.
+    // The clean itself is at 005, strictly before the ECTR, so its cleaned partition
+    // is also excluded.
+    addCleanWithEctr("005", "010", Collections.singleton("p_cleaned_pre"));
+    // Post-ECTR — ingestion commit still excluded; replace + delete-partition included.
+    testTable.addCommit("011", Option.of(commitMetadataFor("p_post_ingest")));
     addReplaceCommit("012", Collections.singleton("p_replaced_post"), Collections.singleton("p_new_post"));
     addDeletePartitionsCommit("013", Collections.singleton("p_deleted_post"));
+    // Another clean at 014 (>= ECTR) that actually deleted files in p_cleaned_post.
+    addCleanWithEctr("014", "010", Collections.singleton("p_cleaned_post"));
 
     Set<String> partitions = runTool();
 
     assertEquals(
-        setOf("p_post_clean_a", "p_replaced_post", "p_new_post", "p_deleted_post"),
+        setOf("p_replaced_post", "p_new_post", "p_deleted_post", "p_cleaned_post"),
         partitions);
   }
 
   @Test
-  void cleanWithEmptyEctr_returnsAllCommitAndReplacePartitions() throws Exception {
-    testTable.addCommit("001", Option.of(commitMetadataFor("p_a")));
+  void cleanWithEmptyEctr_returnsAllReplacedAndCleanedPartitions() throws Exception {
+    testTable.addCommit("001", Option.of(commitMetadataFor("p_ingest")));
     addReplaceCommit("002", Collections.singleton("p_replaced"), Collections.singleton("p_new"));
     addDeletePartitionsCommit("003", Collections.singleton("p_deleted"));
     // Clean exists, but its plan has no earliestInstantToRetain — mirrors the
-    // CleanerUtils.getEarliestCommitToRetain == empty case.
-    addCleanWithEctr("004", null);
+    // empty-clean case (CleanerUtils.getEarliestCommitToRetain == empty).
+    addCleanWithEctr("004", null, Collections.emptySet());
 
     Set<String> partitions = runTool();
 
-    assertEquals(setOf("p_a", "p_replaced", "p_new", "p_deleted"), partitions);
+    assertEquals(setOf("p_replaced", "p_new", "p_deleted"), partitions);
   }
 
   @Test
   void instantsStrictlyBeforeEctr_areExcluded() throws Exception {
-    testTable.addCommit("001", Option.of(commitMetadataFor("p_before")));
-    addCleanWithEctr("005", "002");
-    testTable.addCommit("002", Option.of(commitMetadataFor("p_at_ectr")));
-    testTable.addCommit("003", Option.of(commitMetadataFor("p_after_ectr")));
+    // Pre-ECTR replace + clean — excluded.
+    addReplaceCommit("001", Collections.singleton("p_replaced_before"), Collections.emptySet());
+    addCleanWithEctr("003", "005", Collections.singleton("p_cleaned_before"));
+    // At/after ECTR — included.
+    addReplaceCommit("006", Collections.singleton("p_replaced_at_or_after"), Collections.emptySet());
+    addCleanWithEctr("007", "005", Collections.singleton("p_cleaned_at_or_after"));
 
     Set<String> partitions = runTool();
 
-    assertTrue(partitions.contains("p_at_ectr"));
-    assertTrue(partitions.contains("p_after_ectr"));
-    assertEquals(setOf("p_at_ectr", "p_after_ectr"), partitions);
+    assertTrue(partitions.contains("p_replaced_at_or_after"));
+    assertTrue(partitions.contains("p_cleaned_at_or_after"));
+    assertEquals(setOf("p_replaced_at_or_after", "p_cleaned_at_or_after"), partitions);
+  }
+
+  @Test
+  void ingestionOnlyCommitsAreIgnored() throws Exception {
+    // Only plain commits / deltaCommits on the timeline — tool should report nothing.
+    testTable.addCommit("001", Option.of(commitMetadataFor("p_ingest_a")));
+    testTable.addCommit("002", Option.of(commitMetadataFor("p_ingest_b")));
+
+    Set<String> partitions = runTool();
+
+    assertEquals(Collections.emptySet(), partitions);
   }
 
   // ----- helpers -----
@@ -162,7 +184,8 @@ class TestPartitionsTouchedAfterECTRTool extends HoodieCommonTestHarness {
     testTable.addReplaceCommit(instantTime, Option.empty(), Option.empty(), md);
   }
 
-  private void addCleanWithEctr(String cleanInstantTime, String ectrTimestamp) throws IOException {
+  private void addCleanWithEctr(String cleanInstantTime, String ectrTimestamp, Set<String> cleanedPartitions)
+      throws IOException {
     HoodieActionInstant earliestInstantToRetain = ectrTimestamp == null
         ? null
         : new HoodieActionInstant(ectrTimestamp, HoodieTimeline.COMMIT_ACTION, HoodieInstant.State.COMPLETED.name());
@@ -175,13 +198,23 @@ class TestPartitionsTouchedAfterECTRTool extends HoodieCommonTestHarness {
         new HashMap<>(),
         new ArrayList<>(),
         Collections.emptyMap());
+    Map<String, HoodieCleanPartitionMetadata> partitionMetadata = new HashMap<>();
+    for (String p : cleanedPartitions) {
+      partitionMetadata.put(p, HoodieCleanPartitionMetadata.newBuilder()
+          .setPartitionPath(p)
+          .setPolicy(HoodieCleaningPolicy.KEEP_LATEST_COMMITS.name())
+          .setDeletePathPatterns(Collections.emptyList())
+          .setSuccessDeleteFiles(Collections.singletonList(p + "/" + UUID.randomUUID() + ".parquet"))
+          .setFailedDeleteFiles(Collections.emptyList())
+          .build());
+    }
     HoodieCleanMetadata cleanMetadata = new HoodieCleanMetadata(
         cleanInstantTime,
         0L,
-        0,
+        cleanedPartitions.size(),
         ectrTimestamp == null ? "" : ectrTimestamp,
         "",
-        Collections.emptyMap(),
+        partitionMetadata,
         CleanPlanV2MigrationHandler.VERSION,
         Collections.emptyMap(),
         Collections.emptyMap());
