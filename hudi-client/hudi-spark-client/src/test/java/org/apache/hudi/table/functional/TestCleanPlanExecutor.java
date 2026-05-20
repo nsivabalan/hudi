@@ -19,6 +19,7 @@
 package org.apache.hudi.table.functional;
 
 import org.apache.hudi.avro.model.HoodieCleanMetadata;
+import org.apache.hudi.avro.model.HoodieCleanerPlan;
 import org.apache.hudi.avro.model.HoodieFileStatus;
 import org.apache.hudi.common.HoodieCleanStat;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
@@ -63,14 +64,18 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -336,6 +341,124 @@ public class TestCleanPlanExecutor extends HoodieCleanerTestBase {
     List<HoodieCleanStat> hoodieCleanStatsFour = runCleaner(config);
     assertEquals(0, hoodieCleanStatsFour.size(), "Must not clean any files");
     assertTrue(testTable.baseFileExists(p0, "00000000000005", file3P0C2));
+  }
+
+  /**
+   * Validates the load-bearing assumption behind the partition-filtered recovery flow:
+   * when the cleaner runs with hoodie.clean.partition.filter.selected and
+   * hoodie.clean.incremental.mode.enabled=false, the resulting clean still writes a
+   * real, global earliestInstantToRetain (ECTR) into both its plan and its metadata —
+   * one that matches what CleanerUtils.getEarliestCommitToRetain would compute from
+   * the active timeline. The partition filter must only narrow the per-partition
+   * cleaning loop, not the ECTR computation. Also verifies the filter is actually
+   * applied: only the selected partitions appear in the clean metadata.
+   */
+  @Test
+  public void testPartitionFilteredCleanWritesGlobalEctr() throws Exception {
+    final String p0 = "2020/01/01";
+    final String p1 = "2020/01/02";
+    final String p2 = "2020/01/03";
+    final int retainCommits = 2;
+    final String partitionFilterSelected = p0 + "," + p1;
+
+    Properties extraProps = new Properties();
+    extraProps.setProperty("hoodie.clean.partition.filter.selected", partitionFilterSelected);
+
+    HoodieWriteConfig config = HoodieWriteConfig.newBuilder().withPath(basePath)
+        .withMetadataConfig(HoodieMetadataConfig.newBuilder().withAssumeDatePartitioning(true).build())
+        .withCleanConfig(HoodieCleanConfig.newBuilder()
+            .withIncrementalCleaningMode(false)
+            .withFailedWritesCleaningPolicy(HoodieFailedWritesCleaningPolicy.EAGER)
+            .withCleanerPolicy(HoodieCleaningPolicy.KEEP_LATEST_COMMITS)
+            .retainCommits(retainCommits)
+            .build())
+        .withProps(extraProps)
+        .build();
+
+    HoodieTableMetadataWriter metadataWriter = SparkHoodieBackedTableMetadataWriter.create(hadoopConf, config, context);
+    HoodieTestTable testTable = HoodieMetadataTestTable.of(metaClient, metadataWriter, Option.of(context));
+
+    // Four commits with rotating new file IDs per partition, so that by commit 4 there
+    // is at least one slice eligible for cleaning under KEEP_LATEST_COMMITS retain=2.
+    // Pattern follows testKeepLatestCommits in this file.
+    String file1P0 = UUID.randomUUID().toString();
+    String file1P1 = UUID.randomUUID().toString();
+    String file1P2 = UUID.randomUUID().toString();
+    Map<String, List<String>> commit1 = new HashMap<>();
+    commit1.put(p0, Collections.singletonList(file1P0));
+    commit1.put(p1, Collections.singletonList(file1P1));
+    commit1.put(p2, Collections.singletonList(file1P2));
+    commitWithMdt("00000000000001", commit1, testTable, metadataWriter, true, true);
+    metaClient = HoodieTableMetaClient.reload(metaClient);
+
+    Map<String, String> partToFile2 = testTable.addInflightCommit("00000000000003").getFileIdsWithBaseFilesInPartitions(p0, p1, p2);
+    Map<String, List<String>> commit2 = new HashMap<>();
+    commit2.put(p0, Arrays.asList(file1P0, partToFile2.get(p0)));
+    commit2.put(p1, Arrays.asList(file1P1, partToFile2.get(p1)));
+    commit2.put(p2, Arrays.asList(file1P2, partToFile2.get(p2)));
+    commitWithMdt("00000000000003", commit2, testTable, metadataWriter, true, true);
+    metaClient = HoodieTableMetaClient.reload(metaClient);
+
+    Map<String, String> partToFile3 = testTable.addInflightCommit("00000000000005").getFileIdsWithBaseFilesInPartitions(p0, p1, p2);
+    Map<String, List<String>> commit3 = new HashMap<>();
+    commit3.put(p0, Arrays.asList(file1P0, partToFile2.get(p0), partToFile3.get(p0)));
+    commit3.put(p1, Arrays.asList(file1P1, partToFile2.get(p1), partToFile3.get(p1)));
+    commit3.put(p2, Arrays.asList(file1P2, partToFile2.get(p2), partToFile3.get(p2)));
+    commitWithMdt("00000000000005", commit3, testTable, metadataWriter, true, true);
+    metaClient = HoodieTableMetaClient.reload(metaClient);
+
+    Map<String, String> partToFile4 = testTable.addInflightCommit("00000000000007").getFileIdsWithBaseFilesInPartitions(p0, p1, p2);
+    Map<String, List<String>> commit4 = new HashMap<>();
+    commit4.put(p0, Arrays.asList(file1P0, partToFile2.get(p0), partToFile3.get(p0), partToFile4.get(p0)));
+    commit4.put(p1, Arrays.asList(file1P1, partToFile2.get(p1), partToFile3.get(p1), partToFile4.get(p1)));
+    commit4.put(p2, Arrays.asList(file1P2, partToFile2.get(p2), partToFile3.get(p2), partToFile4.get(p2)));
+    commitWithMdt("00000000000007", commit4, testTable, metadataWriter, true, true);
+    metaClient = HoodieTableMetaClient.reload(metaClient);
+
+    // Compute the expected ECTR the same way CleanPlanner would, before the clean runs.
+    Option<HoodieInstant> expectedEctr = CleanerUtils.getEarliestCommitToRetain(
+        metaClient.getActiveTimeline().getCommitsAndCompactionTimeline(),
+        HoodieCleaningPolicy.KEEP_LATEST_COMMITS,
+        retainCommits,
+        Instant.now(),
+        config.getCleanerHoursRetained(),
+        metaClient.getTableConfig().getTimelineTimezone());
+    assertTrue(expectedEctr.isPresent(), "Expected ECTR should be computable with 4 commits and retain=2");
+
+    runCleaner(config, 8, true);
+
+    metaClient = HoodieTableMetaClient.reload(metaClient);
+    HoodieInstant completedClean = metaClient.getActiveTimeline()
+        .getCleanerTimeline().filterCompletedInstants().lastInstant().get();
+
+    HoodieCleanerPlan plan = CleanerUtils.getCleanerPlan(metaClient,
+        new HoodieInstant(HoodieInstant.State.REQUESTED, HoodieTimeline.CLEAN_ACTION, completedClean.getTimestamp()));
+    HoodieCleanMetadata metadata = CleanerUtils.getCleanerMetadata(metaClient, completedClean);
+
+    // 1) Plan carries a non-null ECTR.
+    assertNotNull(plan.getEarliestInstantToRetain(),
+        "Partition-filtered clean must still write earliestInstantToRetain in its plan");
+    assertNotNull(plan.getEarliestInstantToRetain().getTimestamp());
+    assertFalse(plan.getEarliestInstantToRetain().getTimestamp().isEmpty());
+
+    // 2) Metadata carries a non-empty ECTR.
+    assertNotNull(metadata.getEarliestCommitToRetain(),
+        "Partition-filtered clean must still write earliestCommitToRetain in its metadata");
+    assertFalse(metadata.getEarliestCommitToRetain().isEmpty());
+
+    // 3) Correctness: the ECTR matches the policy-computed value. This is the key
+    //    assertion — it proves the partition filter does NOT perturb ECTR computation,
+    //    it only narrows the per-partition planning loop.
+    assertEquals(expectedEctr.get().getTimestamp(), plan.getEarliestInstantToRetain().getTimestamp(),
+        "Plan ECTR must equal the policy-computed ECTR");
+    assertEquals(expectedEctr.get().getTimestamp(), metadata.getEarliestCommitToRetain(),
+        "Metadata ECTR must equal the policy-computed ECTR");
+
+    // 4) The filter was actually applied — only p0 and p1 should appear in the clean
+    //    metadata; p2 must be absent because it was excluded by the filter.
+    Set<String> cleanedPartitions = new HashSet<>(metadata.getPartitionMetadata().keySet());
+    assertEquals(new HashSet<>(Arrays.asList(p0, p1)), cleanedPartitions,
+        "Clean metadata must only contain partitions allowed by partition.filter.selected");
   }
 
   @Test
