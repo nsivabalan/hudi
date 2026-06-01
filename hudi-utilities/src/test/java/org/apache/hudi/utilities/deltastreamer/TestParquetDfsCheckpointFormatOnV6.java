@@ -99,6 +99,13 @@ public class TestParquetDfsCheckpointFormatOnV6 extends HoodieDeltaStreamerTestB
     cfg.configs.add(HoodieWriteConfig.WRITE_TABLE_VERSION.key() + "=6");
     new HoodieDeltaStreamer(cfg, jsc).sync();
 
+    // Confirm the on-disk table version stayed at 6 so we are testing the v6-write path, not an
+    // accidental v6 -> v9 auto-upgrade (which would make V2 the correct result).
+    HoodieTableMetaClient resumedMetaClient = HoodieTestUtils.createMetaClient(storage, tableBasePath);
+    assertTrue(resumedMetaClient.getTableConfig().getTableVersion().versionCode() == 6,
+        "Table version on disk should still be 6 after resume; got "
+            + resumedMetaClient.getTableConfig().getTableVersion());
+
     HoodieCommitMetadata resumedCommit = readLatestCommitMetadata(tableBasePath);
     // The actual test: under hoodie.write.table.version=6, ParquetDFSSource must keep emitting V1
     // keys (CheckpointUtils.shouldTargetCheckpointV2 returns false for writeTableVersion < 8).
