@@ -25,6 +25,7 @@ import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.common.table.HoodieTableVersion;
 import org.apache.hudi.common.testutils.HoodieTestDataGenerator;
 import org.apache.hudi.common.testutils.HoodieTestTable;
 import org.apache.hudi.common.util.Option;
@@ -97,17 +98,20 @@ public class TestSparkSampleWritesUtils extends SparkClientFunctionalTestHarness
     assertEquals(originalRecordSize, originalWriteConfig.getCopyOnWriteRecordSizeEstimate(), "Original record size estimate should not be changed.");
   }
 
-  @Test
-  public void overwriteRecordSizeEstimateForEmptyTable() {
+  @ParameterizedTest
+  @EnumSource(value = HoodieTableVersion.class, names = {"SIX", "NINE"})
+  public void overwriteRecordSizeEstimateForEmptyTable(HoodieTableVersion tableVersion) {
     int originalRecordSize = 100;
     TypedProperties props = new TypedProperties();
     props.put(HoodieStreamerConfig.SAMPLE_WRITES_ENABLED.key(), "true");
     props.put(HoodieCompactionConfig.COPY_ON_WRITE_RECORD_SIZE_ESTIMATE.key(), String.valueOf(originalRecordSize));
+    props.put(HoodieWriteConfig.WRITE_TABLE_VERSION.key(), String.valueOf(tableVersion.versionCode()));
     HoodieWriteConfig originalWriteConfig = HoodieWriteConfig.newBuilder()
         .withProperties(props)
         .forTable("foo")
         .withPath(basePath())
         .withSchema(HoodieTestDataGenerator.TRIP_EXAMPLE_SCHEMA)
+        .withWriteTableVersion(tableVersion.versionCode())
         .build();
 
     String commitTime = HoodieTestDataGenerator.getCommitTimeAtUTC(1);

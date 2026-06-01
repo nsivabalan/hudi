@@ -96,9 +96,15 @@ public class SparkSampleWritesUtils {
       throws IOException {
     String uniqueId = UUID.randomUUID().toString();
     final String sampleWritesBasePath = getSampleWritesBasePath(jsc, writeConfig, uniqueId);
+    // Propagate the user's configured write table version to the sample-writes shadow table so
+    // that the on-disk table layout matches the version that the inherited write config (and the
+    // SparkRDDWriteClient below) will operate with. Otherwise the shadow table is initialized at
+    // HoodieTableVersion.current() while the write config carries hoodie.write.table.version=N,
+    // which produces version-mismatched reads/writes on the sample-writes table.
     HoodieTableMetaClient.newTableBuilder()
         .setTableType(HoodieTableType.COPY_ON_WRITE)
         .setTableName(String.format("%s_samples_%s", writeConfig.getTableName(), uniqueId))
+        .setTableVersion(writeConfig.getWriteVersion())
         .setCDCEnabled(false)
         .initTable(HadoopFSUtils.getStorageConfWithCopy(jsc.hadoopConfiguration()), sampleWritesBasePath);
     TypedProperties props = writeConfig.getProps();
@@ -112,6 +118,7 @@ public class SparkSampleWritesUtils {
         .withSchemaEvolutionEnable(false)
         .withBulkInsertParallelism(1)
         .withPath(sampleWritesBasePath)
+        .withWriteTableVersion(writeConfig.getWriteVersion().versionCode())
         .withRecordSizeEstimatorAverageMetadataSize(writeConfig.getRecordSizeEstimatorAverageMetadataSize())
         .withStorageConfig(HoodieStorageConfig.newBuilder().parquetCompressionCodec(writeConfig.getParquetCompressionCodec()).build())
         .build();
