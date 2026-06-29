@@ -329,6 +329,18 @@ public class HoodieStorageConfig extends HoodieConfig {
           + "and it is loaded at runtime. This is only required when trying to "
           + "override the existing write context when `hoodie.datasource.write.row.writer.enable=true`.");
 
+  public static final ConfigProperty<Boolean> OPTIMIZED_ROW_WRITER_ENABLE = ConfigProperty
+      .key("hoodie.datasource.write.row.writer.optimized.enable")
+      .defaultValue(false)
+      .markAdvanced()
+      .sinceVersion("1.3.0")
+      .withDocumentation("When true, the bulk-insert row-writer path uses an optimized parquet "
+          + "writer that writes directly to a parquet ColumnWriteStore, bypassing the "
+          + "WriteSupport/RecordConsumer/MessageColumnIO chain. v1 only supports primitive "
+          + "top-level fields (int, long, float, double, boolean, string, binary); schemas "
+          + "with complex types (struct/array/map/decimal/timestamp/variant) automatically "
+          + "fall back to the standard row writer.");
+
   public static final ConfigProperty<String> HOODIE_PARQUET_FLINK_ROW_DATA_WRITE_SUPPORT_CLASS = ConfigProperty
       .key("hoodie.parquet.flink.rowdata.write.support.class")
       .defaultValue("org.apache.hudi.io.storage.row.HoodieRowDataParquetWriteSupport")

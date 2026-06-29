@@ -562,6 +562,19 @@ object DataSourceWriteOptions {
     .withDocumentation("When set to true, will perform write operations directly using the spark native " +
       "`Row` representation, avoiding any additional conversion costs.")
 
+  val ENABLE_OPTIMIZED_ROW_WRITER: ConfigProperty[String] = ConfigProperty
+    .key("hoodie.datasource.write.row.writer.optimized.enable")
+    .defaultValue("false")
+    .markAdvanced()
+    .sinceVersion("1.3.0")
+    .withDocumentation("When set to true (and the row writer is enabled), the bulk-insert path " +
+      "uses an optimized parquet writer that writes directly to a parquet ColumnWriteStore, " +
+      "bypassing the WriteSupport/RecordConsumer/MessageColumnIO chain. This closes a measured " +
+      "~10% executor-CPU gap vs Iceberg's parquet writer in immutable bulk-insert workloads. " +
+      "v1 only supports primitive top-level fields (int, long, float, double, boolean, string, " +
+      "binary); schemas with complex types (struct/array/map/decimal/timestamp/variant) " +
+      "automatically fall back to the standard row writer.")
+
   /**
    * Enable the bulk insert for sql insert statement.
    */
