@@ -123,9 +123,14 @@ public class HoodieDirectInternalRowParquetWriter
     this.maxFileSize = parquetConfig.getMaxFileSize()
         + Math.round(parquetConfig.getMaxFileSize() * parquetConfig.getCompressionRatio());
 
+    // Match Iceberg's default 2 MB dictionary page size (vs Hudi legacy's 1 MB, which is
+    // tied to the regular page size). Smaller dict triggers earlier fallback to plain
+    // encoding for high-cardinality columns (like the UUID record key), which shows up in
+    // JFR as extra Binary.hashCode / FallbackValuesWriter.checkFallback samples.
+    int dictPageSize = Math.max(parquetConfig.getPageSize(), 2 * 1024 * 1024);
     this.parquetProps = ParquetProperties.builder()
         .withPageSize(parquetConfig.getPageSize())
-        .withDictionaryPageSize(parquetConfig.getPageSize())
+        .withDictionaryPageSize(dictPageSize)
         .withDictionaryEncoding(parquetConfig.isDictionaryEnabled())
         .withWriterVersion(ParquetProperties.WriterVersion.PARQUET_1_0)
         .build();
