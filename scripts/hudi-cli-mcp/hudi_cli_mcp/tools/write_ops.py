@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 
+from hudi_cli_mcp.audit import audit_event
 from hudi_cli_mcp.commands import (
     CommandNotAllowedError,
     RiskLevel,
@@ -69,6 +70,15 @@ def _execute_write_operation(
     if risk_level == RiskLevel.LOW:
         commands = session.build_command_list([command])
         result = executor.execute(commands, timeout=WRITE_TIMEOUT)
+        audit_event(
+            "execute_immediate",
+            command=command,
+            table_path=table_path,
+            risk=risk_level.value,
+            success=result.is_success(),
+            duration_seconds=round(result.duration_seconds, 2),
+            error=(result.parsed.errors[0] if result.parsed.errors else None),
+        )
         output = result.to_dict()
         output["success"] = result.is_success()
         output["command"] = command

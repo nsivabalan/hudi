@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 
+from hudi_cli_mcp.audit import audit_event, short_token
 from hudi_cli_mcp.commands import quirk_hint, quote_arg
 from hudi_cli_mcp.executor import WRITE_TIMEOUT, HudiCliExecutor
 from hudi_cli_mcp.safety import SafetyManager, TokenExpiredError, TokenNotFoundError
@@ -44,6 +45,16 @@ def confirm_operation(
     # they get the write-path timeout, not the 120s read default.
     commands = [f"connect --path {quote_arg(op.table_path)}", op.command]
     result = executor.execute(commands, timeout=WRITE_TIMEOUT)
+    audit_event(
+        "execute",
+        command=op.command,
+        table_path=op.table_path,
+        risk=op.risk_level.value,
+        token=short_token(token),
+        success=result.is_success(),
+        duration_seconds=round(result.duration_seconds, 2),
+        error=(result.parsed.errors[0] if result.parsed.errors else None),
+    )
 
     output = result.to_dict()
     output["success"] = result.is_success()

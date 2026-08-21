@@ -32,6 +32,8 @@ The following environment variables must be set before starting the server:
 | `HUDI_MCP_TIMEOUT` | no | Read-command timeout in seconds (default `120`). | `300` |
 | `HUDI_MCP_WRITE_TIMEOUT` | no | Write-operation timeout in seconds (default `1800`). Applies to confirmed/immediate write ops (compaction, clustering, rollback, ...), which run real Spark jobs. | `3600` |
 | `HUDI_MCP_MAX_ROWS` | no | Max rows returned per table (default `200`). | `500` |
+| `HUDI_MCP_SPARK_MASTER` | no | Spark master appended (as `--sparkMaster`) to CLI commands that launch an inner spark-submit. The CLI defaults to `yarn`, which fails on local setups. | `local[2]` |
+| `HUDI_MCP_AUDIT_LOG` | no | Write-surface audit trail (JSONL). Default `~/.hudi-mcp/audit.log`; set to `off` to disable, or to a custom file path. | `/var/log/hudi-mcp-audit.jsonl` |
 
 > `HUDI_CLI_BIN` has no default — a default under world-writable `/tmp` would let a
 > local user plant an executable the server then runs, so it must be set explicitly.
@@ -294,12 +296,33 @@ User: Connect to s3://my-bucket/warehouse/events_table
 
 Ensure the appropriate Hadoop/cloud credentials are available in the environment (e.g., `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, or IAM role).
 
+## Audit Trail
+
+Every write-operation lifecycle event is appended to an audit log (JSONL, one
+event per line): `prepare`, `prepare_deduped`, `prepare_rejected`, `confirm`,
+`confirm_rejected`, `cancel`, `expire`, `execute`, and `execute_immediate`
+(LOW-risk ops). Each entry carries a UTC timestamp, the command, table path,
+risk tier, outcome, and duration. Only the first 8 characters of a confirmation
+token are logged, so a live token can never be recovered from the log. Read
+commands are not audited.
+
+```json
+{"ts": "2026-08-21T10:15:02+00:00", "event": "execute", "command": "compaction run",
+ "table_path": "/data/trips", "risk": "high", "token": "1a2b3c4d", "success": true,
+ "duration_seconds": 312.4}
+```
+
+The sink defaults to `~/.hudi-mcp/audit.log`, is controlled by
+`HUDI_MCP_AUDIT_LOG` (see above), and is best-effort: an unwritable log never
+blocks the operation itself.
+
 ## Architecture
 
 ```
 server.py                  # FastMCP server — registers all tools (the MCP surface)
 pyproject.toml             # Packaging, dependencies, pytest and ruff configuration
 hudi_cli_mcp/
+  audit.py                 # Append-only JSONL audit trail for the write surface
   commands.py              # Command validation, risk classification, allowlists
   executor.py              # Subprocess execution of hudi-cli
   parser.py                # ASCII FlipTable output parsing to structured JSON
@@ -342,9 +365,10 @@ When adding new tools:
 1. **Read-only commands** — add the command prefix to `READONLY_COMMAND_PREFIXES` in `hudi_cli_mcp/commands.py`, then use `execute_hudi_command` or create a new workflow in `hudi_cli_mcp/tools/workflows.py`.
 2. **Write operations** — add the command prefix and risk level to `WRITE_COMMAND_PREFIXES` in `hudi_cli_mcp/commands.py`, then add a tool function in `hudi_cli_mcp/tools/write_ops.py` with the appropriate risk tier.
 
-Before sending a PR, run `python -m pytest` and `ruff check .` — both must pass.
 3. **Composite workflows** — combine multiple commands into a single tool in `tools/workflows.py` (read-only) or `tools/write_workflows.py` (write).
 4. **Tests** — add corresponding tests in the `tests/` directory.
+
+Before sending a PR, run `python -m pytest` and `ruff check .` — both must pass.
 
 ## License
 

@@ -23,6 +23,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 
+from hudi_cli_mcp.audit import audit_event, short_token
 from hudi_cli_mcp.commands import RiskLevel
 
 # Confirmation tokens expire after 5 minutes.
@@ -114,8 +115,22 @@ class SafetyManager:
         self._cleanup_expired()
         for existing in self._pending.values():
             if existing.command == command and existing.table_path == table_path:
+                audit_event(
+                    "prepare_deduped",
+                    command=command,
+                    table_path=table_path,
+                    risk=risk_level.value,
+                    token=short_token(existing.token),
+                )
                 return existing
         if len(self._pending) >= MAX_PENDING_OPERATIONS:
+            audit_event(
+                "prepare_rejected",
+                command=command,
+                table_path=table_path,
+                risk=risk_level.value,
+                reason=f"pending-operation limit ({MAX_PENDING_OPERATIONS}) reached",
+            )
             raise PendingOperationLimitError(
                 f"{len(self._pending)} operations are already awaiting confirmation "
                 "(limit " + str(MAX_PENDING_OPERATIONS) + "). Confirm or cancel "
@@ -130,6 +145,14 @@ class SafetyManager:
             dry_run_result=dry_run_result,
         )
         self._pending[op.token] = op
+        audit_event(
+            "prepare",
+            command=command,
+            table_path=table_path,
+            risk=risk_level.value,
+            token=short_token(op.token),
+            description=description,
+        )
         return op
 
     def confirm(self, token: str) -> PendingOperation:
@@ -141,13 +164,22 @@ class SafetyManager:
         self._cleanup_expired()
         op = self._pending.pop(token, None)
         if op is None:
+            audit_event("confirm_rejected", token=short_token(token), reason="not found")
             raise TokenNotFoundError(
                 f"Token '{token}' not found. It may have expired or already been used."
             )
         if op.is_expired:
+            audit_event("confirm_rejected", token=short_token(token), reason="expired")
             raise TokenExpiredError(
                 f"Token '{token}' has expired. Re-run the write operation to get a new token."
             )
+        audit_event(
+            "confirm",
+            command=op.command,
+            table_path=op.table_path,
+            risk=op.risk_level.value,
+            token=short_token(token),
+        )
         return op
 
     def cancel(self, token: str) -> PendingOperation:
@@ -160,6 +192,13 @@ class SafetyManager:
             raise TokenNotFoundError(
                 f"Token '{token}' not found. It may have expired or already been used."
             )
+        audit_event(
+            "cancel",
+            command=op.command,
+            table_path=op.table_path,
+            risk=op.risk_level.value,
+            token=short_token(token),
+        )
         return op
 
     def list_pending(self) -> list[PendingOperation]:
@@ -171,4 +210,11 @@ class SafetyManager:
         """Remove expired tokens."""
         expired = [t for t, op in self._pending.items() if op.is_expired]
         for t in expired:
-            del self._pending[t]
+            op = self._pending.pop(t)
+            audit_event(
+                "expire",
+                command=op.command,
+                table_path=op.table_path,
+                risk=op.risk_level.value,
+                token=short_token(t),
+            )
