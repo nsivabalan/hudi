@@ -370,9 +370,13 @@ KNOWN_CLI_QUIRKS: dict[str, str] = {
         "(Partition column)."
     ),
     "compaction schedule": (
-        "Known hudi-cli quirk: a successful `compaction schedule` may still print "
-        "'Failed to run compaction'. Verify the plan with `compactions show all` -- "
-        "a new instant in REQUESTED state means scheduling succeeded."
+        "Known hudi-cli quirk: `compaction schedule` prints 'Failed to run "
+        "compaction' even when it succeeds, and prints the same when it silently "
+        "does nothing -- the message text proves nothing either way. Only an "
+        "instant in `compactions show all` that was NOT present before this call "
+        "means this schedule created a plan; a pre-existing REQUESTED instant does "
+        "not. The schedule_compaction tool performs that before/after check "
+        "automatically -- prefer it over the raw command."
     ),
     "metadata list-files": (
         "Known hudi-cli quirk: `metadata list-files` can hang until the timeout on "

@@ -31,6 +31,7 @@ from hudi_cli_mcp.session import SessionManager
 from hudi_cli_mcp.tools.table_info import (
     get_commit_summary,
     get_file_size_stats,
+    get_fsview_summary,
     get_table_info,
     human_size,
     parse_size,
@@ -183,4 +184,44 @@ class TestGetFileSizeStats:
     def test_error_when_no_base_files(self):
         executor = _executor_with([])
         d = json.loads(get_file_size_stats(executor, _session()))
+        assert d["success"] is False
+
+
+class TestGetFsviewSummary:
+    def test_one_row_per_file_group_latest_slice(self):
+        executor = _executor_with([_fsview_rows()])
+        d = json.loads(get_fsview_summary(executor, _session()))
+        assert d["success"] is True
+        assert d["partition_count"] == 2
+        assert d["file_group_count"] == 2
+        by_id = {g["file_id"]: g for g in d["file_groups"]}
+        # Latest slice wins: f1's current base is the 427.1 KB file, and the
+        # 100 KB historical slice is counted only in historical_slices.
+        assert by_id["f1"]["base_file_bytes"] == int(427.1 * 1024)
+        assert by_id["f1"]["base_instant"] == "20260806230427155"
+        assert by_id["f1"]["historical_slices"] == 2
+        assert by_id["f2"]["log_files"] == 2
+        assert d["partitions"]["city=sf"]["file_groups"] == 1
+        assert d["total_base_bytes"] == int(427.1 * 1024) + 1024 * 1024
+
+    def test_detail_rows_capped_but_totals_complete(self):
+        from hudi_cli_mcp.tools.table_info import FSVIEW_MAX_GROUPS
+
+        rows = [
+            {"Partition": "p", "FileId": f"f{i}", "Base-Instant": "100",
+             "Data-File Size": "1.0 KB", "Num Delta Files": "0"}
+            for i in range(FSVIEW_MAX_GROUPS + 5)
+        ]
+        table = ParsedTable(headers=["Partition", "FileId", "Base-Instant",
+                                     "Data-File Size", "Num Delta Files"], rows=rows)
+        executor = _executor_with([table])
+        d = json.loads(get_fsview_summary(executor, _session()))
+        assert d["file_groups_truncated"] is True
+        assert len(d["file_groups"]) == FSVIEW_MAX_GROUPS
+        assert d["file_group_count"] == FSVIEW_MAX_GROUPS + 5
+        assert d["total_base_bytes"] == (FSVIEW_MAX_GROUPS + 5) * 1024
+
+    def test_error_when_view_empty(self):
+        executor = _executor_with([])
+        d = json.loads(get_fsview_summary(executor, _session()))
         assert d["success"] is False

@@ -187,6 +187,96 @@ def get_commit_summary(
     return json.dumps(out, indent=2)
 
 
+# Detail rows returned by get_fsview_summary are capped; aggregates always
+# cover every file group regardless of the cap.
+FSVIEW_MAX_GROUPS = 200
+
+
+def get_fsview_summary(
+    executor: HudiCliExecutor,
+    session: SessionManager,
+    path: str = "",
+) -> str:
+    """File-system view summarized server-side: the latest slice per file group.
+
+    ``show fsview all`` lists every historical file slice, so on a real table it
+    routinely exceeds the row cap and the caller only sees a truncated prefix.
+    This tool aggregates the untruncated view into one row per
+    (partition, fileId) — current base file, log files, slice history — plus
+    per-partition totals.
+    """
+    try:
+        table_path = _resolve_path(path, session)
+    except NotConnectedError as e:
+        return _error(str(e))
+    result = _run(executor, table_path, "show fsview all")
+    if not result.is_success():
+        errs = result.parsed.errors
+        return _error(errs[0] if errs else f"show fsview all failed for {table_path}")
+    session.connect(table_path)
+    latest: dict[tuple[str, str], dict[str, str]] = {}
+    slice_counts: dict[tuple[str, str], int] = {}
+    for table in result.parsed.tables:
+        if "FileId" not in table.headers or "Partition" not in table.headers:
+            continue
+        for row in table.rows:
+            key = (row.get("Partition", ""), row.get("FileId", ""))
+            slice_counts[key] = slice_counts.get(key, 0) + 1
+            instant = (row.get("Base-Instant") or "").strip()
+            prior = latest.get(key)
+            if prior is None or instant > (prior.get("Base-Instant") or "").strip():
+                latest[key] = row
+    if not latest:
+        return _error(
+            f"no file groups found in the file-system view for {table_path}",
+            "The table may be empty; check the timeline with get_commit_summary.",
+        )
+    groups = []
+    partitions: dict[str, dict[str, int]] = {}
+    for (partition, file_id), row in sorted(latest.items()):
+        base_bytes = parse_size(row.get("Data-File Size", "")) or 0
+        log_files = _int(row.get("Num Delta Files", "0"))
+        log_bytes = parse_size(row.get("Total Delta File Size", "")) or 0
+        groups.append(
+            {
+                "partition": partition,
+                "file_id": file_id,
+                "base_instant": (row.get("Base-Instant") or "").strip(),
+                "base_file_bytes": base_bytes,
+                "base_file_size": human_size(base_bytes),
+                "log_files": log_files,
+                "log_bytes": log_bytes,
+                "historical_slices": slice_counts[(partition, file_id)],
+            }
+        )
+        agg = partitions.setdefault(
+            partition, {"file_groups": 0, "base_bytes": 0, "log_files": 0}
+        )
+        agg["file_groups"] += 1
+        agg["base_bytes"] += base_bytes
+        agg["log_files"] += log_files
+    out = {
+        "success": True,
+        "partition_count": len(partitions),
+        "file_group_count": len(groups),
+        "total_base_bytes": sum(g["base_file_bytes"] for g in groups),
+        "total_base_size": human_size(sum(g["base_file_bytes"] for g in groups)),
+        "total_log_files": sum(g["log_files"] for g in groups),
+        "total_log_bytes": sum(g["log_bytes"] for g in groups),
+        "partitions": partitions,
+        "file_groups": groups[:FSVIEW_MAX_GROUPS],
+        "note": "One row per file group (latest slice); historical_slices counts "
+        "older versions retained on storage.",
+    }
+    if len(groups) > FSVIEW_MAX_GROUPS:
+        out["file_groups_truncated"] = True
+        out["note"] += (
+            f" file_groups shows the first {FSVIEW_MAX_GROUPS} of {len(groups)} "
+            "groups; all totals cover every group."
+        )
+    return json.dumps(out, indent=2)
+
+
 def get_file_size_stats(
     executor: HudiCliExecutor,
     session: SessionManager,

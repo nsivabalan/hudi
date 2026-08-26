@@ -55,6 +55,9 @@ from hudi_cli_mcp.tools.table_info import (
     get_file_size_stats as _get_file_size_stats,
 )
 from hudi_cli_mcp.tools.table_info import (
+    get_fsview_summary as _get_fsview_summary,
+)
+from hudi_cli_mcp.tools.table_info import (
     get_table_info as _get_table_info,
 )
 from hudi_cli_mcp.tools.workflows import (
@@ -232,6 +235,22 @@ def get_file_size_stats(path: str = "") -> str:
         path: Table base path; empty uses the currently connected table.
     """
     return _get_file_size_stats(executor, session, path)
+
+
+@mcp.tool()
+def get_fsview_summary(path: str = "") -> str:
+    """File-system view summary, aggregated server-side (one row per file group).
+
+    Use this to show or summarize the file-system view: it returns the latest
+    file slice per (partition, fileId) — current base file size, log-file count
+    and bytes, historical slice count — plus per-partition totals. Prefer this
+    over raw `show fsview all`, which lists every historical slice and gets
+    truncated at the row cap on real tables.
+
+    Args:
+        path: Table base path; empty uses the currently connected table.
+    """
+    return _get_fsview_summary(executor, session, path)
 
 
 @mcp.tool()

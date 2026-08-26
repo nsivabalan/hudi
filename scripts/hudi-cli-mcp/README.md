@@ -151,6 +151,19 @@ Composite tools that run multiple commands and return consolidated results:
 | `commit_details` | Partition details, file-level details, and write stats for a specific commit. |
 | `storage_analysis` | File sizes, filesystem view, and metadata stats. |
 
+### Typed Read Tools (server-side extraction)
+
+These answer common questions with small typed payloads computed server-side —
+counting, arithmetic, and latest-slice selection happen in the server, not in
+the calling model, which removes the main hallucination surface:
+
+| Tool | Description |
+|------|-------------|
+| `get_table_info` | Core facts from `desc`: table type/version, partition/record-key/ordering fields, metadata indexes. |
+| `get_commit_summary` | Active-timeline commit count plus per-commit write stats for the most recent commits. |
+| `get_file_size_stats` | Base-file size stats (min/avg/max/total) over the latest file slices. |
+| `get_fsview_summary` | File-system view aggregated to one row per file group (latest slice, log files, slice history) plus per-partition totals — use instead of raw `show fsview all`, which truncates at the row cap on real tables. |
+
 ### Write Operations (with Safety Tiers)
 
 Write operations are classified into three risk levels:
@@ -161,13 +174,13 @@ Write operations are classified into three risk levels:
 |------|-------------|
 | `create_savepoint` | Create a savepoint at a specific commit instant. |
 | `toggle_lock_audit` | Enable or disable lock auditing. |
-| `schedule_compaction` | Schedule a compaction operation. |
-| `schedule_clustering` | Schedule a clustering operation. |
 
 #### MEDIUM Risk (require confirmation)
 
 | Tool | Description |
 |------|-------------|
+| `schedule_compaction` | Schedule a compaction plan (does not execute it). Success is verified by diffing `compactions show all` before/after — see below. |
+| `schedule_clustering` | Schedule a clustering plan (does not execute it). |
 | `unschedule_compaction` | Remove a scheduled compaction. |
 | `delete_savepoint` | Delete a savepoint. |
 | `delete_markers` | Delete marker files for a commit. |
@@ -223,6 +236,17 @@ To execute a MEDIUM or HIGH risk operation:
 3. Call `confirm_operation` with the token to execute, or `cancel_operation` to abort.
 
 Tokens expire after 5 minutes. Each token can only be used once.
+
+**Plan verification on schedule operations.** The CLI's `compaction schedule`
+prints `Failed to run compaction` even when it succeeds — and prints the same
+when it silently does nothing (e.g. a pending plan already covers the eligible
+file groups). The message text proves nothing either way, and a pre-existing
+`REQUESTED` instant in `compactions show all` can look like confirmation. So
+when `confirm_operation` executes a `compaction schedule`/`scheduleAndExecute`,
+it brackets the command with `compactions show all` in the same CLI session and
+decides success by diffing the plan instants before/after. The result carries a
+`plan_verification` block: `created_instants` on success, or
+`pre_existing_pending_plans` with an explicit error when no new plan appeared.
 
 > **The confirmation is same-actor.** The token is issued to, and redeemed by, the
 > same LLM that requested the operation — so it is a deliberate-friction speed bump
